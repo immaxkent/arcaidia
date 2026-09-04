@@ -291,6 +291,45 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
     // Withdrawals and redemptions
     // -----------------------------------------------------------------------
 
+    /// Regression: maxRedeem used to convert shares to assets and back, flooring
+    /// twice, which left an LP whose whole position was covered by liquidity
+    /// unable to redeem the last dust of it. Found by the rounding suite.
+    function test_wholePositionIsRedeemableWhenLiquidityAllows() public {
+        _deposit(lpAlice, 100_000e6);
+        uint256 shares = vault.balanceOf(lpAlice);
+        assertEq(vault.maxRedeem(lpAlice), shares, "dust stranded");
+
+        // Read the balance before pranking: a call in the argument list would
+        // consume the prank and redeem would run as this contract.
+        vm.prank(lpAlice);
+        vault.redeem(shares, lpAlice, lpAlice);
+        assertEq(vault.balanceOf(lpAlice), 0);
+    }
+
+    /// And it stays redeemable once the share price is no longer a round number.
+    function test_wholePositionIsRedeemableAfterAFeeAccrues() public {
+        _deposit(lpAlice, 100_000e6);
+        bytes32 intentId = _advance(700, 10_000e6);
+
+        vm.prank(vaultOwner);
+        vault.setSettlementReceiver(address(this));
+        asset.mint(address(this), 10_500e6);
+        asset.approve(address(vault), type(uint256).max);
+        vault.recordReimbursement(intentId, 10_500e6);
+
+        assertEq(vault.maxRedeem(lpAlice), vault.balanceOf(lpAlice));
+    }
+
+    /// When liquidity *is* the binding constraint, maxRedeem must still be
+    /// capped by what the vault can actually pay.
+    function test_maxRedeemIsCappedByLiquidityWhenConstrained() public {
+        _deposit(lpAlice, 100_000e6);
+        _advance(701, 85_000e6);
+
+        assertLt(vault.maxRedeem(lpAlice), vault.balanceOf(lpAlice));
+        assertLe(vault.previewRedeem(vault.maxRedeem(lpAlice)), vault.liquidBalance());
+    }
+
     function test_redeemReturnsAssetsAndBurnsShares() public {
         _deposit(lpAlice, 100_000e6);
         uint256 shares = vault.balanceOf(lpAlice);

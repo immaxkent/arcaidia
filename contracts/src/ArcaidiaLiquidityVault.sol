@@ -322,11 +322,18 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         return owed < liquid ? owed : liquid;
     }
 
+    /// @notice Shares an owner can redeem now.
+    /// @dev Only converts when liquidity is actually the binding constraint.
+    ///      Converting unconditionally would round shares to assets and back,
+    ///      flooring twice, and leave an owner whose entire position is covered
+    ///      by the liquid balance unable to redeem the last dust of it.
     function maxRedeem(address shareOwner) public view returns (uint256) {
         uint256 shares = balanceOf(shareOwner);
-        uint256 withdrawable = maxWithdraw(shareOwner);
-        uint256 sharesForLiquid = _convertToShares(withdrawable, Math.Rounding.Floor);
-        return shares < sharesForLiquid ? shares : sharesForLiquid;
+        uint256 owed = _convertToAssets(shares, Math.Rounding.Floor);
+        uint256 liquid = liquidBalance();
+
+        if (owed <= liquid) return shares;
+        return _convertToShares(liquid, Math.Rounding.Floor);
     }
 
     // -----------------------------------------------------------------------
