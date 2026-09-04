@@ -760,6 +760,25 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "agentNonceUsed",
+      "inputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "allowance",
       "inputs": [
         {
@@ -928,6 +947,156 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "domainSeparator",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "fastFill",
+      "inputs": [
+        {
+          "name": "authorization",
+          "type": "tuple",
+          "internalType": "struct FillAuthorization",
+          "components": [
+            {
+              "name": "intentId",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "sourceChainId",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "sourceTxHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "recipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "inputAmount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "outputAmount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "feeAmount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "expiry",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nonce",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ]
+        },
+        {
+          "name": "signature",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "signer",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "hashFillAuthorization",
+      "inputs": [
+        {
+          "name": "authorization",
+          "type": "tuple",
+          "internalType": "struct FillAuthorization",
+          "components": [
+            {
+              "name": "intentId",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "sourceChainId",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "sourceTxHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "recipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "inputAmount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "outputAmount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "feeAmount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "expiry",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nonce",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "initialize",
       "inputs": [
         {
@@ -970,6 +1139,25 @@ export const ABIS = {
           "name": "",
           "type": "bytes32",
           "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "isAuthorisedSigner",
+      "inputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "outputs": [
@@ -1034,6 +1222,32 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "maxFeeBps",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "maxFillAmount",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "maxMint",
       "inputs": [
         {
@@ -1042,6 +1256,19 @@ export const ABIS = {
           "internalType": "address"
         }
       ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "maxOutstandingExposure",
+      "inputs": [],
       "outputs": [
         {
           "name": "",
@@ -1316,6 +1543,47 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "setAuthorisedSigner",
+      "inputs": [
+        {
+          "name": "signer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "allowed",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setFillLimits",
+      "inputs": [
+        {
+          "name": "maxFillAmount_",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "maxOutstandingExposure_",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "maxFeeBps_",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "setPaused",
       "inputs": [
         {
@@ -1540,6 +1808,25 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "AuthorisedSignerSet",
+      "inputs": [
+        {
+          "name": "signer",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "allowed",
+          "type": "bool",
+          "indexed": false,
+          "internalType": "bool"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "Deposit",
       "inputs": [
         {
@@ -1565,6 +1852,74 @@ export const ABIS = {
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FastFilled",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "signer",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "inputAmount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "outputAmount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FillLimitsConfigured",
+      "inputs": [
+        {
+          "name": "maxFillAmount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "maxOutstandingExposure",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "maxFeeBps",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
         }
       ],
       "anonymous": false
@@ -1766,8 +2121,83 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "AgentNonceAlreadyUsed",
+      "inputs": [
+        {
+          "name": "nonce",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "AlreadyInitialized",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "AmountsInconsistent",
+      "inputs": [
+        {
+          "name": "inputAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "outputAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "AuthorizationExpired",
+      "inputs": [
+        {
+          "name": "expiry",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "nowTimestamp",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "ECDSAInvalidSignature",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "ECDSAInvalidSignatureLength",
+      "inputs": [
+        {
+          "name": "length",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "ECDSAInvalidSignatureS",
+      "inputs": [
+        {
+          "name": "s",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
     },
     {
       "type": "error",
@@ -1905,6 +2335,54 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "ExposureCapExceeded",
+      "inputs": [
+        {
+          "name": "attempted",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "cap",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "FeeAboveProtocolCeiling",
+      "inputs": [
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "ceiling",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "FillAboveCap",
+      "inputs": [
+        {
+          "name": "outputAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "cap",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "InsufficientLiquidity",
       "inputs": [
         {
@@ -1996,8 +2474,30 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "SignerNotAuthorised",
+      "inputs": [
+        {
+          "name": "signer",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "VaultPaused",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "WrongDestinationChain",
+      "inputs": [
+        {
+          "name": "sourceChainId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
     },
     {
       "type": "error",
