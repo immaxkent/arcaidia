@@ -31,32 +31,39 @@ Unavailable to us (Continuity track only): Arc P3, Arc P5, The Graph P3.
 
 ## Two gaps between the prizes and the current plan
 
-### 1. The Graph P1 does not qualify as designed — and P2 needs a deliberate framing
+### 1. The Graph P1 does not qualify as designed — two routes to fixing that
 
-P1 explicitly requires composing **two or more** Graph products, or building on a
-standardized schema, and states that simply querying one subgraph without
-composition does not qualify. Our WP-08 plan — two vanilla subgraphs, one per
-chain, merged client-side — is exactly what that rule excludes.
+P1 is explicit: *"Simply querying one Subgraph with no composition or
+standardization does not qualify; consider the Best AI Use Case track instead."*
+Two per-chain subgraphs merged client-side is exactly that. To qualify we must
+either **compose two or more Graph products** or **build meaningfully on a
+standardized schema**.
 
-**P2 is the honest fit**: "AI agents or apps that use The Graph as their live
-source of blockchain data", with risk monitors and execution agents named as
-qualifying. Our solver is a risk monitor that acts. P2 also states that mocked or
-static datasets disqualify, which is already our WP-08 gate verbatim.
+P1 also names the route that fits us best: *"Contributing a new composable
+Substreams module for an emerging standard, such as ERC-4626 tokenized-vault
+flows, also counts."*
 
-One tension to manage: P2 is framed as an **AI** track, while our specification
-mandates that capital-safety decisions stay deterministic and never LLM-driven.
-These are reconcilable and we should not compromise the determinism to chase the
-prize — P2's own wording asks for "reasoning, decisions, automation, or a
-natural-language interface", and a deterministic autonomous agent doing all three
-against live Graph data satisfies it. The LLM narration layer (WP-04.11) and a
-natural-language query surface over our own indexed state strengthen the framing
-without touching the decision path.
+**Route A — Subgraph MCP (cheap).** Compose subgraphs + the Subgraph MCP, either
+consumed by the solver or exposed so other agents can query Arcaidia's liquidity
+and settlement state in natural language. Low cost, fits the agentic story,
+strengthens P2 at the same time.
 
-**Optional upgrade to also qualify for P1:** adopt **Subgraph MCP** as a second
-Graph product — either consumed by the solver or exposed so other agents can
-query Arcaidia's state. That is a genuine composition, fits the agentic story, and
-is the cheapest route to a second $5,000 pool. Decide before WP-08 starts;
-do not bolt it on afterwards.
+**Route B — ERC-4626 + a composable Substreams module (heavier, more distinctive).**
+Make `ArcaidiaLiquidityVault` an ERC-4626 tokenized vault, then contribute a
+reusable Substreams module for ERC-4626 vault flows. This is the named example in
+the prize text, and it is the difference between "we used The Graph" and "we
+contributed to The Graph's standards".
+
+**ERC-4626 is worth considering on its own merits, independently of the prize.**
+LP accounting becomes standard share-based accounting; `totalAssets()` is
+`balance + outstandingExposure`, which models the receivable honestly and makes
+the fee visible as a rising share price — a genuinely better demo than a balance
+that dips and recovers. Costs: share-rounding and donation/inflation attack
+surface to test, and `totalAssets()` must never under-report the receivable or LPs
+can exit at an unfair price.
+
+**This decision must be made before WP-01 writes the vault**, because it changes
+the vault's core storage and interface. It is not a late add-on.
 
 ### 2. Arc P4 wants mainnet, and Arc mainnet arrives mid-build
 
@@ -88,6 +95,7 @@ explicitly in the submission.
 | Detailed documentation / README | WP-12.3 | Arc asks for "detailed documentation". |
 | Working demo + source code access | WP-11, WP-12 | Privy asks for both, both prizes. |
 | Start Fresh pool selected | Dashboard | The Graph P2 requires it; confirm in the entry. |
+| **State which bounties we are submitting for** | WP-12.3, dashboard | Arc repeats this on every prize: *"Please be clear what bounty you are submitting for as a part of your submission!"* Put an explicit bounty-mapping section in the README. |
 
 ## Per-prize requirement checklist
 
@@ -96,7 +104,8 @@ explicitly in the submission.
 - [ ] Agents with **clear decision logic tied to real signals** → `AgentDecision.inputsUsed` records live liquidity, exposure, utilisation and settlement latency behind every quote (WP-04, WP-08).
 - [ ] **Autonomous spending and settlement flows using USDC** → solver advances USDC from the vault without human approval (WP-05, WP-09).
 - [ ] **Agent Stack integration** connecting wallets to onchain actions → Circle Agent Wallet signs the EIP-712 fill authorization (WP-09).
-- [ ] Nanopayments / Paymaster / App Kits where relevant → evaluate in WP-09; not required if the others are strong.
+- [ ] Nanopayments / Paymaster / App Kits where relevant → evaluate in WP-09; "where relevant", so not required if the others are strong.
+- [ ] Arc names the core products for this prize as: **Arc, USDC, Agent Stack, App Kits, Circle Wallets, Circle Contracts, Nanopayments, Paymaster**. We hit Arc, USDC, Agent Stack and Circle Wallets; Circle Contracts is worth a look in WP-09.
 - [ ] Architecture diagram, video, docs, repo → WP-12.
 
 ### Arc/Circle P4 — Launch on Arc Testnet & Push to Mainnet
@@ -111,6 +120,7 @@ explicitly in the submission.
 - [ ] **Meaningful Arc and USDC integration** → real USDC, real Arc execution, not a logo (WP-10).
 - [ ] **Advanced programmable money flows** → conditional advance against verified commitment; onchain automation (WP-05, WP-06).
 - [ ] Payment/liquidity workflows → LP vault, fee accounting, reimbursement (WP-02, WP-06).
+- [ ] Arc names the core products for this prize as: **Arc, USDC, App Kits, Circle Wallets, Circle Contracts, CCTP, Gateway, StableFX**. We hit Arc, USDC, Circle Wallets and CCTP squarely.
 
 ### The Graph P2 — Best AI Tooling or AI Use Case (From Scratch)
 
@@ -120,13 +130,16 @@ explicitly in the submission.
 - [ ] **Meaningful work with the data**: reasoning, decisions, automation → the risk engine decides, prices and acts (WP-04).
 - [ ] Open-source with clear README → WP-12.3.
 - [ ] Public repo + 2–4 minute demo video → WP-12.
-- [ ] **Begun and built during the hackathon** → the commit history evidences this; another reason for granular commits.
-- [ ] Start Fresh pool selected in the dashboard.
+- [ ] **Begun and built during the hackathon** → commit history evidences this. Note the exact wording: *"Open-source starter kits are fine; project-specific prior code is not."* We are clean.
+- [ ] **Start Fresh pool selected** in the dashboard — the track is judged in two pools and this determines which we compete in.
+- [ ] Optional: **x402 per-query payment** — P2 offers *"let your agent pay per query autonomously with x402"*. This is the same x402 surface the specification defers to V3; if it appears cheaply here it is worth more than as a V3 stretch.
 
 ### The Graph P1 — Composable/Standardized (optional upgrade)
 
-- [ ] Compose **two or more** Graph products → subgraphs + **Subgraph MCP** (decision pending).
-- [ ] Make the standards leverage clear: show what became easier.
+- [ ] Compose **two or more** Graph products, **or** build meaningfully on a standardized schema.
+- [ ] Route A: subgraphs + **Subgraph MCP** for cross-protocol/natural-language access.
+- [ ] Route B: **ERC-4626 vault** + a contributed composable **Substreams module** for ERC-4626 vault flows — the example the prize text names.
+- [ ] **Make the standards leverage clear**: show what became *easier* because a shared schema or composed product was used. This is the stated judging emphasis, so it needs a specific before/after claim, not a mention.
 
 ### Privy P2 — Best Financial Flow
 
@@ -134,7 +147,8 @@ explicitly in the submission.
 - [ ] **At least one Privy wallet created or used** → the user's wallet signs the intent (WP-03).
 - [ ] **A complete functional financial flow** using a generally available feature → bridging / stablecoin transfer, both named as eligible (WP-03, WP-11).
 - [ ] Working demo + source access → WP-11, WP-12.
-- [ ] Explain how Privy enhances the user experience → WP-12.3.
+- [ ] Explain how Privy **improves the user experience** → WP-12.3. The stated bar is hiding unnecessary onchain complexity, which is our whole thesis: the user expresses an outcome and never touches a bridge.
+- [ ] Note the mocking rule: *"Features requiring commercial or guided onboarding may be mocked, but they do not count as the required functional Privy integration."* Our live flow must be a real Privy wallet action, not a mock.
 
 ### Privy P1 — Best B2B Financial Product (scope decision)
 
