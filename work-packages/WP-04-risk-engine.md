@@ -23,27 +23,27 @@ of the demo's decision panel.
 
 ## Sub-tasks
 
-- [ ] **4.1 `RiskPolicy` shape.** Reserve floor, single-intent cap, max total unsettled exposure,
+- [x] **4.1 `RiskPolicy` shape.** Reserve floor, single-intent cap, max total unsettled exposure,
       utilisation fee curve, settlement-age thresholds, CCTP-health thresholds, confirmation
       threshold by intent size, base fee bps, max fee bps.
-- [ ] **4.2 Liquidity gate.** Reject if `outputAmount > availableLiquidity - reserveFloor`.
-- [ ] **4.3 Exposure gate.** Reject if post-fill outstanding exposure would exceed the cap.
-- [ ] **4.4 Size gate.** Reject above single-intent cap.
-- [ ] **4.5 Utilisation pricing.** Fee rises with vault utilisation along an explicit, tested curve.
-- [ ] **4.6 Settlement-backlog response** (spec §18). Derive `oldestUnsettledIntent`,
+- [x] **4.2 Liquidity gate.** Reject if `outputAmount > availableLiquidity - reserveFloor`.
+- [x] **4.3 Exposure gate.** Reject if post-fill outstanding exposure would exceed the cap.
+- [x] **4.4 Size gate.** Reject above single-intent cap.
+- [x] **4.5 Utilisation pricing.** Fee rises with vault utilisation along an explicit, tested curve.
+- [x] **4.6 Settlement-backlog response** (spec §18). Derive `oldestUnsettledIntent`,
       `pendingCCTPValue`, `averageSettlementLatency` from settlement state, then:
       normal → accept; slowing → raise fee and/or shrink max fill; backlog too large → reject;
       CCTP unavailable → **PAUSE** new fast fills (the settlement agent keeps reconciling).
-- [ ] **4.7 User ceiling.** The quoted fee may never exceed `intent.maxFeeBps` — if the risk-priced
+- [x] **4.7 User ceiling.** The quoted fee may never exceed `intent.maxFeeBps` — if the risk-priced
       fee does, the verdict is REJECT with reason `FEE_CEILING_EXCEEDED`, not a silent clamp.
-- [ ] **4.8 Deadline & confirmation policy.** Reject expired intents; require confirmations scaled
+- [x] **4.8 Deadline & confirmation policy.** Reject expired intents; require confirmations scaled
       by size (Q9 — pick and justify the demo threshold).
-- [ ] **4.9 Source verification module** (separate, impure, also in this WP):
+- [x] **4.9 Source verification module** (separate, impure, also in this WP):
       `verifySourceTransaction(intent, rpcClient)` checking tx success, correct router target,
       `IntentCreated` present with matching fields, CCTP initiated for the same amount/destination,
       approved token, correct destination, confirmation threshold met, deadline valid, not already
       filled. **The Graph is never sufficient** — this runs against RPC before any decision is acted on.
-- [ ] **4.10 Decision logging.** Structured JSON per decision: intent, every input, thresholds hit,
+- [x] **4.10 Decision logging.** Structured JSON per decision: intent, every input, thresholds hit,
       verdict, fee. Persisted for the demo and for the Graph-derived-inputs requirement.
 - [ ] **4.11 Optional LLM narration** behind a flag, downstream of the verdict, incapable of
       changing it. Nice for the demo; must be provably non-load-bearing.
