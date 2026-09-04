@@ -1,0 +1,42 @@
+# Arcaidia contracts.
+#
+# One set of contracts, deployed to both Ethereum and Arc. There is no
+# per-chain build: the same compiled bytecode is deployed to both, which is what
+# makes identical CREATE2 addresses achievable. Direction is decided by test
+# configuration and by deployment config, never by a compile-time switch.
+
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+solc = "0.8.28"
+# Both target chains accept Cancun. Arc implements the Osaka baseline for the
+# opcodes we use (PUSH0, CREATE2); its BLOBHASH/BLOBBASEFEE divergence is
+# irrelevant because the protocol never reads blob state.
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+# Deterministic metadata keeps the CREATE2 init-code hash stable across machines.
+bytecode_hash = "none"
+cbor_metadata = false
+via_ir = false
+fs_permissions = [{ access = "read", path = "./" }]
+
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+]
+
+[profile.default.fuzz]
+runs = 256
+
+[profile.ci.fuzz]
+runs = 1024
+
+[fmt]
+line_length = 110
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
