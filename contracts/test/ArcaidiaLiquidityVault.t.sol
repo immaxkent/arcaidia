@@ -10,6 +10,15 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         _deployVault();
     }
 
+    function _intentId(uint256 seed) internal pure returns (bytes32) {
+        return keccak256(abi.encode("intent", seed));
+    }
+
+    function _advance(uint256 seed, uint256 outputAmount) internal returns (bytes32 intentId) {
+        intentId = _intentId(seed);
+        vault.advanceForTest(intentId, recipient, outputAmount);
+    }
+
     // -----------------------------------------------------------------------
     // Initialization
     // -----------------------------------------------------------------------
@@ -98,7 +107,7 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         _deposit(lpAlice, 100_000e6);
         uint256 before = vault.totalAssets();
 
-        vault.advanceForTest(recipient, 10_000e6);
+        _advance(1, 10_000e6);
 
         assertEq(vault.liquidBalance(), 90_000e6, "liquid balance should fall");
         assertEq(vault.outstandingExposure(), 10_000e6, "receivable should be recorded");
@@ -112,7 +121,7 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         _deposit(lpBob, 100_000e6);
 
         uint256 valueBefore = vault.previewRedeem(vault.balanceOf(lpAlice));
-        vault.advanceForTest(recipient, 50_000e6);
+        _advance(2, 50_000e6);
         uint256 valueAfter = vault.previewRedeem(vault.balanceOf(lpAlice));
 
         assertEq(valueAfter, valueBefore, "an advance must not change what an LP is owed");
@@ -121,15 +130,15 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
     /// A receivable is an asset but not a payable one.
     function test_withdrawIsCappedByLiquidBalance() public {
         _deposit(lpAlice, 100_000e6);
-        vault.advanceForTest(recipient, 95_000e6);
+        _advance(3, 85_000e6);
 
-        assertEq(vault.maxWithdraw(lpAlice), 5_000e6, "capped by what the vault holds");
+        assertEq(vault.maxWithdraw(lpAlice), 15_000e6, "capped by what the vault holds");
 
         vm.prank(lpAlice);
         vm.expectRevert(
-            abi.encodeWithSelector(ArcaidiaLiquidityVault.ExceedsMaxWithdraw.selector, 6_000e6, 5_000e6)
+            abi.encodeWithSelector(ArcaidiaLiquidityVault.ExceedsMaxWithdraw.selector, 16_000e6, 15_000e6)
         );
-        vault.withdraw(6_000e6, lpAlice, lpAlice);
+        vault.withdraw(16_000e6, lpAlice, lpAlice);
     }
 
     /// Reimbursement restores liquidity and clears the receivable; the fee is
@@ -139,16 +148,81 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         uint256 shares = vault.balanceOf(lpAlice);
         uint256 valueBefore = vault.previewRedeem(shares);
 
-        vault.advanceForTest(recipient, 10_000e6);
+        // The vault advances the output amount; canonical settlement returns the
+        // larger input amount. The difference is the execution fee.
+        bytes32 intentId = _advance(400, 9_990e6);
 
-        // Canonical settlement returns principal plus the execution fee.
-        asset.mint(address(this), 10_100e6);
+        vm.prank(vaultOwner);
+        vault.setSettlementReceiver(address(this));
+
+        asset.mint(address(this), 10_000e6);
         asset.approve(address(vault), type(uint256).max);
-        vault.reimburseForTest(10_000e6);
-        asset.transfer(address(vault), 100e6);
+        vault.recordReimbursement(intentId, 10_000e6);
 
-        assertEq(vault.outstandingExposure(), 0);
+        assertEq(vault.outstandingExposure(), 0, "receivable cleared");
+        assertEq(vault.advancedPrincipal(intentId), 0);
         assertGt(vault.previewRedeem(shares), valueBefore, "fee should accrue to LPs");
+    }
+
+    // -----------------------------------------------------------------------
+    // Reimbursement authorisation
+    // -----------------------------------------------------------------------
+
+    function test_onlyTheSettlementReceiverCanReimburse() public {
+        _deposit(lpAlice, 100_000e6);
+        bytes32 intentId = _advance(401, 1_000e6);
+
+        vm.prank(vaultOwner);
+        vault.setSettlementReceiver(makeAddr("realReceiver"));
+
+        vm.prank(lpBob);
+        vm.expectRevert(ArcaidiaLiquidityVault.NotSettlementReceiver.selector);
+        vault.recordReimbursement(intentId, 1_000e6);
+    }
+
+    function test_reimbursementRejectsAnUnfilledIntent() public {
+        _deposit(lpAlice, 100_000e6);
+        bytes32 unknown = _intentId(404);
+
+        vm.prank(vaultOwner);
+        vault.setSettlementReceiver(address(this));
+
+        vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.IntentNotFilled.selector, unknown));
+        vault.recordReimbursement(unknown, 1_000e6);
+    }
+
+    /// Canonical settlement must at least return what was advanced. Accepting
+    /// less would quietly move a loss onto LPs.
+    function test_reimbursementRejectsLessThanPrincipal() public {
+        _deposit(lpAlice, 100_000e6);
+        bytes32 intentId = _advance(402, 1_000e6);
+
+        vm.prank(vaultOwner);
+        vault.setSettlementReceiver(address(this));
+        asset.mint(address(this), 1_000e6);
+        asset.approve(address(vault), type(uint256).max);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArcaidiaLiquidityVault.ReimbursementBelowPrincipal.selector, 999e6, 1_000e6
+            )
+        );
+        vault.recordReimbursement(intentId, 999e6);
+    }
+
+    function test_reimbursementCannotBeAppliedTwice() public {
+        _deposit(lpAlice, 100_000e6);
+        bytes32 intentId = _advance(403, 1_000e6);
+
+        vm.prank(vaultOwner);
+        vault.setSettlementReceiver(address(this));
+        asset.mint(address(this), 3_000e6);
+        asset.approve(address(vault), type(uint256).max);
+
+        vault.recordReimbursement(intentId, 1_000e6);
+
+        vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.IntentNotFilled.selector, intentId));
+        vault.recordReimbursement(intentId, 1_000e6);
     }
 
     // -----------------------------------------------------------------------
@@ -165,7 +239,7 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
     /// assets: an outstanding receivable cannot be advanced a second time.
     function test_availableLiquidityExcludesTheReceivable() public {
         _deposit(lpAlice, 100_000e6);
-        vault.advanceForTest(recipient, 50_000e6);
+        _advance(5, 50_000e6);
 
         // Total assets still 100k, so the floor is still 10k, but only 50k is held.
         assertEq(vault.totalAssets(), 100_000e6);
@@ -173,17 +247,39 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         assertEq(vault.availableLiquidity(), 40_000e6);
     }
 
-    function test_availableLiquidityIsZeroBelowTheFloor() public {
+    function test_availableLiquidityIsZeroAtTheFloor() public {
         _deposit(lpAlice, 100_000e6);
-        vault.advanceForTest(recipient, 95_000e6);
+        _advance(6, 90_000e6); // exactly the deployable amount
+        assertEq(vault.liquidBalance(), 10_000e6);
+        assertEq(vault.reserveFloor(), 10_000e6);
         assertEq(vault.availableLiquidity(), 0);
+    }
+
+    /// The reserve floor is a hard boundary, enforced by the fill path itself.
+    function test_advanceBeyondAvailableLiquidityReverts() public {
+        _deposit(lpAlice, 100_000e6);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArcaidiaLiquidityVault.InsufficientLiquidity.selector, 90_000e6 + 1, 90_000e6
+            )
+        );
+        vault.advanceForTest(_intentId(500), recipient, 90_000e6 + 1);
+    }
+
+    /// An intent may be filled at most once. This is the vault's replay key.
+    function test_sameIntentCannotBeFilledTwice() public {
+        _deposit(lpAlice, 100_000e6);
+        bytes32 intentId = _advance(501, 1_000e6);
+
+        vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.IntentAlreadyFilled.selector, intentId));
+        vault.advanceForTest(intentId, recipient, 1_000e6);
     }
 
     function test_utilisationTracksAdvancedPrincipal() public {
         _deposit(lpAlice, 100_000e6);
         assertEq(vault.utilisationBps(), 0);
 
-        vault.advanceForTest(recipient, 50_000e6);
+        _advance(7, 50_000e6);
         assertEq(vault.utilisationBps(), 5_000);
     }
 
@@ -292,7 +388,7 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         uint256 aliceValueBefore = vault.previewRedeem(aliceShares);
 
         uint256 advance = bound(advanceAmount, 1e6, 80_000e6);
-        vault.advanceForTest(recipient, advance);
+        _advance(8, advance);
 
         _deposit(lpBob, 50_000e6);
 
