@@ -7,7 +7,10 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IFillRegistry} from "./interfaces/IFillRegistry.sol";
+import {FillAuthorization} from "./libraries/ArcaidiaTypes.sol";
+import {FillAuthorizationLib} from "./libraries/FillAuthorizationLib.sol";
 
 /// @title ArcaidiaLiquidityVault
 /// @notice Destination-side LP inventory: an ERC-4626 tokenized vault whose
@@ -57,6 +60,24 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     /// @notice Share of total assets that may never be advanced, in basis points.
     uint16 public reserveFloorBps;
 
+    /// @notice Largest single fill, regardless of available liquidity.
+    uint256 public maxFillAmount;
+
+    /// @notice Largest aggregate advanced-and-unreimbursed principal.
+    uint256 public maxOutstandingExposure;
+
+    /// @notice Protocol fee ceiling. The user's own ceiling may be lower and is
+    ///         enforced by the agent before it ever signs.
+    uint16 public maxFeeBps;
+
+    /// @notice Agent authorities whose signatures this vault accepts.
+    /// @dev An allowlist of recovered EIP-712 signers, not of callers: any
+    ///      relayer may submit a validly signed authorization.
+    mapping(address => bool) public isAuthorisedSigner;
+
+    /// @notice Agent-side replay protection, independent of `intentId`.
+    mapping(uint256 => bool) public agentNonceUsed;
+
     /// @notice Principal advanced to recipients and awaiting canonical reimbursement.
     uint256 public outstandingExposure;
 
@@ -99,6 +120,16 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     event SettlementReceiverConfigured(address settlementReceiver);
     event FillRecorded(bytes32 indexed intentId, address indexed recipient, uint256 outputAmount);
     event ReimbursementRecorded(bytes32 indexed intentId, uint256 amountReceived, uint256 exposureCleared);
+    event FillLimitsConfigured(uint256 maxFillAmount, uint256 maxOutstandingExposure, uint16 maxFeeBps);
+    event AuthorisedSignerSet(address indexed signer, bool allowed);
+    event FastFilled(
+        bytes32 indexed intentId,
+        address indexed recipient,
+        address indexed signer,
+        uint256 inputAmount,
+        uint256 outputAmount,
+        uint256 feeAmount
+    );
     event PausedSet(bool paused);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
 
@@ -120,6 +151,14 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     error IntentAlreadyFilled(bytes32 intentId);
     error IntentNotFilled(bytes32 intentId);
     error ReimbursementBelowPrincipal(uint256 received, uint256 principal);
+    error AuthorizationExpired(uint64 expiry, uint256 nowTimestamp);
+    error SignerNotAuthorised(address signer);
+    error AgentNonceAlreadyUsed(uint256 nonce);
+    error AmountsInconsistent(uint256 inputAmount, uint256 outputAmount, uint256 feeAmount);
+    error FeeAboveProtocolCeiling(uint256 feeAmount, uint256 ceiling);
+    error FillAboveCap(uint256 outputAmount, uint256 cap);
+    error ExposureCapExceeded(uint256 attempted, uint256 cap);
+    error WrongDestinationChain(uint256 sourceChainId);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -158,6 +197,23 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         if (receiver == address(0)) revert ZeroAddress();
         settlementReceiver = receiver;
         emit SettlementReceiverConfigured(receiver);
+    }
+
+    function setFillLimits(uint256 maxFillAmount_, uint256 maxOutstandingExposure_, uint16 maxFeeBps_)
+        external
+        onlyOwner
+    {
+        if (maxFeeBps_ > BPS_DENOMINATOR) revert ReserveFloorTooHigh(maxFeeBps_);
+        maxFillAmount = maxFillAmount_;
+        maxOutstandingExposure = maxOutstandingExposure_;
+        maxFeeBps = maxFeeBps_;
+        emit FillLimitsConfigured(maxFillAmount_, maxOutstandingExposure_, maxFeeBps_);
+    }
+
+    function setAuthorisedSigner(address signer, bool allowed) external onlyOwner {
+        if (signer == address(0)) revert ZeroAddress();
+        isAuthorisedSigner[signer] = allowed;
+        emit AuthorisedSignerSet(signer, allowed);
     }
 
     function setPaused(bool paused_) external onlyOwner {
@@ -329,6 +385,83 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
 
     function isFilled(bytes32 intentId) external view returns (bool) {
         return intentFilled[intentId];
+    }
+
+    /// @notice The EIP-712 domain separator for this vault on this chain.
+    function domainSeparator() public view returns (bytes32) {
+        return FillAuthorizationLib.domainSeparator(block.chainid, address(this));
+    }
+
+    /// @notice The digest an agent must sign to authorise a fill here.
+    function hashFillAuthorization(FillAuthorization memory authorization) public view returns (bytes32) {
+        return FillAuthorizationLib.digest(authorization, block.chainid, address(this));
+    }
+
+    /// @notice Advance LP capital to a recipient against a signed authorization.
+    ///
+    /// @dev The agent has no unrestricted way to move vault funds. It signs this
+    ///      narrow, short-lived statement about one intent, and every reason to
+    ///      refuse is checked here rather than trusted to the agent:
+    ///
+    ///        expiry, amount consistency, protocol fee ceiling, single-fill cap,
+    ///        exposure cap, signer allowlist, agent nonce, intent replay,
+    ///        reserve floor and available liquidity.
+    ///
+    ///      Submission is permissionless. Authority rests on the recovered
+    ///      signer, not on `msg.sender`, so any relayer may carry a valid
+    ///      authorization and a compromised relayer gains nothing.
+    ///
+    ///      Checks that cost nothing come before signature recovery; the
+    ///      allowlist check comes before any state is written; and state is
+    ///      written before the transfer.
+    function fastFill(FillAuthorization memory authorization, bytes calldata signature)
+        external
+        nonReentrant
+        returns (address signer)
+    {
+        if (paused) revert VaultPaused();
+        if (authorization.expiry <= block.timestamp) {
+            revert AuthorizationExpired(authorization.expiry, block.timestamp);
+        }
+        // A fill belongs on the chain the intent was *not* created on.
+        if (authorization.sourceChainId == block.chainid) {
+            revert WrongDestinationChain(authorization.sourceChainId);
+        }
+        if (authorization.outputAmount + authorization.feeAmount != authorization.inputAmount) {
+            revert AmountsInconsistent(
+                authorization.inputAmount, authorization.outputAmount, authorization.feeAmount
+            );
+        }
+
+        uint256 feeCeiling = (authorization.inputAmount * maxFeeBps) / BPS_DENOMINATOR;
+        if (authorization.feeAmount > feeCeiling) {
+            revert FeeAboveProtocolCeiling(authorization.feeAmount, feeCeiling);
+        }
+        if (authorization.outputAmount > maxFillAmount) {
+            revert FillAboveCap(authorization.outputAmount, maxFillAmount);
+        }
+
+        uint256 newExposure = outstandingExposure + authorization.outputAmount;
+        if (newExposure > maxOutstandingExposure) {
+            revert ExposureCapExceeded(newExposure, maxOutstandingExposure);
+        }
+
+        signer = ECDSA.recover(hashFillAuthorization(authorization), signature);
+        if (!isAuthorisedSigner[signer]) revert SignerNotAuthorised(signer);
+
+        if (agentNonceUsed[authorization.nonce]) revert AgentNonceAlreadyUsed(authorization.nonce);
+        agentNonceUsed[authorization.nonce] = true;
+
+        _recordFastFill(authorization.intentId, authorization.recipient, authorization.outputAmount);
+
+        emit FastFilled(
+            authorization.intentId,
+            authorization.recipient,
+            signer,
+            authorization.inputAmount,
+            authorization.outputAmount,
+            authorization.feeAmount
+        );
     }
 
     /// @dev Records a fast fill and pays the recipient. Marks state before
