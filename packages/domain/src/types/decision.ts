@@ -36,7 +36,14 @@ export const DecisionReason = {
   RESERVE_FLOOR_BREACH: 'RESERVE_FLOOR_BREACH',
   EXPOSURE_CAP_BREACH: 'EXPOSURE_CAP_BREACH',
   INTENT_SIZE_CAP_BREACH: 'INTENT_SIZE_CAP_BREACH',
+  /** The risk-priced fee exceeds the user's own ceiling. */
   FEE_CEILING_EXCEEDED: 'FEE_CEILING_EXCEEDED',
+  /**
+   * The risk-priced fee exceeds what the protocol permits us to charge.
+   * Rejected rather than clamped: charging the ceiling would mean knowingly
+   * taking risk we have priced as underpaid.
+   */
+  FEE_EXCEEDS_PROTOCOL_CEILING: 'FEE_EXCEEDS_PROTOCOL_CEILING',
   DEADLINE_PASSED: 'DEADLINE_PASSED',
   INSUFFICIENT_CONFIRMATIONS: 'INSUFFICIENT_CONFIRMATIONS',
   SETTLEMENT_BACKLOG: 'SETTLEMENT_BACKLOG',
