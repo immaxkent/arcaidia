@@ -17,10 +17,12 @@ Arc. There is no `EthereumIntentRouter` and no `ArcVault`.
       immutable economic fields. Enforces: allowlisted token, allowlisted destination chain,
       per-intent cap, total in-flight cap, deadline in the future, unused nonce.
       **No cancel/withdraw path after CCTP commitment.**
-- [ ] **1.4 `ArcaidiaLiquidityVault.sol`.** LP `deposit`/`withdraw` with share accounting or
-      straight balance accounting (keep it explicit and simple), `reserveFloor`, `pause`,
-      allowlisted solver signers, `fastFill(FillAuthorization, signature)`. Skeleton in this WP;
-      the safety matrix is WP-02 and signature verification is WP-05.
+- [ ] **1.4 `ArcaidiaLiquidityVault.sol`** as an **ERC-4626 tokenized vault** (DECISIONS.md D1),
+      on OpenZeppelin's implementation. `totalAssets()` = liquid balance + `outstandingExposure`;
+      the receivable must be counted or an LP could redeem mid-fill at an unfair price. Plus
+      `reserveFloor`, `pause`, allowlisted solver signers, `fastFill(FillAuthorization, signature)`.
+      Note that deployable liquidity is the *liquid balance* minus the reserve floor — never
+      `totalAssets()`. Skeleton here; safety matrix is WP-02, signature verification is WP-05.
 - [ ] **1.5 `SettlementReceiver.sol`.** Receives canonical USDC, correlates to `intentId`/`cctpRef`,
       routes to LP reimbursement when `FAST_FILLED` or to the recipient fallback when not.
       Emits a settlement event carrying both facts.
