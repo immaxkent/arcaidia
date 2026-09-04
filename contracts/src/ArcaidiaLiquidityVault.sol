@@ -1,0 +1,314 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+/// @title ArcaidiaLiquidityVault
+/// @notice Destination-side LP inventory: an ERC-4626 tokenized vault whose
+///         assets may be advanced to recipients ahead of canonical settlement.
+///
+/// @dev **Why this does not inherit OpenZeppelin's ERC4626.** That
+///      implementation takes the asset as a constructor argument and stores it
+///      as an immutable. Constructor arguments are part of init code, and init
+///      code determines the CREATE2 address — so an immutable asset would give
+///      this contract a different address on Ethereum than on Arc, because the
+///      two chains have different USDC addresses. Arcaidia treats identical
+///      addresses as an acceptance criterion, so the asset lives in storage and
+///      is set by `initialize`. The ERC-20 share token's name and symbol are
+///      constructor arguments, but they are the same strings on every chain, so
+///      init code stays identical.
+///
+///      **`totalAssets` counts the receivable.** A fast fill sends assets out of
+///      the vault before canonical settlement reimburses it. If `totalAssets`
+///      counted only the liquid balance, an LP could redeem while a fill was in
+///      flight, exit at an artificially low share price, and leave the remaining
+///      LPs carrying the exposure. So `totalAssets = liquidBalance +
+///      outstandingExposure`.
+///
+///      **Withdrawals are still bounded by liquid balance.** A receivable is an
+///      asset but not a payable one. `maxWithdraw` is capped by what the vault
+///      actually holds; an LP can be owed more than it can currently redeem.
+///
+///      Rounding always favours the vault over the caller, so no sequence of
+///      deposits and redemptions can extract value from other LPs.
+contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+    using Math for uint256;
+
+    // -----------------------------------------------------------------------
+    // Configuration
+    // -----------------------------------------------------------------------
+
+    address public owner;
+    bool public initialized;
+    bool public paused;
+
+    /// @notice The settlement asset. Storage, not immutable — see the note above.
+    IERC20 public asset;
+
+    uint8 private _assetDecimals;
+
+    /// @notice Share of total assets that may never be advanced, in basis points.
+    uint16 public reserveFloorBps;
+
+    /// @notice Principal advanced to recipients and awaiting canonical reimbursement.
+    uint256 public outstandingExposure;
+
+    uint16 internal constant BPS_DENOMINATOR = 10_000;
+
+    /// @dev Virtual shares/assets offset, the standard ERC-4626 inflation-attack
+    ///      mitigation: it makes the first depositor unable to move the share
+    ///      price far enough to steal a later deposit through a direct transfer.
+    uint8 internal constant DECIMALS_OFFSET = 6;
+
+    // -----------------------------------------------------------------------
+    // Events
+    // -----------------------------------------------------------------------
+
+    event VaultInitialized(address owner, address asset, uint16 reserveFloorBps);
+    event Deposit(address indexed caller, address indexed receiver, uint256 assets, uint256 shares);
+    event Withdraw(
+        address indexed caller,
+        address indexed receiver,
+        address indexed shareOwner,
+        uint256 assets,
+        uint256 shares
+    );
+    event ReserveFloorConfigured(uint16 reserveFloorBps);
+    event PausedSet(bool paused);
+    event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
+
+    // -----------------------------------------------------------------------
+    // Errors
+    // -----------------------------------------------------------------------
+
+    error AlreadyInitialized();
+    error NotOwner();
+    error VaultPaused();
+    error ZeroAddress();
+    error ZeroAmount();
+    error ReserveFloorTooHigh(uint16 bps);
+    error ExceedsMaxDeposit(uint256 assets, uint256 max);
+    error ExceedsMaxWithdraw(uint256 assets, uint256 max);
+    error ExceedsMaxRedeem(uint256 shares, uint256 max);
+    error InsufficientLiquidity(uint256 requested, uint256 available);
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
+    /// @dev Name and symbol are identical on every chain, so these constructor
+    ///      arguments do not disturb CREATE2 address parity.
+    constructor() ERC20("Arcaidia Liquidity", "arcLP") {}
+
+    function initialize(address owner_, address asset_, uint16 reserveFloorBps_) external {
+        if (initialized) revert AlreadyInitialized();
+        if (owner_ == address(0) || asset_ == address(0)) revert ZeroAddress();
+        if (reserveFloorBps_ > BPS_DENOMINATOR) revert ReserveFloorTooHigh(reserveFloorBps_);
+
+        initialized = true;
+        owner = owner_;
+        asset = IERC20(asset_);
+        _assetDecimals = IERC20Metadata(asset_).decimals();
+        reserveFloorBps = reserveFloorBps_;
+
+        emit VaultInitialized(owner_, asset_, reserveFloorBps_);
+    }
+
+    // -----------------------------------------------------------------------
+    // Owner configuration
+    // -----------------------------------------------------------------------
+
+    function setReserveFloorBps(uint16 bps) external onlyOwner {
+        if (bps > BPS_DENOMINATOR) revert ReserveFloorTooHigh(bps);
+        reserveFloorBps = bps;
+        emit ReserveFloorConfigured(bps);
+    }
+
+    function setPaused(bool paused_) external onlyOwner {
+        paused = paused_;
+        emit PausedSet(paused_);
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert ZeroAddress();
+        emit OwnerTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+
+    // -----------------------------------------------------------------------
+    // Accounting
+    // -----------------------------------------------------------------------
+
+    function decimals() public view override returns (uint8) {
+        return _assetDecimals + DECIMALS_OFFSET;
+    }
+
+    /// @notice Assets the vault actually holds and can pay out right now.
+    function liquidBalance() public view returns (uint256) {
+        return asset.balanceOf(address(this));
+    }
+
+    /// @notice Liquid balance plus principal advanced and awaiting reimbursement.
+    /// @dev The receivable must be counted. See the contract-level note.
+    function totalAssets() public view returns (uint256) {
+        return liquidBalance() + outstandingExposure;
+    }
+
+    /// @notice Capital that must remain unadvanced.
+    function reserveFloor() public view returns (uint256) {
+        return totalAssets().mulDiv(reserveFloorBps, BPS_DENOMINATOR, Math.Rounding.Ceil);
+    }
+
+    /// @notice Capital deployable for a fast fill right now.
+    /// @dev Bounded by the *liquid* balance, not by `totalAssets`: a receivable
+    ///      cannot be advanced a second time.
+    function availableLiquidity() public view returns (uint256) {
+        uint256 liquid = liquidBalance();
+        uint256 floor = reserveFloor();
+        return liquid > floor ? liquid - floor : 0;
+    }
+
+    /// @notice Advanced principal as a share of total capital, in basis points.
+    function utilisationBps() public view returns (uint256) {
+        uint256 total = totalAssets();
+        if (total == 0) return BPS_DENOMINATOR;
+        return outstandingExposure.mulDiv(BPS_DENOMINATOR, total);
+    }
+
+    // -----------------------------------------------------------------------
+    // ERC-4626 conversions
+    // -----------------------------------------------------------------------
+
+    function convertToShares(uint256 assets) public view returns (uint256) {
+        return _convertToShares(assets, Math.Rounding.Floor);
+    }
+
+    function convertToAssets(uint256 shares) public view returns (uint256) {
+        return _convertToAssets(shares, Math.Rounding.Floor);
+    }
+
+    function _convertToShares(uint256 assets, Math.Rounding rounding) internal view returns (uint256) {
+        return assets.mulDiv(totalSupply() + 10 ** DECIMALS_OFFSET, totalAssets() + 1, rounding);
+    }
+
+    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view returns (uint256) {
+        return shares.mulDiv(totalAssets() + 1, totalSupply() + 10 ** DECIMALS_OFFSET, rounding);
+    }
+
+    /// @dev Rounding direction is deliberate throughout: shares minted round
+    ///      down, shares burned round up, so the caller never gains at the
+    ///      expense of existing LPs.
+    function previewDeposit(uint256 assets) public view returns (uint256) {
+        return _convertToShares(assets, Math.Rounding.Floor);
+    }
+
+    function previewMint(uint256 shares) public view returns (uint256) {
+        return _convertToAssets(shares, Math.Rounding.Ceil);
+    }
+
+    function previewWithdraw(uint256 assets) public view returns (uint256) {
+        return _convertToShares(assets, Math.Rounding.Ceil);
+    }
+
+    function previewRedeem(uint256 shares) public view returns (uint256) {
+        return _convertToAssets(shares, Math.Rounding.Floor);
+    }
+
+    function maxDeposit(address) public view returns (uint256) {
+        return paused ? 0 : type(uint256).max;
+    }
+
+    function maxMint(address) public view returns (uint256) {
+        return paused ? 0 : type(uint256).max;
+    }
+
+    /// @notice What an owner can withdraw now: what they are owed, capped by
+    ///         what the vault actually holds.
+    function maxWithdraw(address shareOwner) public view returns (uint256) {
+        uint256 owed = _convertToAssets(balanceOf(shareOwner), Math.Rounding.Floor);
+        uint256 liquid = liquidBalance();
+        return owed < liquid ? owed : liquid;
+    }
+
+    function maxRedeem(address shareOwner) public view returns (uint256) {
+        uint256 shares = balanceOf(shareOwner);
+        uint256 withdrawable = maxWithdraw(shareOwner);
+        uint256 sharesForLiquid = _convertToShares(withdrawable, Math.Rounding.Floor);
+        return shares < sharesForLiquid ? shares : sharesForLiquid;
+    }
+
+    // -----------------------------------------------------------------------
+    // ERC-4626 entry points
+    // -----------------------------------------------------------------------
+
+    function deposit(uint256 assets, address receiver) external nonReentrant returns (uint256 shares) {
+        if (paused) revert VaultPaused();
+        if (assets == 0) revert ZeroAmount();
+        if (receiver == address(0)) revert ZeroAddress();
+
+        shares = previewDeposit(assets);
+        if (shares == 0) revert ZeroAmount();
+        _pullAndMint(assets, shares, receiver);
+    }
+
+    function mint(uint256 shares, address receiver) external nonReentrant returns (uint256 assets) {
+        if (paused) revert VaultPaused();
+        if (shares == 0) revert ZeroAmount();
+        if (receiver == address(0)) revert ZeroAddress();
+
+        assets = previewMint(shares);
+        _pullAndMint(assets, shares, receiver);
+    }
+
+    function withdraw(uint256 assets, address receiver, address shareOwner)
+        external
+        nonReentrant
+        returns (uint256 shares)
+    {
+        if (assets == 0) revert ZeroAmount();
+        uint256 max = maxWithdraw(shareOwner);
+        if (assets > max) revert ExceedsMaxWithdraw(assets, max);
+
+        shares = previewWithdraw(assets);
+        _burnAndPay(shares, assets, receiver, shareOwner);
+    }
+
+    function redeem(uint256 shares, address receiver, address shareOwner)
+        external
+        nonReentrant
+        returns (uint256 assets)
+    {
+        if (shares == 0) revert ZeroAmount();
+        uint256 max = maxRedeem(shareOwner);
+        if (shares > max) revert ExceedsMaxRedeem(shares, max);
+
+        assets = previewRedeem(shares);
+        if (assets == 0) revert ZeroAmount();
+        _burnAndPay(shares, assets, receiver, shareOwner);
+    }
+
+    function _pullAndMint(uint256 assets, uint256 shares, address receiver) private {
+        asset.safeTransferFrom(msg.sender, address(this), assets);
+        _mint(receiver, shares);
+        emit Deposit(msg.sender, receiver, assets, shares);
+    }
+
+    function _burnAndPay(uint256 shares, uint256 assets, address receiver, address shareOwner) private {
+        if (receiver == address(0)) revert ZeroAddress();
+        if (msg.sender != shareOwner) _spendAllowance(shareOwner, msg.sender, shares);
+
+        // A receivable is an asset but not a payable one.
+        if (assets > liquidBalance()) revert InsufficientLiquidity(assets, liquidBalance());
+
+        _burn(shareOwner, shares);
+        asset.safeTransfer(receiver, assets);
+        emit Withdraw(msg.sender, receiver, shareOwner, assets, shares);
+    }
+}
