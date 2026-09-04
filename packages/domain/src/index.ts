@@ -90,5 +90,12 @@ export { ABIS } from './abis.js';
 export type { ArcaidiaAbis } from './abis.js';
 
 // Deployed addresses — written by the deployment script
-export { DEPLOYMENTS, PROTOCOL_CONTRACT_NAMES, deployedAddresses } from './config/deployments.js';
+export {
+  DEPLOYMENTS,
+  PROTOCOL_CONTRACT_NAMES,
+  deployedAddresses,
+  registerDeployment,
+  resetDeployments,
+  deploymentFor,
+} from './config/deployments.js';
 export type { ProtocolContractName, DeployedAddress } from './config/deployments.js';

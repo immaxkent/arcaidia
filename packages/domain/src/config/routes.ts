@@ -7,6 +7,7 @@
 
 import { ArcaidiaError, ErrorCode } from '../errors.js';
 import { findChain, type ChainConfig, type Route } from './chains.js';
+import { deploymentFor } from './deployments.js';
 
 /**
  * Resolve the endpoints for one transfer.
@@ -50,9 +51,12 @@ export function resolveEndpoints(route: Route): {
   destinationVault: `0x${string}`;
   destinationSettlementReceiver: `0x${string}`;
 } {
-  const sourceRouter = route.source.contracts.intentRouter;
-  const destinationVault = route.destination.contracts.liquidityVault;
-  const destinationSettlementReceiver = route.destination.contracts.settlementReceiver;
+  const sourceContracts = deploymentFor(route.source.key);
+  const destinationContracts = deploymentFor(route.destination.key);
+
+  const sourceRouter = sourceContracts.intentRouter;
+  const destinationVault = destinationContracts.liquidityVault;
+  const destinationSettlementReceiver = destinationContracts.settlementReceiver;
 
   if (!sourceRouter || !destinationVault || !destinationSettlementReceiver) {
     throw new ArcaidiaError(

@@ -53,3 +53,30 @@ export function deployedAddresses(contract: ProtocolContractName): readonly Depl
 
   return found;
 }
+
+/**
+ * Runtime deployment overrides.
+ *
+ * `DEPLOYMENTS` above is the committed record, written by the deployment
+ * script. Local runs and tests need to point the same code at addresses that do
+ * not exist in a committed file — an anvil deployment, a fixture — without
+ * editing source or introducing a second code path for "test mode".
+ *
+ * Overrides are additive and explicit: nothing is registered unless a caller
+ * asks, and `resetDeployments` restores the committed record. Production reads
+ * the committed record because nothing ever calls `registerDeployment`.
+ */
+const overrides = new Map<ChainKey, ProtocolContracts>();
+
+export function registerDeployment(chain: ChainKey, contracts: ProtocolContracts): void {
+  overrides.set(chain, contracts);
+}
+
+export function resetDeployments(): void {
+  overrides.clear();
+}
+
+/** The addresses in force for a chain: an override if one is registered, else the committed record. */
+export function deploymentFor(chain: ChainKey): ProtocolContracts {
+  return overrides.get(chain) ?? DEPLOYMENTS[chain];
+}

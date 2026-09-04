@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   CHAINS,
   DEPLOYMENTS,
   PROTOCOL_CONTRACT_NAMES,
   deployedAddresses,
+  deploymentFor,
+  registerDeployment,
+  resetDeployments,
   type ProtocolContractName,
 } from '../src/index.js';
 
@@ -53,5 +56,38 @@ describe('deployments', () => {
     // happened and the README's address table needs updating alongside it.
     const total = PROTOCOL_CONTRACT_NAMES.flatMap((name) => deployedAddresses(name)).length;
     expect(total).toBe(0);
+  });
+});
+
+describe('deployment overrides', () => {
+  const ROUTER = '0x1111111111111111111111111111111111111111' as const;
+
+  afterEach(() => resetDeployments());
+
+  it('falls back to the committed record when nothing is registered', () => {
+    expect(deploymentFor('arc-testnet')).toEqual(DEPLOYMENTS['arc-testnet']);
+  });
+
+  it('returns a registered override', () => {
+    registerDeployment('arc-testnet', { intentRouter: ROUTER });
+    expect(deploymentFor('arc-testnet').intentRouter).toBe(ROUTER);
+  });
+
+  it('leaves other chains untouched', () => {
+    registerDeployment('arc-testnet', { intentRouter: ROUTER });
+    expect(deploymentFor('ethereum-sepolia')).toEqual(DEPLOYMENTS['ethereum-sepolia']);
+  });
+
+  it('restores the committed record on reset', () => {
+    registerDeployment('arc-testnet', { intentRouter: ROUTER });
+    resetDeployments();
+    expect(deploymentFor('arc-testnet')).toEqual(DEPLOYMENTS['arc-testnet']);
+  });
+
+  /// The committed record is what ships; overrides exist so local runs need no
+  /// second code path, not so production can be reconfigured at runtime.
+  it('does not alter the committed record', () => {
+    registerDeployment('arc-testnet', { intentRouter: ROUTER });
+    expect(DEPLOYMENTS['arc-testnet'].intentRouter).toBeUndefined();
   });
 });
