@@ -41,12 +41,12 @@ needs only WP-00 types).
 
 | WP | Milestone | Title | Depends on | Gate in one line |
 | --- | --- | --- | --- | --- |
-| [00](WP-00-domain.md) | M0 | Domain & repository contract | — | One shared schema; no duplicated intent/status types. |
-| [01](WP-01-symmetric-chain-core.md) | M1 | Symmetric chain core | 00 | Same contracts on both chains; CREATE2 addresses deterministic. |
-| [02](WP-02-vault-safety.md) | M2 | Bidirectional vault safety | 01 | No LP principal leaves outside policy, both directions. |
-| [03](WP-03-privy-user-flow.md) | M3 | Privy thin user flow | 01 | A real Privy wallet creates an intent in either direction. |
-| [04](WP-04-risk-engine.md) | M4 | Deterministic agent intelligence | 00 | Every accept/reject/reprice/pause branch unit-tested. |
-| [05](WP-05-fill-authorization.md) | M5 | Fill authorization path | 02, 04 | Local fast-fill works both directions; tamper/replay fail safely. |
+| [00](WP-00-domain.md) ✅ | M0 | Domain & repository contract | — | One shared schema; no duplicated intent/status types. |
+| [01](WP-01-symmetric-chain-core.md) ✅ | M1 | Symmetric chain core | 00 | Same contracts on both chains; CREATE2 addresses deterministic. |
+| [02](WP-02-vault-safety.md) ✅ | M2 | Bidirectional vault safety | 01 | No LP principal leaves outside policy, both directions. |
+| [03](WP-03-privy-user-flow.md) ⏸ | M3 | Privy thin user flow | 01 | A real Privy wallet creates an intent in either direction. |
+| [04](WP-04-risk-engine.md) ✅ | M4 | Deterministic agent intelligence | 00 | Every accept/reject/reprice/pause branch unit-tested. |
+| [05](WP-05-fill-authorization.md) ✅ | M5 | Fill authorization path | 02, 04 | Local fast-fill works both directions; tamper/replay fail safely. |
 | [06](WP-06-mock-settlement.md) | M6 | Mock canonical settlement | 05 | Fast path + fallback settle correctly; settlement idempotent. |
 | [07](WP-07-golden-local-e2e.md) | M7 | Golden local E2E | 06 | One command runs the full economic lifecycle deterministically. |
 | [08](WP-08-the-graph.md) | M8 | The Graph integration | 07 | Disabling Graph stops automation; live data changes decisions. |
@@ -55,6 +55,23 @@ needs only WP-00 types).
 | [11](WP-11-full-sponsor-e2e.md) | M11 | Full sponsor E2E | 08, 09, 10 | One repeatable demo proves every sponsor integration is load-bearing. |
 | [12](WP-12-submission-hardening.md) | M12 | Submission hardening | 11 | Arc/Circle, Graph and Privy checklists fully evidenced. |
 | [13](WP-13-freeze-v1.md) | M13 | Freeze V1 | 12 | V1 tagged; all tests and the qualifying demo green. |
+
+## Status as of 2026-09-04
+
+WP-00, WP-01, WP-02, WP-04 and WP-05 are complete, each with a report beside its
+work package. WP-03 is paused rather than skipped: its gate needs a Privy app id
+and a browser to evidence honestly, and it does not block anything.
+
+```
+pnpm test:global      everything below, in order
+pnpm test:shared-domain   83 tests   packages/domain
+pnpm test:agent          155 tests   packages/agent
+pnpm test:sc-eth         218 tests   contracts, Ethereum as source
+pnpm test:sc-arc         218 tests   contracts, Arc as source
+```
+
+The two contract runs are the same suite with `ARCAIDIA_SOURCE` flipped: both
+directions come from configuration, never from duplicated test files.
 
 ## Global invariants (must hold at every gate from WP-05 onward)
 
