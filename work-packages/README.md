@@ -75,3 +75,10 @@ Keep these as a literal checklist in `tests/invariants/` and re-run it at every 
 
 Tracked in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md). Resolve each one *at or before* the work package
 that first depends on it — none of them should be discovered late.
+
+## Bounty requirements
+
+[BOUNTY-REQUIREMENTS.md](BOUNTY-REQUIREMENTS.md) maps every targeted sponsor requirement to the
+artefact that proves it and the work package that produces it. It is the checklist WP-12's gate is
+scored against; consult it when a work package's scope is in question, because several requirements
+are only satisfiable if the right evidence is captured while the work is being done.

@@ -37,8 +37,10 @@ define "what an intent is", this work package has failed.
 - [x] **0.9a ETHOnline submission entry created** — registered, accepted as a hacker, and the
       Arcaidia project exists in the dashboard (2026-09-04). Keep its description current as the
       build progresses rather than rewriting it at the end.
-- [ ] **0.9b Read the sponsor bounty listings** and turn each requirement into a checklist item
-      with a named piece of evidence. Feed findings into `OPEN-QUESTIONS.md` Q11.
+- [x] **0.9b Sponsor bounty listings read** and mapped to evidence and work packages in
+      [BOUNTY-REQUIREMENTS.md](BOUNTY-REQUIREMENTS.md) (2026-09-04). Two gaps found: The Graph P1
+      needs product composition we had not planned, and Arc P4 wants mainnet readiness by
+      2026-09-30.
 
 ## Tests (Vitest)
 
