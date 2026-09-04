@@ -105,8 +105,13 @@ export interface VaultState {
   readonly chainId: number;
   readonly vault: Address;
   readonly asset: Address;
-  /** Total settlement asset held by the vault. */
+  /**
+   * Liquid settlement asset actually held by the vault. This is what can be
+   * advanced; it excludes principal already out on loan to recipients.
+   */
   readonly totalBalance: bigint;
+  /** ERC-4626 share supply. Zero before the first deposit. */
+  readonly totalShares: bigint;
   /** Capital that must remain; not deployable for fills. */
   readonly reserveFloor: bigint;
   /** Principal advanced and awaiting canonical reimbursement. */
@@ -115,6 +120,18 @@ export interface VaultState {
   /** Block the observation was taken at, for staleness checks. */
   readonly blockNumber: bigint;
   readonly observedAt: UnixSeconds;
+}
+
+/**
+ * ERC-4626 `totalAssets`: liquid balance plus principal advanced and awaiting
+ * canonical reimbursement.
+ *
+ * The receivable must be counted. Omitting it would let an LP redeem while a
+ * fill is in flight and take an unfairly cheap exit, with the remaining LPs
+ * absorbing the outstanding exposure.
+ */
+export function totalAssets(vault: VaultState): bigint {
+  return vault.totalBalance + vault.outstandingExposure;
 }
 
 /** Capital deployable for a fast fill right now, never below the reserve floor. */

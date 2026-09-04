@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { availableLiquidity, utilisationBps, type VaultState } from '../src/index.js';
+import { availableLiquidity, totalAssets, utilisationBps, type VaultState } from '../src/index.js';
 import { ARC, VAULT_A } from './fixtures.js';
 
 function vault(partial: Partial<VaultState> = {}): VaultState {
@@ -8,6 +8,7 @@ function vault(partial: Partial<VaultState> = {}): VaultState {
     vault: VAULT_A,
     asset: '0x3600000000000000000000000000000000000000',
     totalBalance: 100_000_000_000n, // 100,000 USDC
+    totalShares: 100_000_000_000n,
     reserveFloor: 10_000_000_000n, // 10,000 USDC
     outstandingExposure: 0n,
     paused: false,
@@ -45,5 +46,23 @@ describe('utilisationBps', () => {
 
   it('reads an empty vault as fully utilised rather than dividing by zero', () => {
     expect(utilisationBps(vault({ totalBalance: 0n, outstandingExposure: 0n }))).toBe(10_000);
+  });
+});
+
+describe('totalAssets (ERC-4626)', () => {
+  it('counts the liquid balance when nothing is advanced', () => {
+    expect(totalAssets(vault())).toBe(100_000_000_000n);
+  });
+
+  it('includes principal advanced and awaiting reimbursement', () => {
+    // The receivable must be counted: an LP redeeming mid-fill would otherwise
+    // exit cheaply and leave the remaining LPs carrying the exposure.
+    const advanced = vault({ totalBalance: 99_001_000_000n, outstandingExposure: 1_000_000_000n });
+    expect(totalAssets(advanced)).toBe(100_001_000_000n);
+  });
+
+  it('is never less than the deployable liquidity', () => {
+    const advanced = vault({ totalBalance: 50_000_000_000n, outstandingExposure: 50_000_000_000n });
+    expect(totalAssets(advanced)).toBeGreaterThanOrEqual(availableLiquidity(advanced));
   });
 });
