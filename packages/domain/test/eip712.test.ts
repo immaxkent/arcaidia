@@ -25,6 +25,16 @@ describe('FillAuthorization EIP-712 schema', () => {
     });
   });
 
+  /// Locked against `contracts/test/FillAuthorization.t.sol`, which asserts the
+  /// same constant. If the Solidity and TypeScript schemas drift, the agent
+  /// signs one thing and the vault verifies another — so a drift in either
+  /// language fails both suites rather than surfacing at runtime.
+  it('matches the Solidity digest fixture', () => {
+    expect(hashFillAuthorization(baseAuthorization, arcVault)).toBe(
+      '0xdb3d343722290d7551171c7b8df79f6daa35afe6e0669e186622e2ebb73506bc',
+    );
+  });
+
   it('hashes deterministically', () => {
     expect(hashFillAuthorization(baseAuthorization, arcVault)).toBe(
       hashFillAuthorization(baseAuthorization, arcVault),
