@@ -38,3 +38,21 @@ export type { DecisionLog, DecisionLogRecord, SerialisedInputs } from './logging
 // Agent authority — local now, Circle Agent Wallet in WP-09
 export { LocalAgentSigner } from './signing/local-agent-signer.js';
 export type { FillAuthorizationDomainInput } from './signing/local-agent-signer.js';
+
+// Orchestration — one entry point, direction resolved from configuration
+export { processIntent } from './solver/process-intent.js';
+export type {
+  SolverConfig,
+  SolverDependencies,
+  ProcessOutcome,
+} from './solver/process-intent.js';
+export {
+  SequentialNonceSource,
+  InMemorySubmissionJournal,
+} from './solver/ports.js';
+export type {
+  FillSubmitter,
+  NonceSource,
+  Clock,
+  SubmissionJournal,
+} from './solver/ports.js';
