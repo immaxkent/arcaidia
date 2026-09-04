@@ -34,8 +34,11 @@ define "what an intent is", this work package has failed.
 - [ ] **0.7 Error taxonomy.** Typed errors for every rejection reason the agent or vault can
       produce, so the UI and logs can render a cause rather than a stack trace.
 - [ ] **0.8 ABI export barrel** (`src/abis.ts`) — populated by WP-01's build output, stubbed now.
-- [ ] **0.9 Read the sponsor bounty listings** and start the ETHOnline submission entry today.
-      Feed findings into `OPEN-QUESTIONS.md` Q11. Submission quality is part of the build.
+- [x] **0.9a ETHOnline submission entry created** — registered, accepted as a hacker, and the
+      Arcaidia project exists in the dashboard (2026-09-04). Keep its description current as the
+      build progresses rather than rewriting it at the end.
+- [ ] **0.9b Read the sponsor bounty listings** and turn each requirement into a checklist item
+      with a named piece of evidence. Feed findings into `OPEN-QUESTIONS.md` Q11.
 
 ## Tests (Vitest)
 

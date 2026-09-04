@@ -16,7 +16,7 @@ cite them.
 | Q8 | Privy wallet model; can it sign for Arc? | WP-03 | OPEN |
 | Q9 | Confirmation threshold policy for the demo | WP-04 | OPEN — informed by Q2's finality finding |
 | Q10 | Fee split between LP / solver / protocol | WP-02 | OPEN |
-| Q11 | Per-sponsor bounty submission requirements | WP-12 | OPEN |
+| Q11 | Per-sponsor bounty requirements → evidence checklist | WP-12 | OPEN (submission entry itself: created 2026-09-04) |
 
 ---
 
