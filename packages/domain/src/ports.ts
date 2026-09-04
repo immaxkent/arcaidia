@@ -5,22 +5,12 @@
  * a sponsor implementation substituted later. Substituting one must not change
  * any caller; if it would, the port is wrong and the port gets fixed.
  *
- * ---------------------------------------------------------------------------
- * PROVISIONAL — `AgentAuthority` is not frozen.
- *
- * Q4 has been answered (Circle Agent Wallets can sign EIP-712 typed data and
- * return a raw signature), and the recommendation is the `sign` shape. It is
- * still marked provisional until WP-05 begins, because one detail is unverified:
- * whether the agent wallet is provisioned as an EOA — whose signature the vault
- * can `ecrecover` — or as a smart contract account, which would require EIP-1271
- * verification and a different vault check.
- *
- * Both shapes are represented below so that answer can land without a rewrite.
- * Do not delete the `execute` variant before that is confirmed onchain.
- * ---------------------------------------------------------------------------
+ * `AgentAuthority` is settled: the vault authenticates a recovered EIP-712 signer
+ * against an allowlist (DECISIONS.md, D2). The residual risk is D3 — the Circle
+ * agent wallet must be an EOA for `ecrecover` to work.
  */
 
-import type { Address, Bytes32, TxHash } from './types/primitives.js';
+import type { Address, Bytes32 } from './types/primitives.js';
 import type { Intent } from './types/intent.js';
 import type { FillAuthorization, SignedFillAuthorization } from './types/fill.js';
 import type { SettlementHealth, SettlementReference, SettlementState, VaultState } from './types/settlement.js';
@@ -47,29 +37,23 @@ export interface ObservationProvider {
 /**
  * The agent's blockchain authority.
  *
- * `kind` discriminates the two supported models:
- *  - `'sign'`    — produces an EIP-712 signature; a relayer submits the fill.
- *                  The vault authenticates the recovered signer.
- *  - `'execute'` — the authority submits the destination transaction itself.
- *                  The vault authenticates `msg.sender`.
+ * Produces an EIP-712 signature over a `FillAuthorization`; any relayer may then
+ * submit it, and the destination vault authenticates the *recovered signer*
+ * against its allowlist rather than `msg.sender`. Two implementations:
+ * `LocalAgentSigner` (WP-05) and `CircleAgentWalletSigner` (WP-09).
+ *
+ * This shape assumes the Circle agent wallet is provisioned as an **EOA**, so its
+ * signature is `ecrecover`-verifiable. A smart contract account would need
+ * EIP-1271 verification in the vault instead. Confirm the account type at WP-09
+ * (see DECISIONS.md, D3).
  */
-export type AgentAuthority = SigningAuthority | ExecutingAuthority;
-
-export interface SigningAuthority {
-  readonly kind: 'sign';
+export interface AgentAuthority {
   /** The address the vault must allowlist. */
   readonly address: Address;
   signFillAuthorization(
     authorization: FillAuthorization,
     domain: { chainId: number; verifyingContract: Address },
   ): Promise<SignedFillAuthorization>;
-}
-
-export interface ExecutingAuthority {
-  readonly kind: 'execute';
-  readonly address: Address;
-  /** Submits the fill directly; returns the destination transaction hash. */
-  executeFastFill(authorization: FillAuthorization, vault: Address, chainId: number): Promise<TxHash>;
 }
 
 /**

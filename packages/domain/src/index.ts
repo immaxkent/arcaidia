@@ -41,7 +41,13 @@ export type {
 } from './types/risk.js';
 
 // Settlement and vault state
-export { SettlementStatus, ACTIVE_SETTLEMENT_STATUSES, availableLiquidity, utilisationBps } from './types/settlement.js';
+export {
+  SettlementStatus,
+  ACTIVE_SETTLEMENT_STATUSES,
+  availableLiquidity,
+  totalAssets,
+  utilisationBps,
+} from './types/settlement.js';
 export type {
   SettlementReference,
   SettlementState,
@@ -74,13 +80,7 @@ export {
 export type { FillAuthorizationDomain } from './eip712.js';
 
 // Adapter boundaries
-export type {
-  ObservationProvider,
-  AgentAuthority,
-  SigningAuthority,
-  ExecutingAuthority,
-  SettlementAdapter,
-} from './ports.js';
+export type { ObservationProvider, AgentAuthority, SettlementAdapter } from './ports.js';
 
 // Errors
 export { ArcaidiaError, ErrorCode, isArcaidiaError } from './errors.js';
