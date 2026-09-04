@@ -7,6 +7,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IFillRegistry} from "./interfaces/IFillRegistry.sol";
 
 /// @title ArcaidiaLiquidityVault
 /// @notice Destination-side LP inventory: an ERC-4626 tokenized vault whose
@@ -36,7 +37,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///
 ///      Rounding always favours the vault over the caller, so no sequence of
 ///      deposits and redemptions can extract value from other LPs.
-contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard {
+contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
@@ -59,6 +60,21 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard {
     /// @notice Principal advanced to recipients and awaiting canonical reimbursement.
     uint256 public outstandingExposure;
 
+    /// @notice The destination `SettlementReceiver` permitted to reimburse.
+    address public settlementReceiver;
+
+    /// @notice Intents whose recipient has been paid from LP inventory.
+    /// @dev Also the replay key: an intent may be filled at most once.
+    mapping(bytes32 => bool) public intentFilled;
+
+    /// @notice Principal advanced per intent, cleared on reimbursement.
+    /// @dev This is the *output* amount — what actually left the vault — not the
+    ///      input amount that canonical settlement will return. Recording the
+    ///      smaller figure keeps `totalAssets` flat at fill time and recognises
+    ///      the fee only when it is realised, rather than marking LPs up on a
+    ///      settlement that has not happened yet.
+    mapping(bytes32 => uint256) public advancedPrincipal;
+
     uint16 internal constant BPS_DENOMINATOR = 10_000;
 
     /// @dev Virtual shares/assets offset, the standard ERC-4626 inflation-attack
@@ -80,6 +96,9 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard {
         uint256 shares
     );
     event ReserveFloorConfigured(uint16 reserveFloorBps);
+    event SettlementReceiverConfigured(address settlementReceiver);
+    event FillRecorded(bytes32 indexed intentId, address indexed recipient, uint256 outputAmount);
+    event ReimbursementRecorded(bytes32 indexed intentId, uint256 amountReceived, uint256 exposureCleared);
     event PausedSet(bool paused);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
 
@@ -97,6 +116,10 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard {
     error ExceedsMaxWithdraw(uint256 assets, uint256 max);
     error ExceedsMaxRedeem(uint256 shares, uint256 max);
     error InsufficientLiquidity(uint256 requested, uint256 available);
+    error NotSettlementReceiver();
+    error IntentAlreadyFilled(bytes32 intentId);
+    error IntentNotFilled(bytes32 intentId);
+    error ReimbursementBelowPrincipal(uint256 received, uint256 principal);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -129,6 +152,12 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard {
         if (bps > BPS_DENOMINATOR) revert ReserveFloorTooHigh(bps);
         reserveFloorBps = bps;
         emit ReserveFloorConfigured(bps);
+    }
+
+    function setSettlementReceiver(address receiver) external onlyOwner {
+        if (receiver == address(0)) revert ZeroAddress();
+        settlementReceiver = receiver;
+        emit SettlementReceiverConfigured(receiver);
     }
 
     function setPaused(bool paused_) external onlyOwner {
@@ -292,6 +321,59 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard {
         assets = previewRedeem(shares);
         if (assets == 0) revert ZeroAmount();
         _burnAndPay(shares, assets, receiver, shareOwner);
+    }
+
+    // -----------------------------------------------------------------------
+    // Fill registry and reimbursement
+    // -----------------------------------------------------------------------
+
+    function isFilled(bytes32 intentId) external view returns (bool) {
+        return intentFilled[intentId];
+    }
+
+    /// @dev Records a fast fill and pays the recipient. Marks state before
+    ///      transferring, so a hostile token callback cannot re-enter and spend
+    ///      the same intent twice.
+    ///
+    ///      Authorisation of the fill — verifying the agent's EIP-712 signature,
+    ///      expiry, nonce and caps — is deliberately not here: it arrives with
+    ///      the `fastFill` entry point in WP-05. This internal function is the
+    ///      accounting half, so the reimbursement path can be built and tested
+    ///      against real state first.
+    function _recordFastFill(bytes32 intentId, address recipient, uint256 outputAmount) internal {
+        if (intentFilled[intentId]) revert IntentAlreadyFilled(intentId);
+        if (recipient == address(0)) revert ZeroAddress();
+        if (outputAmount == 0) revert ZeroAmount();
+
+        uint256 available = availableLiquidity();
+        if (outputAmount > available) revert InsufficientLiquidity(outputAmount, available);
+
+        intentFilled[intentId] = true;
+        advancedPrincipal[intentId] = outputAmount;
+        outstandingExposure += outputAmount;
+
+        asset.safeTransfer(recipient, outputAmount);
+        emit FillRecorded(intentId, recipient, outputAmount);
+    }
+
+    /// @notice Accept canonical funds for a filled intent and clear its receivable.
+    /// @dev Only the configured settlement receiver may call this. The amount
+    ///      received is the intent's input amount; the exposure cleared is the
+    ///      smaller output amount that was advanced. The difference is the
+    ///      execution fee, and it accrues to LPs as a share-price increase.
+    function recordReimbursement(bytes32 intentId, uint256 amount) external nonReentrant {
+        if (msg.sender != settlementReceiver) revert NotSettlementReceiver();
+        if (!intentFilled[intentId]) revert IntentNotFilled(intentId);
+
+        uint256 principal = advancedPrincipal[intentId];
+        if (principal == 0) revert IntentNotFilled(intentId);
+        if (amount < principal) revert ReimbursementBelowPrincipal(amount, principal);
+
+        advancedPrincipal[intentId] = 0;
+        outstandingExposure -= principal;
+
+        asset.safeTransferFrom(msg.sender, address(this), amount);
+        emit ReimbursementRecorded(intentId, amount, principal);
     }
 
     function _pullAndMint(uint256 assets, uint256 shares, address receiver) private {
