@@ -3,12 +3,19 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.2.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "test:domain": "pnpm --filter @arcaidia/domain test"
+    "test:shared-domain": "pnpm --filter @arcaidia/domain test",
+    "test:sc-eth": "cd contracts && ARCAIDIA_SOURCE=ethereum forge test -vv",
+    "test:sc-arc": "cd contracts && ARCAIDIA_SOURCE=arc forge test -vv",
+    "test:sc": "pnpm test:sc-eth && pnpm test:sc-arc",
+    "test:global": "pnpm typecheck && pnpm test:shared-domain && pnpm test:sc-eth && pnpm test:sc-arc",
+    "test": "pnpm test:global",
+    "fmt": "cd contracts && forge fmt"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
