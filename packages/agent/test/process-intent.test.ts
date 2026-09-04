@@ -1,11 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  ErrorCode,
-  InMemoryDecisionLog,
-  Verdict,
-  registerDeployment,
-  resetDeployments,
-} from '@arcaidia/domain';
+import { ErrorCode, Verdict, registerDeployment, resetDeployments } from '@arcaidia/domain';
 import {
   DEFAULT_RISK_POLICY,
   InMemorySubmissionJournal,
@@ -13,7 +7,7 @@ import {
   processIntent,
   type SolverDependencies,
 } from '../src/index.js';
-import { InMemoryDecisionLog as AgentLog } from '../src/logging/decision-log.js';
+import { InMemoryDecisionLog } from '../src/logging/decision-log.js';
 import type { SourceEvidence } from '../src/verification/source-evidence.js';
 import { ARC, NOW, SEPOLIA, USDC, health, intent, vault } from './fixtures.js';
 import {
@@ -64,7 +58,7 @@ describe('processIntent', () => {
   let sourceReader: FakeSourceReader;
   let authority: RecordingAuthority;
   let submitter: FakeSubmitter;
-  let log: AgentLog;
+  let log: InMemoryDecisionLog;
   let deps: SolverDependencies;
 
   beforeEach(() => {
@@ -83,7 +77,7 @@ describe('processIntent', () => {
     sourceReader = new FakeSourceReader(evidenceFor());
     authority = new RecordingAuthority();
     submitter = new FakeSubmitter();
-    log = new AgentLog();
+    log = new InMemoryDecisionLog();
 
     deps = {
       observation,
