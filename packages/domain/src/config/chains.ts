@@ -11,6 +11,7 @@
  */
 
 import type { Address } from '../types/primitives.js';
+import { DEPLOYMENTS } from './deployments.js';
 
 /** Stable key for a configured chain. Used in logs, config files and CLI flags. */
 export type ChainKey = 'ethereum-sepolia' | 'arc-testnet';
@@ -103,7 +104,7 @@ export const CHAINS: Readonly<Record<ChainKey, ChainConfig>> = {
       decimals: 6,
     },
     settlementTransport: { domain: 0, ...CCTP_V2_TESTNET },
-    contracts: {},
+    contracts: DEPLOYMENTS['ethereum-sepolia'],
     create2Factory: CREATE2_FACTORY,
     gasTokenIsSettlementAsset: false,
   },
@@ -122,7 +123,7 @@ export const CHAINS: Readonly<Record<ChainKey, ChainConfig>> = {
       decimals: 6,
     },
     settlementTransport: { domain: 26, ...CCTP_V2_TESTNET },
-    contracts: {},
+    contracts: DEPLOYMENTS['arc-testnet'],
     create2Factory: CREATE2_FACTORY,
     gasTokenIsSettlementAsset: true,
   },

@@ -85,5 +85,10 @@ export type { ObservationProvider, AgentAuthority, SettlementAdapter } from './p
 // Errors
 export { ArcaidiaError, ErrorCode, isArcaidiaError } from './errors.js';
 
-// ABIs (populated by WP-01)
+// ABIs — generated from the Foundry build
 export { ABIS } from './abis.js';
+export type { ArcaidiaAbis } from './abis.js';
+
+// Deployed addresses — written by the deployment script
+export { DEPLOYMENTS, PROTOCOL_CONTRACT_NAMES, deployedAddresses } from './config/deployments.js';
+export type { ProtocolContractName, DeployedAddress } from './config/deployments.js';
