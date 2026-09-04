@@ -32,8 +32,18 @@ remappings = [
 [profile.default.fuzz]
 runs = 256
 
+[profile.default.invariant]
+runs = 64
+depth = 32
+fail_on_revert = false
+
 [profile.ci.fuzz]
 runs = 1024
+
+[profile.ci.invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
 
 [fmt]
 line_length = 110
