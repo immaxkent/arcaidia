@@ -34,3 +34,7 @@ export {
   JsonLinesDecisionLog,
 } from './logging/decision-log.js';
 export type { DecisionLog, DecisionLogRecord, SerialisedInputs } from './logging/decision-log.js';
+
+// Agent authority — local now, Circle Agent Wallet in WP-09
+export { LocalAgentSigner } from './signing/local-agent-signer.js';
+export type { FillAuthorizationDomainInput } from './signing/local-agent-signer.js';
