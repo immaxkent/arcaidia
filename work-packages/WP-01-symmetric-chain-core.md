@@ -8,34 +8,34 @@ Arc. There is no `EthereumIntentRouter` and no `ArcVault`.
 
 ## Sub-tasks
 
-- [ ] **1.1 Foundry project** under `contracts/`, OZ as a dependency, `forge fmt` + CI wired.
-- [ ] **1.2 `MockUSDC.sol`** — 6-decimal mintable OZ ERC20, development only. Not a code path:
+- [x] **1.1 Foundry project** under `contracts/`, OZ as a dependency, `forge fmt` + CI wired.
+- [x] **1.2 `MockUSDC.sol`** — 6-decimal mintable OZ ERC20, development only. Not a code path:
       the protocol only ever sees a configured `IERC20 settlementAsset`.
-- [ ] **1.3 `ArcaidiaIntentRouter.sol`.** `createIntent(...)` pulls USDC via `transferFrom`,
+- [x] **1.3 `ArcaidiaIntentRouter.sol`.** `createIntent(...)` pulls USDC via `transferFrom`,
       initiates the CCTP transfer through a `ISettlementInitiator` seam (mock now, Circle in
       WP-10), and emits `IntentCreated` **only after both succeed**. Stores the intent with
       immutable economic fields. Enforces: allowlisted token, allowlisted destination chain,
       per-intent cap, total in-flight cap, deadline in the future, unused nonce.
       **No cancel/withdraw path after CCTP commitment.**
-- [ ] **1.4 `ArcaidiaLiquidityVault.sol`** as an **ERC-4626 tokenized vault** (DECISIONS.md D1),
+- [x] **1.4 `ArcaidiaLiquidityVault.sol`** as an **ERC-4626 tokenized vault** (DECISIONS.md D1),
       on OpenZeppelin's implementation. `totalAssets()` = liquid balance + `outstandingExposure`;
       the receivable must be counted or an LP could redeem mid-fill at an unfair price. Plus
       `reserveFloor`, `pause`, allowlisted solver signers, `fastFill(FillAuthorization, signature)`.
       Note that deployable liquidity is the *liquid balance* minus the reserve floor — never
       `totalAssets()`. Skeleton here; safety matrix is WP-02, signature verification is WP-05.
-- [ ] **1.5 `SettlementReceiver.sol`.** Receives canonical USDC, correlates to `intentId`/`cctpRef`,
+- [x] **1.5 `SettlementReceiver.sol`.** Receives canonical USDC, correlates to `intentId`/`cctpRef`,
       routes to LP reimbursement when `FAST_FILLED` or to the recipient fallback when not.
       Emits a settlement event carrying both facts.
-- [ ] **1.6 Solidity `intentId`** must byte-for-byte match `packages/domain/src/intent-id.ts`.
+- [x] **1.6 Solidity `intentId`** must byte-for-byte match `packages/domain/src/intent-id.ts`.
       Add a differential test fixture asserting it.
-- [ ] **1.7 Events designed for indexing.** `IntentCreated`, `FastFilled`, `SettlementReceived`,
+- [x] **1.7 Events designed for indexing.** `IntentCreated`, `FastFilled`, `SettlementReceived`,
       `LiquidityDeposited`, `LiquidityWithdrawn` — each carrying everything The Graph and the
       agent need, including the CCTP reference. Designing these badly costs a re-deploy in WP-08.
-- [ ] **1.8 CREATE2 deterministic deployment.** A deploy script computing the expected address
+- [x] **1.8 CREATE2 deterministic deployment.** A deploy script computing the expected address
       from init code + salt, asserting it **before** broadcast and asserting the deployed address
       after. Identical init code on both chains → chain-specific values (USDC address, CCTP domain,
       peer addresses) applied via a post-deploy `initialize`, never as constructor args.
-- [ ] **1.9 Config emission.** Deployment writes addresses back into `packages/domain` config and
+- [x] **1.9 Config emission.** Deployment writes addresses back into `packages/domain` config and
       the ABI barrel, so the frontend/agent never hardcode an address.
 
 ## Tests (Foundry)
