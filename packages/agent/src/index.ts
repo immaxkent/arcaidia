@@ -16,3 +16,21 @@ export {
   effectiveMaxFillAmount,
 } from './risk/fee.js';
 export { requiredConfirmations } from './risk/confirmations.js';
+
+// Source verification — the independent RPC check before capital moves
+export { verifySourceTransaction, confirmationsFor } from './verification/verify-source.js';
+export type { VerificationResult, VerificationContext } from './verification/verify-source.js';
+export type {
+  SourceEvidence,
+  IntentCreatedEvidence,
+  SourceChainReader,
+} from './verification/source-evidence.js';
+
+// Decision records
+export {
+  serialiseDecision,
+  formatDecisionSummary,
+  InMemoryDecisionLog,
+  JsonLinesDecisionLog,
+} from './logging/decision-log.js';
+export type { DecisionLog, DecisionLogRecord, SerialisedInputs } from './logging/decision-log.js';
