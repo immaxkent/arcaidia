@@ -243,3 +243,43 @@ since the signing path is chain-agnostic. Confirm on the first real Arc transact
 
 Sources: [Configuring EVM networks](https://docs.privy.io/basics/react/advanced/configuring-evm-networks),
 [Connect to Arc](https://docs.arc.io/arc/references/connect-to-arc)
+
+## Privy residuals, resolved 2026-09-05
+
+Two things were flagged as "check at WP-03". On inspection one was not a real
+risk, one was cosmetic, and the question that actually mattered had not been
+asked. Recorded here so the reasoning is not lost.
+
+**`supportedChains` is not a latent risk.** Both chains must appear in
+`PrivyProvider`'s `supportedChains` or a send throws. That is a one-line config
+with an immediate, loud failure on the first transaction — it cannot degrade
+silently or surface later. A test is cheap and worth having, but it mitigates
+nothing.
+
+**The gas-token label is cosmetic.** Whether a Privy approval sheet says "ETH"
+where it should say "USDC" affects nothing but the words on a screen; the
+signing path is chain-agnostic.
+
+**The question that mattered: does default fee estimation work on Arc?**
+Arc publishes the next block's base fee in the parent header's `extraData`,
+which is non-standard. If it did that *instead of* populating the ordinary
+EIP-1559 fields, viem's default estimation — and therefore Privy's embedded
+wallets, wagmi, and our own submitter — would misprice or fail. That would have
+presented as "transactions randomly fail on Arc", late, and would have been
+genuinely hard to attribute.
+
+Verified against the live RPC on 2026-09-05: Arc populates `baseFeePerGas` on
+the block header (20 gwei), answers `eth_feeHistory` with full reward
+percentiles, and answers `eth_maxPriorityFeePerGas` (5 gwei). `extraData`
+carries the same value as an optimisation, in addition to rather than instead of
+the standard fields. **Default fee estimation works untouched.**
+
+**A real operational consequence, not a bug.** On Arc, gas is USDC, so a fresh
+Privy embedded wallet holds nothing and cannot send *any* transaction until it
+is funded. Circle's Gas Station sponsors gas for *Circle Wallet* transactions,
+so it does not cover a Privy wallet. The Arc→Ethereum demo therefore needs its
+wallet pre-funded from `https://faucet.circle.com`. Put this in the demo script
+rather than discovering it on the day.
+
+**These facts are now re-checkable:** `pnpm test:chains` asserts all of them
+against both live RPCs. It is excluded from `test:global`, which stays hermetic.
