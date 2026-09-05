@@ -184,6 +184,25 @@ export class MockSettlementAdapter implements SettlementAdapter {
     };
   }
 
+  /**
+   * Somebody else delivered the message.
+   *
+   * On a real network anyone may submit the destination transaction, and CCTP
+   * will then refuse ours because the nonce is consumed. An adapter that reads
+   * that as a failure would strand settlements that have in fact completed, so
+   * this models the case rather than leaving it to be discovered live.
+   */
+  markDelivered(intentId: Bytes32): void {
+    const entry = this.require(intentId);
+    if (entry.status === SettlementStatus.RECEIVED || entry.status === SettlementStatus.RECONCILED) {
+      return;
+    }
+    entry.status = SettlementStatus.RECEIVED;
+    entry.destinationTxHash = syntheticHash(intentId);
+    entry.completedAt = this.clock();
+    entry.updatedAt = this.clock();
+  }
+
   /** Marks a message reconciled once the receiver has routed the funds. */
   markReconciled(intentId: Bytes32): void {
     const entry = this.tracked.get(key(intentId));
