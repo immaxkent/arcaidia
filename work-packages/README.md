@@ -95,6 +95,25 @@ Keep these as a literal checklist in `tests/invariants/` and re-run it at every 
 Tracked in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md). Resolve each one *at or before* the work package
 that first depends on it — none of them should be discovered late.
 
+## Priority order from 2026-09-06
+
+WP-07 is done, so the critical path is no longer the work-package numbering.
+Re-ordered around what unlocks prize coverage and what is blocked on credentials:
+
+| # | Work | Why here | Blocked on |
+| --- | --- | --- | --- |
+| 1 | **WP-03** Privy frontend | Every Arc prize requires a working frontend; Privy's two bounties have zero coverage without it | A Privy app id, at the end |
+| 2 | **P1 upgrade** Subgraph MCP | A second Graph product, half a day, unlocks a $5,000 prize we currently fail on a technicality | — |
+| 3 | **WP-09** Circle Agent Wallet | The machine authority the Arc agentic prize turns on | Circle credentials |
+| 4 | **WP-10** Real CCTP and USDC | Canonical settlement for real; also produces the deployed addresses | Circle credentials, funded keys |
+| 5 | **WP-08 deploy** Subgraphs to Studio | Needs the start blocks WP-10 produces | A Graph API key |
+| 6 | **WP-11** Full sponsor E2E | Everything live, repeated until reliable | 3–5 above |
+| 7 | **WP-12** Submission hardening | Diagrams, README, demo script, video | 6 |
+| 8 | **WP-13** Freeze V1 | Tag and protect | 7 |
+
+WP-03 and the P1 upgrade sit first deliberately: both are unblocked, and doing
+them while credentials are gathered means no idle time.
+
 ## Bounty requirements
 
 [BOUNTY-REQUIREMENTS.md](BOUNTY-REQUIREMENTS.md) maps every targeted sponsor requirement to the
