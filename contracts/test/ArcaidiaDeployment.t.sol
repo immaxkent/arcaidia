@@ -23,8 +23,10 @@ contract ArcaidiaDeploymentTest is ChainFixture {
 
     address internal protocolOwner = makeAddr("protocolOwner");
     address internal settlementReporter = makeAddr("settlementReporter");
+    address internal protocolTreasury = makeAddr("protocolTreasury");
 
     uint16 internal constant RESERVE_FLOOR_BPS = 1_000;
+    uint16 internal constant PROTOCOL_SHARE_BPS = 5_000;
     uint256 internal constant MAX_INTENT = 50_000e6;
     uint256 internal constant MAX_IN_FLIGHT = 200_000e6;
 
@@ -46,6 +48,8 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             // CREATE2 parity means the destination receiver shares this address.
             destinationSettlementReceiver: predicted.settlementReceiver,
             reserveFloorBps: RESERVE_FLOOR_BPS,
+            treasury: protocolTreasury,
+            protocolFeeShareBps: PROTOCOL_SHARE_BPS,
             maxIntentAmount: MAX_INTENT,
             maxInFlightValue: MAX_IN_FLIGHT,
             settlementReporter: settlementReporter
@@ -128,6 +132,23 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     function test_receiverKnowsItsVault() public {
         ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
         assertEq(address(SettlementReceiver(d.settlementReceiver).vault()), d.vault);
+    }
+
+    function test_treasuryAndFeeSplitAreConfigured() public {
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        assertEq(ArcaidiaLiquidityVault(d.vault).treasury(), protocolTreasury);
+        assertEq(ArcaidiaLiquidityVault(d.vault).protocolFeeShareBps(), PROTOCOL_SHARE_BPS);
+    }
+
+    /// A deployment omitting the treasury leaves the whole fee with LPs rather
+    /// than accruing to an address nobody set.
+    function test_omittingTheTreasuryLeavesTheSplitAtZero() public {
+        ArcaidiaDeployment.Config memory config = _config();
+        config.treasury = address(0);
+
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config);
+        assertEq(ArcaidiaLiquidityVault(d.vault).treasury(), address(0));
+        assertEq(ArcaidiaLiquidityVault(d.vault).protocolFeeShareBps(), 0);
     }
 
     function test_settlementReporterIsAuthorised() public {

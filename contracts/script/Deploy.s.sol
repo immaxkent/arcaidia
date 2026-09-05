@@ -38,6 +38,8 @@ contract DeployScript is Script {
             destinationChainId: vm.envUint("DESTINATION_CHAIN_ID"),
             destinationSettlementReceiver: vm.envAddress("DESTINATION_SETTLEMENT_RECEIVER"),
             reserveFloorBps: uint16(vm.envUint("RESERVE_FLOOR_BPS")),
+            treasury: vm.envAddress("PROTOCOL_TREASURY"),
+            protocolFeeShareBps: uint16(vm.envUint("PROTOCOL_FEE_SHARE_BPS")),
             maxIntentAmount: vm.envUint("MAX_INTENT_AMOUNT"),
             maxInFlightValue: vm.envUint("MAX_IN_FLIGHT_VALUE"),
             settlementReporter: vm.envAddress("SETTLEMENT_REPORTER")

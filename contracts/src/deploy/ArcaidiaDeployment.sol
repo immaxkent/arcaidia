@@ -45,6 +45,10 @@ library ArcaidiaDeployment {
         ///      correctness requirement.
         address destinationSettlementReceiver;
         uint16 reserveFloorBps;
+        /// Where protocol fees are swept.
+        address treasury;
+        /// The protocol's share of each execution fee, in basis points.
+        uint16 protocolFeeShareBps;
         uint256 maxIntentAmount;
         uint256 maxInFlightValue;
         /// Operator permitted to report canonical settlement.
@@ -114,6 +118,11 @@ library ArcaidiaDeployment {
     function _wire(Deployment memory deployment, Config memory config) private {
         // Only the local receiver may reimburse the local vault.
         ArcaidiaLiquidityVault(deployment.vault).setSettlementReceiver(deployment.settlementReceiver);
+
+        if (config.treasury != address(0)) {
+            ArcaidiaLiquidityVault(deployment.vault).setTreasury(config.treasury);
+            ArcaidiaLiquidityVault(deployment.vault).setProtocolFeeShareBps(config.protocolFeeShareBps);
+        }
 
         if (config.settlementReporter != address(0)) {
             SettlementReceiver(deployment.settlementReceiver).setReporter(config.settlementReporter, true);
