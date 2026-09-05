@@ -55,10 +55,38 @@ importers:
       '@arcaidia/domain':
         specifier: workspace:*
         version: link:../domain
+      viem:
+        specifier: ^2.39.4
+        version: 2.56.3(typescript@5.9.3)
     devDependencies:
       '@arcaidia/agent':
         specifier: workspace:*
         version: link:../agent
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)
+
+  tests/e2e:
+    dependencies:
+      '@arcaidia/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      '@arcaidia/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@arcaidia/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
+      viem:
+        specifier: ^2.39.4
+        version: 2.56.3(typescript@5.9.3)
+    devDependencies:
       '@types/node':
         specifier: ^24.10.1
         version: 24.13.3
