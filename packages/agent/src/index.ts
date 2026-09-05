@@ -69,3 +69,10 @@ export type {
 
 // Observation — a local cache standing in for The Graph until WP-08
 export { InMemoryObservationProvider } from './observation/in-memory-observation-provider.js';
+export { GraphObservationProvider } from './observation/graph-observation-provider.js';
+export type {
+  GraphChainSource,
+  GraphObservationOptions,
+} from './observation/graph-observation-provider.js';
+export { FetchGraphQueryClient } from './observation/graph-client.js';
+export type { GraphQueryClient } from './observation/graph-client.js';
