@@ -66,3 +66,6 @@ export type {
   EvmLog,
   EvmReceipt,
 } from './adapters/evm-clients.js';
+
+// Observation — a local cache standing in for The Graph until WP-08
+export { InMemoryObservationProvider } from './observation/in-memory-observation-provider.js';
