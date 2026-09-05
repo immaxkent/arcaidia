@@ -80,8 +80,22 @@ async function waitForChain(
       if (id !== expectedChainId) {
         throw new Error(`anvil reported chain ${id}, expected ${expectedChainId}.`);
       }
+
+      // A chain with history is not ours. If the port was already taken, our
+      // anvil exits and we silently connect to whatever was there — which
+      // deploys at different nonces and surfaces much later as a mismatched
+      // CREATE2 address, with nothing pointing at the real cause.
+      const height = await client.getBlockNumber({ cacheTime: 0 });
+      if (height > 0n) {
+        throw new Error(
+          `A chain is already running on this port at block ${height}. ` +
+            'Stop it (pkill -f anvil) and re-run; connecting to it would break ' +
+            'deterministic deployment.',
+        );
+      }
       return;
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already running')) throw error;
       await sleep(100);
     }
   }

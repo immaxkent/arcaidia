@@ -108,12 +108,26 @@ export interface World {
   stop(): void;
 }
 
-export async function startWorld(): Promise<World> {
+export interface WorldOptions {
+  /**
+   * Ports for the two chains.
+   *
+   * Each test file needs its own pair. Vitest gives no ordering guarantee
+   * between a file's teardown and the next file's setup, so shared ports mean a
+   * second world can connect to the first's chains — and then deploy at higher
+   * nonces, which silently breaks CREATE2 address parity.
+   */
+  readonly ports?: readonly [number, number];
+}
+
+export async function startWorld(options: WorldOptions = {}): Promise<World> {
   resetDeployments();
 
+  const [sourcePort, destinationPort] = options.ports ?? [8545, 8546];
+
   const [sepolia, arc] = await Promise.all([
-    startAnvil(SEPOLIA, 8545),
-    startAnvil(ARC, 8546),
+    startAnvil(SEPOLIA, sourcePort),
+    startAnvil(ARC, destinationPort),
   ]);
 
   const deployerAccount = privateKeyToAccount(KEYS.deployer);
