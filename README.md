@@ -1,11 +1,23 @@
 # Arcaidia
 
+> Arcaidia is a speed layer over CCTP. Your money goes into Circle's pipe first; an autonomous
+> agent verifies that independently, prices the wait, and advances you the destination funds from
+> a liquidity vault in seconds. CCTP repays the vault minutes later.
+
 **Agentic Crosschain Intent & Liquidity Network** — ETHOnline 2026 submission.
 
-Arcaidia is not a new canonical bridge. It is a **fast settlement layer above Circle CCTP**.
+Arcaidia is not a new canonical bridge, and it adds no trust assumption to the canonical path.
 The user's source USDC is committed to CCTP *first*. Only after that commitment is observed
 and independently verified may an autonomous liquidity agent advance destination USDC from a
 destination-chain LP vault. CCTP then completes asynchronously and replenishes the LP.
+
+The router makes the commitment and the intent atomic, so an `IntentCreated` event cannot exist
+without the funds already being in Circle's pipe. That changes the question an LP is answering
+from *"will this settlement happen?"* to *"will an already-committed settlement finish?"* — and
+the remaining risk is duration, which is exactly what the fee prices.
+
+Turn the solver off and every transfer still completes, at Circle's speed. That fallback is
+tested in both directions.
 
 > **Core invariant:** fast settlement accelerates the user experience; canonical settlement
 > remains the source of economic finality.
