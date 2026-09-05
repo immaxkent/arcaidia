@@ -45,6 +45,7 @@ export function vault(overrides: Partial<VaultState> = {}): VaultState {
     totalShares: USDC(100_000),
     reserveFloor: USDC(10_000),
     outstandingExposure: 0n,
+    accruedProtocolFees: 0n,
     paused: false,
     blockNumber: 1n,
     observedAt: NOW,

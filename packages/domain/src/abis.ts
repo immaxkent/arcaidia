@@ -741,6 +741,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "accruedProtocolFees",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "advancedPrincipal",
       "inputs": [
         {
@@ -1203,6 +1216,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "lpLiquidBalance",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "maxDeposit",
       "inputs": [
         {
@@ -1470,6 +1496,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "protocolFeeShareBps",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "recordReimbursement",
       "inputs": [
         {
@@ -1597,6 +1636,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "setProtocolFeeShareBps",
+      "inputs": [
+        {
+          "name": "bps",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "setReserveFloorBps",
       "inputs": [
         {
@@ -1614,6 +1666,19 @@ export const ABIS = {
       "inputs": [
         {
           "name": "receiver",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setTreasury",
+      "inputs": [
+        {
+          "name": "treasury_",
           "type": "address",
           "internalType": "address"
         }
@@ -1741,6 +1806,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "treasury",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "utilisationBps",
       "inputs": [],
       "outputs": [
@@ -1775,6 +1853,19 @@ export const ABIS = {
       "outputs": [
         {
           "name": "shares",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "withdrawFees",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "amount",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -1901,6 +1992,50 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "FeesAccrued",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "toProtocol",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "toLps",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FeesWithdrawn",
+      "inputs": [
+        {
+          "name": "treasury",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "FillLimitsConfigured",
       "inputs": [
         {
@@ -1983,6 +2118,19 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "ProtocolFeeShareConfigured",
+      "inputs": [
+        {
+          "name": "protocolFeeShareBps",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "ReimbursementRecorded",
       "inputs": [
         {
@@ -2053,6 +2201,19 @@ export const ABIS = {
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "TreasuryConfigured",
+      "inputs": [
+        {
+          "name": "treasury",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
         }
       ],
       "anonymous": false
@@ -2421,6 +2582,11 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "NoFeesAccrued",
+      "inputs": []
+    },
+    {
+      "type": "error",
       "name": "NotOwner",
       "inputs": []
     },
@@ -2474,6 +2640,17 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "ShareAboveDenominator",
+      "inputs": [
+        {
+          "name": "bps",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "SignerNotAuthorised",
       "inputs": [
         {
@@ -2482,6 +2659,11 @@ export const ABIS = {
           "internalType": "address"
         }
       ]
+    },
+    {
+      "type": "error",
+      "name": "TreasuryNotSet",
+      "inputs": []
     },
     {
       "type": "error",

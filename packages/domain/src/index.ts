@@ -45,6 +45,7 @@ export {
   SettlementStatus,
   ACTIVE_SETTLEMENT_STATUSES,
   availableLiquidity,
+  lpLiquidBalance,
   totalAssets,
   utilisationBps,
 } from './types/settlement.js';

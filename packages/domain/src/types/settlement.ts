@@ -116,27 +116,42 @@ export interface VaultState {
   readonly reserveFloor: bigint;
   /** Principal advanced and awaiting canonical reimbursement. */
   readonly outstandingExposure: bigint;
+  /**
+   * Fees held by the vault but owed to the protocol treasury.
+   *
+   * Held alongside LP capital, but not part of it. Every LP-facing figure below
+   * subtracts it, mirroring the contract — an agent that treated these as
+   * deployable would price against liquidity it is not allowed to lend.
+   */
+  readonly accruedProtocolFees: bigint;
   readonly paused: boolean;
   /** Block the observation was taken at, for staleness checks. */
   readonly blockNumber: bigint;
   readonly observedAt: UnixSeconds;
 }
 
+/** Held balance that actually belongs to LPs, once the treasury's fees are removed. */
+export function lpLiquidBalance(vault: VaultState): bigint {
+  const lpCash = vault.totalBalance - vault.accruedProtocolFees;
+  return lpCash > 0n ? lpCash : 0n;
+}
+
 /**
- * ERC-4626 `totalAssets`: liquid balance plus principal advanced and awaiting
- * canonical reimbursement.
+ * ERC-4626 `totalAssets`: LP-owned liquid balance plus principal advanced and
+ * awaiting canonical reimbursement.
  *
  * The receivable must be counted. Omitting it would let an LP redeem while a
  * fill is in flight and take an unfairly cheap exit, with the remaining LPs
- * absorbing the outstanding exposure.
+ * absorbing the outstanding exposure. Protocol fees must be excluded, or LPs
+ * would be credited with money that belongs to the treasury.
  */
 export function totalAssets(vault: VaultState): bigint {
-  return vault.totalBalance + vault.outstandingExposure;
+  return lpLiquidBalance(vault) + vault.outstandingExposure;
 }
 
 /** Capital deployable for a fast fill right now, never below the reserve floor. */
 export function availableLiquidity(vault: VaultState): bigint {
-  const deployable = vault.totalBalance - vault.reserveFloor;
+  const deployable = lpLiquidBalance(vault) - vault.reserveFloor;
   return deployable > 0n ? deployable : 0n;
 }
 
@@ -146,7 +161,7 @@ export function availableLiquidity(vault: VaultState): bigint {
  * so the risk engine prices it out rather than dividing by zero.
  */
 export function utilisationBps(vault: VaultState): number {
-  const capital = vault.totalBalance + vault.outstandingExposure;
+  const capital = totalAssets(vault);
   if (capital === 0n) return 10_000;
   return Number((vault.outstandingExposure * 10_000n) / capital);
 }
