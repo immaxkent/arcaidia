@@ -25,7 +25,13 @@ export interface EvmReceipt {
 
 export interface EvmReadClient {
   getTransactionReceipt(args: { hash: TxHash }): Promise<EvmReceipt>;
-  getBlockNumber(): Promise<bigint>;
+  /**
+   * @param args viem caches the head by default. Confirmation counting passes
+   *   `cacheTime: 0`, because a stale head reads as *fewer* confirmations than
+   *   the chain actually has, which silently rejects intents that are perfectly
+   *   valid.
+   */
+  getBlockNumber(args?: { cacheTime?: number }): Promise<bigint>;
 }
 
 export interface EvmWriteClient {

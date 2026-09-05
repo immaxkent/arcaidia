@@ -137,10 +137,15 @@ export class ViemSourceChainReader implements SourceChainReader {
    * A head we cannot read is reported as zero, which makes the confirmation
    * count zero and the verifier refuse. Guessing a head would be the one way
    * this adapter could cause a premature fill.
+   *
+   * The head is read uncached. viem caches it for the polling interval by
+   * default, and a head even one block stale reads as fewer confirmations than
+   * the chain actually has — which rejects valid intents, intermittently, in a
+   * way that looks like a policy decision rather than a caching artefact.
    */
   private async headOrZero(client: EvmReadClient): Promise<bigint> {
     try {
-      return await client.getBlockNumber();
+      return await client.getBlockNumber({ cacheTime: 0 });
     } catch {
       return 0n;
     }
