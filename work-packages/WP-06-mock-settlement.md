@@ -8,24 +8,24 @@ zero external Circle dependency.
 
 ## Sub-tasks
 
-- [ ] **6.1 `SettlementAdapter` interface.** `initiate`, `getStatus(ref)`, `getAttestation(ref)`,
+- [x] **6.1 `SettlementAdapter` interface.** `initiate`, `getStatus(ref)`, `getAttestation(ref)`,
       `complete(ref)`, `health()`. Core domain depends only on this — no Circle-specific calls
       scattered anywhere else in the codebase.
-- [ ] **6.2 `MockSettlementAdapter`** simulating the real lifecycle including its awkward parts:
+- [x] **6.2 `MockSettlementAdapter`** simulating the real lifecycle including its awkward parts:
       configurable attestation delay, pending→available transitions, transient failures, and an
       "unavailable" mode to drive WP-4.6's PAUSE branch.
-- [ ] **6.3 Settlement Agent worker.** Polls for fast-filled-but-unsettled intents, tracks the
+- [x] **6.3 Settlement Agent worker.** Polls for fast-filled-but-unsettled intents, tracks the
       message/attestation lifecycle, submits the destination transaction **idempotently**,
       correlates received funds to `intentId`/`cctpRef`.
-- [ ] **6.4 Reimbursement path.** If `FAST_FILLED`: canonical USDC replenishes the vault,
+- [x] **6.4 Reimbursement path.** If `FAST_FILLED`: canonical USDC replenishes the vault,
       outstanding exposure decrements, fee accounting is realised, status → `SETTLED`.
-- [ ] **6.5 Fallback path.** If **not** fast-filled: canonical USDC is routed to the recipient.
+- [x] **6.5 Fallback path.** If **not** fast-filled: canonical USDC is routed to the recipient.
       The user is paid either way; funds are never trapped.
-- [ ] **6.6 Idempotency & crash safety.** Kill the worker mid-flight and restart it: no double
+- [x] **6.6 Idempotency & crash safety.** Kill the worker mid-flight and restart it: no double
       submission, no double reimbursement, no lost intent. Test this by actually killing it.
-- [ ] **6.7 Settlement state feed** for the risk engine: oldest unsettled age, pending value,
+- [x] **6.7 Settlement state feed** for the risk engine: oldest unsettled age, pending value,
       rolling average latency, adapter health — the real inputs behind WP-4.6.
-- [ ] **6.8 Onchain state is authoritative.** Worker database state is a cache and a queue, never
+- [x] **6.8 Onchain state is authoritative.** Worker database state is a cache and a queue, never
       a substitute for onchain settlement state. Reconcile from chain on startup.
 
 ## Tests
