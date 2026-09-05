@@ -84,6 +84,20 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     /// @notice The destination `SettlementReceiver` permitted to reimburse.
     address public settlementReceiver;
 
+    /// @notice Where protocol fees are swept.
+    address public treasury;
+
+    /// @notice The protocol's share of each execution fee, in basis points.
+    /// @dev The remainder accrues to LPs as share-price appreciation.
+    uint16 public protocolFeeShareBps;
+
+    /// @notice Protocol fees held by the vault and owed to the treasury.
+    /// @dev Held here for convenience, but **not LP capital**. Excluded from
+    ///      `totalAssets`, from deployable liquidity and from what an LP may
+    ///      withdraw — otherwise LPs would be credited with, and could redeem
+    ///      against, money that belongs to the treasury.
+    uint256 public accruedProtocolFees;
+
     /// @notice Intents whose recipient has been paid from LP inventory.
     /// @dev Also the replay key: an intent may be filled at most once.
     mapping(bytes32 => bool) public intentFilled;
@@ -121,6 +135,10 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     event FillRecorded(bytes32 indexed intentId, address indexed recipient, uint256 outputAmount);
     event ReimbursementRecorded(bytes32 indexed intentId, uint256 amountReceived, uint256 exposureCleared);
     event FillLimitsConfigured(uint256 maxFillAmount, uint256 maxOutstandingExposure, uint16 maxFeeBps);
+    event TreasuryConfigured(address treasury);
+    event ProtocolFeeShareConfigured(uint16 protocolFeeShareBps);
+    event FeesAccrued(bytes32 indexed intentId, uint256 toProtocol, uint256 toLps);
+    event FeesWithdrawn(address indexed treasury, uint256 amount);
     event AuthorisedSignerSet(address indexed signer, bool allowed);
     event FastFilled(
         bytes32 indexed intentId,
@@ -159,6 +177,9 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     error FillAboveCap(uint256 outputAmount, uint256 cap);
     error ExposureCapExceeded(uint256 attempted, uint256 cap);
     error WrongDestinationChain(uint256 sourceChainId);
+    error TreasuryNotSet();
+    error NoFeesAccrued();
+    error ShareAboveDenominator(uint16 bps);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -216,6 +237,32 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         emit AuthorisedSignerSet(signer, allowed);
     }
 
+    function setTreasury(address treasury_) external onlyOwner {
+        if (treasury_ == address(0)) revert ZeroAddress();
+        treasury = treasury_;
+        emit TreasuryConfigured(treasury_);
+    }
+
+    function setProtocolFeeShareBps(uint16 bps) external onlyOwner {
+        if (bps > BPS_DENOMINATOR) revert ShareAboveDenominator(bps);
+        protocolFeeShareBps = bps;
+        emit ProtocolFeeShareConfigured(bps);
+    }
+
+    /// @notice Sweep accrued protocol fees to the treasury.
+    /// @dev Can only ever move fees. LP principal and the outstanding receivable
+    ///      are unreachable from here, so the owner key cannot drain the vault.
+    function withdrawFees() external onlyOwner nonReentrant returns (uint256 amount) {
+        if (treasury == address(0)) revert TreasuryNotSet();
+
+        amount = accruedProtocolFees;
+        if (amount == 0) revert NoFeesAccrued();
+
+        accruedProtocolFees = 0;
+        asset.safeTransfer(treasury, amount);
+        emit FeesWithdrawn(treasury, amount);
+    }
+
     function setPaused(bool paused_) external onlyOwner {
         paused = paused_;
         emit PausedSet(paused_);
@@ -235,15 +282,25 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         return _assetDecimals + DECIMALS_OFFSET;
     }
 
-    /// @notice Assets the vault actually holds and can pay out right now.
+    /// @notice Every unit of the settlement asset sitting in this contract.
+    /// @dev Includes protocol fees, which are held here but owed to the treasury.
+    ///      Use `lpLiquidBalance` for anything that answers a question about LPs.
     function liquidBalance() public view returns (uint256) {
         return asset.balanceOf(address(this));
     }
 
-    /// @notice Liquid balance plus principal advanced and awaiting reimbursement.
-    /// @dev The receivable must be counted. See the contract-level note.
+    /// @notice Held balance that actually belongs to LPs.
+    function lpLiquidBalance() public view returns (uint256) {
+        uint256 held = liquidBalance();
+        return held > accruedProtocolFees ? held - accruedProtocolFees : 0;
+    }
+
+    /// @notice LP-owned assets: their liquid balance plus the receivable.
+    /// @dev The receivable must be counted or an LP could redeem mid-fill at an
+    ///      unfairly low price. Protocol fees must be excluded or LPs would be
+    ///      credited with money that belongs to the treasury.
     function totalAssets() public view returns (uint256) {
-        return liquidBalance() + outstandingExposure;
+        return lpLiquidBalance() + outstandingExposure;
     }
 
     /// @notice Capital that must remain unadvanced.
@@ -255,7 +312,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     /// @dev Bounded by the *liquid* balance, not by `totalAssets`: a receivable
     ///      cannot be advanced a second time.
     function availableLiquidity() public view returns (uint256) {
-        uint256 liquid = liquidBalance();
+        uint256 liquid = lpLiquidBalance();
         uint256 floor = reserveFloor();
         return liquid > floor ? liquid - floor : 0;
     }
@@ -318,7 +375,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///         what the vault actually holds.
     function maxWithdraw(address shareOwner) public view returns (uint256) {
         uint256 owed = _convertToAssets(balanceOf(shareOwner), Math.Rounding.Floor);
-        uint256 liquid = liquidBalance();
+        uint256 liquid = lpLiquidBalance();
         return owed < liquid ? owed : liquid;
     }
 
@@ -330,7 +387,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     function maxRedeem(address shareOwner) public view returns (uint256) {
         uint256 shares = balanceOf(shareOwner);
         uint256 owed = _convertToAssets(shares, Math.Rounding.Floor);
-        uint256 liquid = liquidBalance();
+        uint256 liquid = lpLiquidBalance();
 
         if (owed <= liquid) return shares;
         return _convertToShares(liquid, Math.Rounding.Floor);
@@ -509,11 +566,19 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         if (principal == 0) revert IntentNotFilled(intentId);
         if (amount < principal) revert ReimbursementBelowPrincipal(amount, principal);
 
+        // The fee is what canonical settlement returned above what was advanced.
+        // The protocol's share is booked as a liability; the remainder stays in
+        // the vault and lifts the share price, which is how LPs are paid.
+        uint256 fee = amount - principal;
+        uint256 toProtocol = (fee * protocolFeeShareBps) / BPS_DENOMINATOR;
+
         advancedPrincipal[intentId] = 0;
         outstandingExposure -= principal;
+        accruedProtocolFees += toProtocol;
 
         asset.safeTransferFrom(msg.sender, address(this), amount);
         emit ReimbursementRecorded(intentId, amount, principal);
+        emit FeesAccrued(intentId, toProtocol, fee - toProtocol);
     }
 
     function _pullAndMint(uint256 assets, uint256 shares, address receiver) private {
@@ -526,8 +591,10 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         if (receiver == address(0)) revert ZeroAddress();
         if (msg.sender != shareOwner) _spendAllowance(shareOwner, msg.sender, shares);
 
-        // A receivable is an asset but not a payable one.
-        if (assets > liquidBalance()) revert InsufficientLiquidity(assets, liquidBalance());
+        // A receivable is an asset but not a payable one, and protocol fees are
+        // held here but are not the LPs' to take.
+        uint256 payable_ = lpLiquidBalance();
+        if (assets > payable_) revert InsufficientLiquidity(assets, payable_);
 
         _burn(shareOwner, shares);
         asset.safeTransfer(receiver, assets);
