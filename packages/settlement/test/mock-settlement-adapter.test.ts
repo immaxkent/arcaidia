@@ -194,3 +194,71 @@ describe('MockSettlementAdapter', () => {
     expect(state.reference.destinationDomain).toBe(0);
   });
 });
+
+describe('canonical delivery', () => {
+  /// Real CCTP mints USDC to the destination receiver as part of completing.
+  /// Without an equivalent the receiver holds nothing and settlement reverts,
+  /// so the hook is part of the transport's contract rather than a convenience.
+  it('delivers funds before recording receipt', async () => {
+    const clock = new TestClock();
+    const delivered: bigint[] = [];
+    const adapter = new MockSettlementAdapter({
+      attestationDelaySeconds: DELAY,
+      clock: clock.now,
+      onComplete: async (_ref, amount) => {
+        delivered.push(amount);
+      },
+    });
+
+    const ref = reference(40);
+    adapter.register(ref, USDC(1_000));
+    clock.advance(DELAY);
+    await adapter.complete(ref);
+
+    expect(delivered).toEqual([USDC(1_000)]);
+  });
+
+  /// A failed delivery must leave the message attested and retryable, not
+  /// recorded as received.
+  it('does not record receipt when delivery fails', async () => {
+    const clock = new TestClock();
+    let attempts = 0;
+    const adapter = new MockSettlementAdapter({
+      attestationDelaySeconds: DELAY,
+      clock: clock.now,
+      onComplete: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('mint failed');
+      },
+    });
+
+    const ref = reference(41);
+    adapter.register(ref, USDC(1_000));
+    clock.advance(DELAY);
+
+    await expect(adapter.complete(ref)).rejects.toThrow(/mint failed/);
+    expect((await adapter.status(ref)).status).toBe(SettlementStatus.ATTESTED);
+
+    expect((await adapter.complete(ref)).status).toBe(SettlementStatus.RECEIVED);
+  });
+
+  it('delivers exactly once across repeated completions', async () => {
+    const clock = new TestClock();
+    let calls = 0;
+    const adapter = new MockSettlementAdapter({
+      attestationDelaySeconds: DELAY,
+      clock: clock.now,
+      onComplete: async () => {
+        calls += 1;
+      },
+    });
+
+    const ref = reference(42);
+    adapter.register(ref, USDC(1_000));
+    clock.advance(DELAY);
+    await adapter.complete(ref);
+    await adapter.complete(ref);
+
+    expect(calls).toBe(1);
+  });
+});

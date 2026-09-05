@@ -30,6 +30,15 @@ export interface MockSettlementOptions {
   readonly attestationDelaySeconds?: number;
   /** Clock, injected so tests need not wait in real time. */
   readonly clock?: () => UnixSeconds;
+  /**
+   * Called when a message completes, before the state is returned.
+   *
+   * Real CCTP *mints* USDC to the destination receiver as part of completing;
+   * without an equivalent here the receiver would hold nothing and settlement
+   * would revert. A local harness wires this to a mint so the canonical funds
+   * genuinely arrive on the destination chain.
+   */
+  readonly onComplete?: (reference: SettlementReference, amount: bigint) => Promise<void>;
 }
 
 interface Tracked {
@@ -46,6 +55,7 @@ export class MockSettlementAdapter implements SettlementAdapter {
   private readonly tracked = new Map<string, Tracked>();
   private readonly delay: number;
   private readonly clock: () => UnixSeconds;
+  private readonly onComplete?: (reference: SettlementReference, amount: bigint) => Promise<void>;
 
   /** Set false to simulate the transport being unreachable. */
   private reachable = true;
@@ -56,6 +66,7 @@ export class MockSettlementAdapter implements SettlementAdapter {
   constructor(options: MockSettlementOptions = {}) {
     this.delay = options.attestationDelaySeconds ?? 120;
     this.clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
+    if (options.onComplete) this.onComplete = options.onComplete;
   }
 
   // --- test controls ------------------------------------------------------
@@ -132,6 +143,11 @@ export class MockSettlementAdapter implements SettlementAdapter {
       this.transientFailures -= 1;
       throw new Error('Transport temporarily unavailable; retry.');
     }
+
+    // Deliver the funds before recording receipt. If delivery fails the message
+    // stays attested and the worker retries, rather than believing funds
+    // arrived that never did.
+    if (this.onComplete) await this.onComplete(reference, entry.amount);
 
     entry.status = SettlementStatus.RECEIVED;
     entry.destinationTxHash = syntheticHash(reference.intentId);
