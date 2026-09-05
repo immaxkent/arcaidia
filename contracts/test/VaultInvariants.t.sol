@@ -24,6 +24,7 @@ contract VaultInvariantsTest is ChainFixture {
     uint256 internal constant MAX_FILL = 25_000e6;
     uint256 internal constant MAX_EXPOSURE = 150_000e6;
     uint16 internal constant MAX_FEE_BPS = 100; // 1%
+    uint16 internal constant PROTOCOL_SHARE_BPS = 5_000; // half the fee
 
     function setUp() public {
         _configureDirection();
@@ -40,6 +41,8 @@ contract VaultInvariantsTest is ChainFixture {
         vault.setFillLimits(MAX_FILL, MAX_EXPOSURE, MAX_FEE_BPS);
         vault.setAuthorisedSigner(handler.agent(), true);
         vault.setSettlementReceiver(address(handler));
+        vault.setTreasury(makeAddr("invTreasury"));
+        vault.setProtocolFeeShareBps(PROTOCOL_SHARE_BPS);
         vm.stopPrank();
 
         targetContract(address(handler));
@@ -68,6 +71,9 @@ contract VaultInvariantsTest is ChainFixture {
 
         handler.redeem(0, type(uint256).max);
         assertGt(handler.ghostRedeemed(), 0, "redemptions are not landing");
+
+        handler.sweepFees(0);
+        assertGt(handler.ghostFeesSwept(), 0, "fee sweeps are not landing");
     }
 
     /// And the fee actually reaches LPs across a full cycle.
@@ -83,8 +89,28 @@ contract VaultInvariantsTest is ChainFixture {
 
     /// The accounting identity the whole ERC-4626 design rests on. If this ever
     /// breaks, every share price in the system is wrong.
-    function invariant_totalAssetsIsLiquidPlusReceivable() public view {
-        assertEq(vault.totalAssets(), vault.liquidBalance() + vault.outstandingExposure());
+    function invariant_totalAssetsIsLpCashPlusReceivable() public view {
+        assertEq(vault.totalAssets(), vault.lpLiquidBalance() + vault.outstandingExposure());
+    }
+
+    /// Everything the vault holds is either LP capital or the treasury's fees.
+    /// Nothing may go unaccounted for, and nothing may be counted twice.
+    function invariant_heldBalanceReconciles() public view {
+        assertEq(
+            vault.totalAssets() + vault.accruedProtocolFees(),
+            vault.liquidBalance() + vault.outstandingExposure()
+        );
+    }
+
+    /// The vault can always pay the treasury what it owes. If this broke, a
+    /// sweep would be dipping into LP principal.
+    function invariant_feesOwedAreAlwaysCovered() public view {
+        assertLe(vault.accruedProtocolFees(), vault.liquidBalance());
+    }
+
+    /// Protocol fees are never lendable. They are owed out, not deployable.
+    function invariant_protocolFeesAreNotDeployable() public view {
+        assertLe(vault.availableLiquidity() + vault.accruedProtocolFees(), vault.liquidBalance());
     }
 
     /// The vault's own exposure figure must agree with an independent tally of
@@ -128,7 +154,7 @@ contract VaultInvariantsTest is ChainFixture {
     /// owe out more cash than it holds.
     function invariant_noLpCanWithdrawMoreThanIsHeld() public view {
         for (uint256 i = 0; i < 3; i++) {
-            assertLe(vault.maxWithdraw(handler.lps(i)), vault.liquidBalance());
+            assertLe(vault.maxWithdraw(handler.lps(i)), vault.lpLiquidBalance());
         }
     }
 

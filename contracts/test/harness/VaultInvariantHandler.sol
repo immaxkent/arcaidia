@@ -35,6 +35,7 @@ contract VaultInvariantHandler is Test {
     uint256 public ghostFeesRealised;
     uint256 public ghostDeposited;
     uint256 public ghostRedeemed;
+    uint256 public ghostFeesSwept;
 
     bytes32[] public filledIntents;
     mapping(bytes32 => bool) public reimbursed;
@@ -139,6 +140,15 @@ contract VaultInvariantHandler is Test {
             reimbursed[intentId] = true;
             ghostReimbursedPrincipal += principal;
             ghostFeesRealised += fee;
+        } catch {}
+    }
+
+    /// @dev The owner sweeping fees must never disturb LP accounting, so it
+    ///      belongs in the random action set rather than in a separate test.
+    function sweepFees(uint256) external {
+        vm.prank(vault.owner());
+        try vault.withdrawFees() returns (uint256 amount) {
+            ghostFeesSwept += amount;
         } catch {}
     }
 
