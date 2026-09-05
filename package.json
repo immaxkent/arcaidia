@@ -23,9 +23,16 @@
     "test:chains": "pnpm --filter @arcaidia/domain exec vitest run --config vitest.live.config.ts",
     "test:settlement": "pnpm --filter @arcaidia/settlement test",
     "e2e": "pnpm contracts:build && pnpm --filter @arcaidia/e2e test",
-    "test:e2e": "pnpm --filter @arcaidia/e2e test"
+    "test:e2e": "pnpm --filter @arcaidia/e2e test",
+    "subgraph:generate": "tsx scripts/generate-subgraph.ts",
+    "subgraph:check": "tsx scripts/generate-subgraph.ts --check",
+    "subgraph:codegen": "graph codegen subgraph/subgraph.ethereum-sepolia.yaml --output-dir subgraph/generated",
+    "subgraph:build": "pnpm subgraph:generate && pnpm subgraph:codegen && graph build subgraph/subgraph.ethereum-sepolia.yaml --output-dir subgraph/build"
   },
   "devDependencies": {
+    "@graphprotocol/graph-cli": "^0.98.1",
+    "@graphprotocol/graph-ts": "^0.38.2",
+    "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }
