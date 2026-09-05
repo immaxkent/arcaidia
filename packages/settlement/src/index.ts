@@ -9,3 +9,21 @@
 
 export { MockSettlementAdapter } from './adapters/mock-settlement-adapter.js';
 export type { MockSettlementOptions } from './adapters/mock-settlement-adapter.js';
+
+// The worker
+export { processSettlement, runSettlementPass } from './worker/process-settlement.js';
+export type {
+  SettlementDependencies,
+  SettlementStepOutcome,
+} from './worker/process-settlement.js';
+export { InMemorySettlementJournal } from './worker/ports.js';
+export type {
+  SettlementRecord,
+  SettlementJournal,
+  SettlementReceiverClient,
+  SettlementOutcomeReport,
+} from './worker/ports.js';
+
+// Health, derived independently of the transport's own report
+export { deriveSettlementHealth } from './health.js';
+export type { HealthOptions } from './health.js';
