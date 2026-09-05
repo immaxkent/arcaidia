@@ -27,6 +27,7 @@ describe('generated ABI barrel', () => {
       'ArcaidiaDeployer',
       'ArcaidiaIntentRouter',
       'ArcaidiaLiquidityVault',
+      'MockSettlementInitiator',
       'MockUSDC',
       'SettlementReceiver',
     ]);

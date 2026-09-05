@@ -23,6 +23,7 @@ const CONTRACTS = [
   'SettlementReceiver',
   'ArcaidiaDeployer',
   'MockUSDC',
+  'MockSettlementInitiator',
 ];
 
 function readAbi(name) {
