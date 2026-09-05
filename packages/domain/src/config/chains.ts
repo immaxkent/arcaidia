@@ -11,7 +11,7 @@
  */
 
 import type { Address } from '../types/primitives.js';
-import { DEPLOYMENTS } from './deployments.js';
+import { DEPLOYMENTS, chainOverrideFor, deploymentFor } from './deployments.js';
 
 /** Stable key for a configured chain. Used in logs, config files and CLI flags. */
 export type ChainKey = 'ethereum-sepolia' | 'arc-testnet';
@@ -135,9 +135,31 @@ const BY_CHAIN_ID = new Map<number, ChainConfig>(
   Object.values(CHAINS).map((chain) => [chain.chainId, chain]),
 );
 
+/**
+ * The configuration in force for a chain, with any local override applied.
+ *
+ * Everything that resolves a chain at runtime goes through here, so a local run
+ * and a production run take the identical path and differ only in values.
+ */
+export function chainConfig(key: ChainKey): ChainConfig {
+  const base = CHAINS[key];
+  const override = chainOverrideFor(key);
+  const contracts = deploymentFor(key);
+
+  if (!override && contracts === base.contracts) return base;
+
+  return {
+    ...base,
+    ...(override?.rpcUrl ? { rpcUrl: override.rpcUrl } : {}),
+    ...(override?.settlementAsset ? { settlementAsset: override.settlementAsset } : {}),
+    contracts,
+  };
+}
+
 /** Look up a configured chain, or `undefined` if it is not configured. */
 export function findChain(chainId: number): ChainConfig | undefined {
-  return BY_CHAIN_ID.get(chainId);
+  const base = BY_CHAIN_ID.get(chainId);
+  return base ? chainConfig(base.key) : undefined;
 }
 
 /**

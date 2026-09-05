@@ -10,7 +10,7 @@
  */
 
 import type { Address } from '../types/primitives.js';
-import type { ChainKey, ProtocolContracts } from './chains.js';
+import type { ChainKey, ProtocolContracts, TokenConfig } from './chains.js';
 
 export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
   'ethereum-sepolia': {},
@@ -74,9 +74,36 @@ export function registerDeployment(chain: ChainKey, contracts: ProtocolContracts
 
 export function resetDeployments(): void {
   overrides.clear();
+  chainOverrides.clear();
 }
 
 /** The addresses in force for a chain: an override if one is registered, else the committed record. */
 export function deploymentFor(chain: ChainKey): ProtocolContracts {
   return overrides.get(chain) ?? DEPLOYMENTS[chain];
+}
+
+/**
+ * Chain-level overrides for local runs.
+ *
+ * A local chain has its own RPC and its own freshly deployed MockUSDC, neither
+ * of which can be known at commit time. Overriding them here keeps the solver,
+ * the verifier and the settlement worker on one code path: they read chain
+ * configuration exactly as they do in production, and only the values differ.
+ *
+ * The alternative — a branch that reads local addresses in "test mode" — would
+ * mean the code exercised locally is not the code that ships.
+ */
+export interface ChainOverride {
+  readonly rpcUrl?: string;
+  readonly settlementAsset?: TokenConfig;
+}
+
+const chainOverrides = new Map<ChainKey, ChainOverride>();
+
+export function registerChainOverride(chain: ChainKey, override: ChainOverride): void {
+  chainOverrides.set(chain, override);
+}
+
+export function chainOverrideFor(chain: ChainKey): ChainOverride | undefined {
+  return chainOverrides.get(chain);
 }

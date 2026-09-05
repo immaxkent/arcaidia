@@ -57,7 +57,15 @@ export type {
 } from './types/settlement.js';
 
 // Configuration — the only place a chain-specific value may live
-export { CHAINS, CHAIN_KEYS, CREATE2_FACTORY, findChain, isSupportedRoute, supportedRoutes } from './config/chains.js';
+export {
+  CHAINS,
+  CHAIN_KEYS,
+  CREATE2_FACTORY,
+  chainConfig,
+  findChain,
+  isSupportedRoute,
+  supportedRoutes,
+} from './config/chains.js';
 export type {
   ChainConfig,
   ChainKey,
@@ -98,5 +106,11 @@ export {
   registerDeployment,
   resetDeployments,
   deploymentFor,
+  registerChainOverride,
+  chainOverrideFor,
 } from './config/deployments.js';
-export type { ProtocolContractName, DeployedAddress } from './config/deployments.js';
+export type {
+  ProtocolContractName,
+  DeployedAddress,
+  ChainOverride,
+} from './config/deployments.js';
