@@ -13,7 +13,7 @@ cite them.
 | Q5 | Agent Wallet policy controls | WP-09 | **ANSWERED 2026-09-04** |
 | Q6 | Can The Graph index Arc? | WP-08 | **ANSWERED 2026-09-04**, one residual (Studio vs network) |
 | Q7 | One subgraph per chain, or cross-chain composition? | WP-08 | **ANSWERED 2026-09-04** |
-| Q8 | Privy wallet model; can it sign for Arc? | WP-03 | OPEN |
+| Q8 | Privy wallet model; can it sign for Arc? | WP-03 | **ANSWERED 2026-09-05** |
 | Q9 | Confirmation threshold policy for the demo | WP-04 | OPEN — informed by Q2's finality finding |
 | Q10 | Fee split between LP / solver / protocol | WP-02 | OPEN |
 | Q11 | Per-sponsor bounty requirements → evidence checklist | WP-12 | **ANSWERED 2026-09-04** — see [BOUNTY-REQUIREMENTS.md](BOUNTY-REQUIREMENTS.md) |
@@ -204,3 +204,42 @@ the adapter boundary.
 
 **Residual for WP-10:** the exact Iris response status field names are not in the
 technical-guide page. Read the API reference when building the adapter.
+
+## Q8 — Privy on Arc (ANSWERED)
+
+**Decision: embedded wallets.** Privy generates and custodies the key; the user signs in with
+email or social. Better demo, and it exercises the part of Privy their bounty is about.
+
+**Arc is supported, and needs no special handling.** Privy's own documentation states that
+*"Privy embedded wallets can support any EVM-compatible chain"*. A chain absent from
+`viem/chains` is declared with viem's `defineChain` and passed to `PrivyProvider`'s
+`supportedChains`. There is no dashboard allowlist, no official-chains restriction, and no
+difference between embedded and external wallets in this respect.
+
+```ts
+export const arcTestnet = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
+  blockExplorers: { default: { name: 'Arcscan', url: 'https://testnet.arcscan.app' } },
+});
+```
+
+**Why the USDC gas token is not a problem.** On Arc, USDC is the *native* token at the protocol
+level — not an ERC-20 gas abstraction or a paymaster. `msg.value`, `balance` and gas accounting
+all behave as they would with ETH; only the ticker and the 18-decimal gas accounting differ, and
+`defineChain`'s `nativeCurrency` field carries exactly those. This is why Arc's own documentation
+lists MetaMask, Rabby, Coinbase Wallet and Rainbow as working with manual network configuration:
+Arc is an ordinary EVM chain to a wallet. Privy reaches it by the same mechanism.
+
+Note the guardrail in Privy's docs: *"attempting to send a transaction on or switch the wallet to
+a network not in the list of supported chains will throw an error."* Both chains must be in
+`supportedChains` or the bidirectional flow breaks — worth a test in WP-03.
+
+**Residual, only checkable with a live app id:** whether any Privy UI surface assumes an ETH-named
+gas token when presenting a transaction for approval. A cosmetic risk rather than a functional one,
+since the signing path is chain-agnostic. Confirm on the first real Arc transaction in WP-03.
+
+Sources: [Configuring EVM networks](https://docs.privy.io/basics/react/advanced/configuring-evm-networks),
+[Connect to Arc](https://docs.arc.io/arc/references/connect-to-arc)
