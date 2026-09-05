@@ -1,0 +1,140 @@
+# Arcaidia subgraph schema.
+#
+# One schema, deployed once per chain. Each deployment indexes the contracts on
+# its own chain; `GraphObservationProvider` queries both and merges on
+# `intentId`, because The Graph has no cross-chain composition primitive and
+# pretending otherwise would hide the indexing lag that the risk engine needs to
+# see.
+#
+# The dual settlement state is preserved here exactly as it is in the domain
+# package and the contracts: `fastStatus` and `canonicalStatus` are separate
+# fields. A single `status` enum would let a query answer "is this done?" — a
+# question that has no honest single answer.
+
+"An intent as recorded by the source chain's router."
+type Intent @entity(immutable: false) {
+  "The canonical intent id, identical on both chains."
+  id: Bytes!
+
+  sender: Bytes!
+  recipient: Bytes!
+  inputToken: Bytes!
+  amount: BigInt!
+  sourceChainId: BigInt!
+  destinationChainId: BigInt!
+  maxFeeBps: Int!
+  deadline: BigInt!
+  nonce: BigInt!
+
+  "Correlates this intent to its canonical settlement message."
+  settlementRef: Bytes!
+
+  "Has LP capital been advanced to the recipient?"
+  fastStatus: FastStatus!
+  "Has canonical settlement arrived and been reconciled?"
+  canonicalStatus: CanonicalStatus!
+
+  createdAtBlock: BigInt!
+  createdAtTimestamp: BigInt!
+  createdTxHash: Bytes!
+
+  fill: Fill
+  settlement: Settlement
+}
+
+enum FastStatus {
+  PENDING
+  FAST_FILLED
+}
+
+enum CanonicalStatus {
+  PENDING
+  SETTLED
+}
+
+"Where canonical funds went. Only meaningful once canonicalStatus is SETTLED."
+enum CanonicalOutcome {
+  LP_REIMBURSED
+  RECIPIENT_FALLBACK
+}
+
+"An advance of LP capital, recorded by the destination chain's vault."
+type Fill @entity(immutable: true) {
+  id: Bytes!
+  intentId: Bytes!
+  recipient: Bytes!
+  "What actually left the vault: the input amount minus the fee."
+  outputAmount: BigInt!
+  "The agent authority whose signature authorised this."
+  signer: Bytes!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+"Canonical settlement, recorded by the destination chain's receiver."
+type Settlement @entity(immutable: true) {
+  id: Bytes!
+  intentId: Bytes!
+  outcome: CanonicalOutcome!
+  amount: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+"""
+Live vault state, kept as a running aggregate.
+
+The agent reads these figures to price risk, so they must be maintained on every
+event that moves them rather than derived at query time — a query-time sum over
+fills would grow unboundedly and silently slow the solver down as volume rises.
+"""
+type Vault @entity(immutable: false) {
+  "The vault's address."
+  id: Bytes!
+  chainId: BigInt!
+  asset: Bytes!
+
+  "Everything the contract holds, including protocol fees owed."
+  liquidBalance: BigInt!
+  "Principal advanced and awaiting canonical reimbursement."
+  outstandingExposure: BigInt!
+  "Fees held for the treasury. Not LP capital."
+  accruedProtocolFees: BigInt!
+
+  totalDeposited: BigInt!
+  totalWithdrawn: BigInt!
+  fillCount: BigInt!
+  paused: Boolean!
+
+  "The block this state was last written at, so consumers can see their own lag."
+  updatedAtBlock: BigInt!
+  updatedAtTimestamp: BigInt!
+}
+
+"""
+Protocol-wide aggregates, maintained incrementally.
+
+`pendingSettlementValue` and `oldestUnsettledTimestamp` are the two figures the
+risk engine's backlog policy turns on, so they are first-class rather than
+something the client is expected to compute.
+"""
+type ProtocolState @entity(immutable: false) {
+  "Singleton: always the string 'arcaidia'."
+  id: String!
+  chainId: BigInt!
+
+  intentsCreated: BigInt!
+  intentsFilled: BigInt!
+  intentsSettled: BigInt!
+
+  "Advanced and not yet reimbursed."
+  pendingSettlementValue: BigInt!
+  "When the oldest unreimbursed advance was filled. Zero when nothing is outstanding."
+  oldestUnsettledTimestamp: BigInt!
+
+  totalFeesEarned: BigInt!
+  updatedAtBlock: BigInt!
+  updatedAtTimestamp: BigInt!
+}
