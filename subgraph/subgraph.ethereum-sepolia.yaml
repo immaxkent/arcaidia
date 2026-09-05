@@ -1,0 +1,84 @@
+# GENERATED — do not edit. Run `pnpm subgraph:generate`.
+#
+# Addresses come from packages/domain/src/config, so a manifest can never point
+# somewhere the rest of the system does not. A subgraph indexing the wrong
+# address reports an empty world, which the solver reads as "no work" — a
+# failure indistinguishable from a quiet day.
+specVersion: 1.0.0
+description: Arcaidia intents, fills and canonical settlement on Ethereum Sepolia.
+repository: https://github.com/immaxkent/arcaidia
+schema:
+  file: ./schema.graphql
+
+dataSources:
+  - kind: ethereum
+    name: ArcaidiaIntentRouter
+    network: sepolia
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: ArcaidiaIntentRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/router.ts
+      entities: [Intent, ProtocolState]
+      abis:
+        - name: ArcaidiaIntentRouter
+          file: ./abis/ArcaidiaIntentRouter.json
+      eventHandlers:
+        - event: IntentCreated(indexed bytes32,indexed address,indexed address,address,uint256,uint256,uint256,uint16,uint64,uint256,bytes32)
+          handler: handleIntentCreated
+
+  - kind: ethereum
+    name: ArcaidiaLiquidityVault
+    network: sepolia
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: ArcaidiaLiquidityVault
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/vault.ts
+      entities: [Intent, Fill, Vault, ProtocolState]
+      abis:
+        - name: ArcaidiaLiquidityVault
+          file: ./abis/ArcaidiaLiquidityVault.json
+      eventHandlers:
+        - event: FastFilled(indexed bytes32,indexed address,indexed address,uint256,uint256,uint256)
+          handler: handleFastFilled
+        - event: Deposit(indexed address,indexed address,uint256,uint256)
+          handler: handleDeposit
+        - event: Withdraw(indexed address,indexed address,indexed address,uint256,uint256)
+          handler: handleWithdraw
+        - event: ReimbursementRecorded(indexed bytes32,uint256,uint256)
+          handler: handleReimbursement
+        - event: FeesAccrued(indexed bytes32,uint256,uint256)
+          handler: handleFeesAccrued
+        - event: PausedSet(bool)
+          handler: handlePausedSet
+
+  - kind: ethereum
+    name: SettlementReceiver
+    network: sepolia
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: SettlementReceiver
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/settlement.ts
+      entities: [Intent, Settlement, ProtocolState]
+      abis:
+        - name: SettlementReceiver
+          file: ./abis/SettlementReceiver.json
+      eventHandlers:
+        - event: LpReimbursed(indexed bytes32,uint256)
+          handler: handleLpReimbursed
+        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
+          handler: handleRecipientPaidByFallback
