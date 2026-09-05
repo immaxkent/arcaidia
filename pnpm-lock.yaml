@@ -50,6 +50,22 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@26.4.1)
 
+  packages/settlement:
+    dependencies:
+      '@arcaidia/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)
+
 packages:
 
   '@adraffy/ens-normalize@1.11.1':
