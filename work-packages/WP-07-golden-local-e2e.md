@@ -8,24 +8,24 @@ sponsor service running. **This is the most important gate in the project.**
 
 ## Sub-tasks
 
-- [ ] **7.1 Two local chains.** Spin up two anvil instances with distinct chain IDs standing in
+- [x] **7.1 Two local chains.** Spin up two anvil instances with distinct chain IDs standing in
       for Ethereum and Arc. Deploy the same contracts via CREATE2 to both; assert identical addresses.
-- [ ] **7.2 Seed.** Mint MockUSDC, fund LP vaults on both chains, fund a user wallet, configure
+- [x] **7.2 Seed.** Mint MockUSDC, fund LP vaults on both chains, fund a user wallet, configure
       the risk policy.
-- [ ] **7.3 The golden run:** create intent → observe (InMemoryObservationProvider) → verify via
+- [x] **7.3 The golden run:** create intent → observe (InMemoryObservationProvider) → verify via
       RPC → evaluate → sign (LocalAgentSigner) → fast-fill → canonical settle (MockSettlementAdapter)
       → reimburse LP → final state `FAST_FILLED + SETTLED`. Assert balances at **every** step,
       including that the vault ends up ahead by exactly the fee.
-- [ ] **7.4 Mirror run.** The identical script with source and destination swapped, driven purely
+- [x] **7.4 Mirror run.** The identical script with source and destination swapped, driven purely
       by config. Same assertions.
-- [ ] **7.5 Fallback run.** No solver participates → canonical settlement pays the recipient.
+- [x] **7.5 Fallback run.** No solver participates → canonical settlement pays the recipient.
       Both directions.
-- [ ] **7.6 Rejection runs.** Insufficient liquidity, fee ceiling breached, exposure cap hit,
+- [x] **7.6 Rejection runs.** Insufficient liquidity, fee ceiling breached, exposure cap hit,
       CCTP unavailable → PAUSE. Assert no funds moved.
-- [ ] **7.7 One command.** `pnpm e2e` does all of it from a clean machine — no manual steps,
+- [x] **7.7 One command.** `pnpm e2e` does all of it from a clean machine — no manual steps,
       no external network. Document it in the README.
-- [ ] **7.8 CI.** GitHub Actions running contract tests, unit tests and the golden E2E on every push.
-- [ ] **7.9 Invariant checklist run.** The ten global invariants from the index, as an executable
+- [x] **7.8 CI.** GitHub Actions running contract tests, unit tests and the golden E2E on every push.
+- [x] **7.9 Invariant checklist run.** The ten global invariants from the index, as an executable
       suite, green here and re-run at every later gate.
 
 ## Acceptance gate

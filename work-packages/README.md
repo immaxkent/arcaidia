@@ -48,7 +48,7 @@ needs only WP-00 types).
 | [04](WP-04-risk-engine.md) ✅ | M4 | Deterministic agent intelligence | 00 | Every accept/reject/reprice/pause branch unit-tested. |
 | [05](WP-05-fill-authorization.md) ✅ | M5 | Fill authorization path | 02, 04 | Local fast-fill works both directions; tamper/replay fail safely. |
 | [06](WP-06-mock-settlement.md) ✅ | M6 | Mock canonical settlement | 05 | Fast path + fallback settle correctly; settlement idempotent. |
-| [07](WP-07-golden-local-e2e.md) | M7 | Golden local E2E | 06 | One command runs the full economic lifecycle deterministically. |
+| [07](WP-07-golden-local-e2e.md) ✅ | M7 | Golden local E2E | 06 | One command runs the full economic lifecycle deterministically. |
 | [08](WP-08-the-graph.md) | M8 | The Graph integration | 07 | Disabling Graph stops automation; live data changes decisions. |
 | [09](WP-09-circle-agent-wallet.md) | M9 | Circle Agent Wallet | 07 (08 preferred) | Real Agent Wallet authority signs a bounded fill; core logic unchanged. |
 | [10](WP-10-cctp-real-usdc.md) | M10 | Real CCTP & USDC config | 09 | Real canonical transfer reimburses the opposite-chain vault. |
@@ -58,17 +58,18 @@ needs only WP-00 types).
 
 ## Status as of 2026-09-04
 
-WP-00, WP-01, WP-02, WP-04, WP-05 and WP-06 are complete, each with a report beside its
+WP-00, WP-01, WP-02, WP-04, WP-05, WP-06 and WP-07 are complete, each with a report beside its
 work package. WP-03 is paused rather than skipped: its gate needs a Privy app id
 and a browser to evidence honestly, and it does not block anything.
 
 ```
 pnpm test:global      everything below, in order
-pnpm test:shared-domain   83 tests   packages/domain
-pnpm test:agent          155 tests   packages/agent
-pnpm test:settlement      45 tests   packages/settlement
-pnpm test:sc-eth         218 tests   contracts, Ethereum as source
-pnpm test:sc-arc         218 tests   contracts, Arc as source
+pnpm test:shared-domain   94 tests   packages/domain
+pnpm test:agent          165 tests   packages/agent
+pnpm test:settlement      55 tests   packages/settlement
+pnpm test:sc-eth         246 tests   contracts, Ethereum as source
+pnpm test:sc-arc         246 tests   contracts, Arc as source
+pnpm test:e2e             21 tests   two anvil chains, the full lifecycle
 ```
 
 The two contract runs are the same suite with `ARCAIDIA_SOURCE` flipped: both
