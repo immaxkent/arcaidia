@@ -66,8 +66,28 @@ jobs:
       - name: Contract tests — Arc as source
         run: pnpm test:sc-arc
 
+      # Captured to a file so the failure can be re-emitted as annotations
+      # below. Downloading run logs needs repository admin rights, which makes a
+      # red build opaque to contributors; annotations are readable by anyone.
       - name: Golden end-to-end run
-        run: pnpm test:e2e
+        id: e2e
+        run: pnpm test:e2e 2>&1 | tee e2e.log
+        shell: bash
+
+      - name: Surface the end-to-end failure
+        if: failure() && steps.e2e.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::group::end-to-end output (tail)"
+          tail -n 120 e2e.log || true
+          echo "::endgroup::"
+          # Re-emit the meaningful lines as annotations, which appear on the run
+          # summary and in the public checks API.
+          grep -E "Error|error|FAIL|✗|×|AssertionError|anvil said|did not become ready|exited with code" e2e.log \
+            | tail -n 25 \
+            | while IFS= read -r line; do
+                printf '::error::%s\n' "${line//$'\r'/}"
+              done
 
       - name: Contract sizes
         run: cd contracts && forge build --sizes
