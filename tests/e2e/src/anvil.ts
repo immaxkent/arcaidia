@@ -32,13 +32,27 @@ export async function startAnvil(chainId: number, port: number): Promise<AnvilCh
     [
       '--chain-id', String(chainId),
       '--port', String(port),
-      '--silent',
+      '--host', '127.0.0.1',
       // Deterministic accounts and no mining delay: the harness controls time.
       '--accounts', '10',
       '--balance', '10000',
     ],
-    { stdio: 'ignore' },
+    { stdio: ['ignore', 'pipe', 'pipe'] },
   );
+
+  // Anvil's own output, kept so a startup failure reports its actual reason.
+  // Discarding it turns every failure — missing binary, port in use, bad flag —
+  // into the same unhelpful readiness timeout.
+  let output = '';
+  const capture = (chunk: Buffer) => {
+    output += chunk.toString();
+    if (output.length > 4_000) output = output.slice(-4_000);
+  };
+  process_.stdout?.on('data', capture);
+  process_.stderr?.on('data', capture);
+  process_.on('error', (error) => {
+    output += `\nspawn error: ${error.message}`;
+  });
 
   const rpcUrl = `http://127.0.0.1:${port}`;
   const chain = defineChain({
@@ -50,7 +64,7 @@ export async function startAnvil(chainId: number, port: number): Promise<AnvilCh
 
   const client = createPublicClient({ chain, transport: http(rpcUrl) }) as PublicClient;
 
-  await waitForChain(client, chainId, process_);
+  await waitForChain(client, chainId, process_, () => output);
 
   return {
     chainId,
@@ -68,12 +82,19 @@ async function waitForChain(
   client: PublicClient,
   expectedChainId: number,
   process_: ChildProcess,
+  output: () => string,
 ): Promise<void> {
-  const deadline = Date.now() + 30_000;
+  // Generous, because a cold CI runner starting its first anvil is much slower
+  // than a warm laptop, and a readiness timeout is the least informative way to
+  // fail.
+  const deadline = Date.now() + 60_000;
 
   while (Date.now() < deadline) {
     if (process_.exitCode !== null) {
-      throw new Error(`anvil exited with code ${process_.exitCode} before becoming ready.`);
+      throw new Error(
+        `anvil exited with code ${process_.exitCode} before becoming ready.\n` +
+          `anvil said:\n${output().trim() || '(no output)'}`,
+      );
     }
     try {
       const id = await client.getChainId();
@@ -101,7 +122,10 @@ async function waitForChain(
   }
 
   process_.kill('SIGKILL');
-  throw new Error('anvil did not become ready within 30s. Is foundry installed?');
+  throw new Error(
+    'anvil did not become ready within 60s.\n' +
+      `anvil said:\n${output().trim() || '(no output — is foundry on PATH?)'}`,
+  );
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
