@@ -14,7 +14,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@arcaidia/domain": "workspace:*"
+    "@arcaidia/domain": "workspace:*",
+    "viem": "^2.39.4"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

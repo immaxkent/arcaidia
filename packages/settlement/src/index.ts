@@ -27,3 +27,7 @@ export type {
 // Health, derived independently of the transport's own report
 export { deriveSettlementHealth } from './health.js';
 export type { HealthOptions } from './health.js';
+
+// RPC adapter for the destination receiver
+export { ViemSettlementReceiverClient } from './adapters/viem-receiver-client.js';
+export type { ReceiverReadClient, ReceiverWriteClient } from './adapters/viem-receiver-client.js';
