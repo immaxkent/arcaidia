@@ -25,7 +25,17 @@ video and README carry the argument.
       trust assumption out loud.
 - [ ] **12.6 CI green and visible.** Badge in the README; all suites running on push.
 - [ ] **12.7 Commit history review.** Confirm it reads as chronological, incremental work.
-- [ ] **12.8 Submission entry finalised** on the ETHOnline platform, with every sponsor bounty
+- [ ] **12.8 The Graph P1 upgrade — Subgraph MCP.** A second Graph product, which P1 requires and
+      we currently fail on a technicality: an MCP server exposing Arcaidia's vault liquidity,
+      outstanding exposure and settlement backlog to natural-language queries.
+      **Additive only.** It sits beside the solver, never inside it — a natural-language layer in
+      the decision path would break the determinism the risk engine is built on, which is worse
+      than losing the prize. Roughly half a day.
+- [ ] **12.8b Optional stretch: ERC-4626 Substreams module.** The route P1's text names directly.
+      A reusable module for ERC-4626 vault flows that works for *any* such vault, not just ours —
+      an Arcaidia-specific one would not be a contribution to a standard. One to two days and a
+      new Rust/protobuf toolchain, so take it only if WP-11 lands with time in hand.
+- [ ] **12.9 Submission entry finalised** on the ETHOnline platform, with every sponsor bounty
       mapped to its evidence. Started in WP-00; kept current since.
 
 ## Acceptance gate
