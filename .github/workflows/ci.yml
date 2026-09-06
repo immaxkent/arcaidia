@@ -13,7 +13,7 @@ jobs:
   test:
     name: test:global
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +36,38 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Everything: contract build, ABI staleness, typecheck, all four unit
-      # suites, both contract directions, and the two-chain golden run. It
-      # reaches no network, so a sponsor outage cannot turn CI red.
-      - run: pnpm test:global
+      # Run each stage as its own step rather than one composite command.
+      # A failing step name is then visible from the API and the run summary
+      # without downloading logs, which needs repository admin rights.
+      - name: Build contracts
+        run: pnpm contracts:build
+
+      - name: ABI barrel is current
+        run: pnpm abi:check
+
+      - name: Subgraph manifests are current
+        run: pnpm subgraph:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Domain tests
+        run: pnpm test:shared-domain
+
+      - name: Agent tests
+        run: pnpm test:agent
+
+      - name: Settlement tests
+        run: pnpm test:settlement
+
+      - name: Contract tests — Ethereum as source
+        run: pnpm test:sc-eth
+
+      - name: Contract tests — Arc as source
+        run: pnpm test:sc-arc
+
+      - name: Golden end-to-end run
+        run: pnpm test:e2e
 
       - name: Contract sizes
         run: cd contracts && forge build --sizes
