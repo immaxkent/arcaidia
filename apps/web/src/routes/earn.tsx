@@ -1,0 +1,655 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { CopyValue } from "@/components/site/copy-value";
+import { TimeValue } from "@/components/site/time-value";
+import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address, type SolverDeployTarget } from "@/lib/arcaidia/types";
+import { formatBps, formatUsdc, isAddressLike, parseUsdc, truncateAddress } from "@/lib/arcaidia/format";
+import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
+import { useWallet } from "@/components/wallet/wallet-context";
+import { chainConfig } from "@/lib/arcaidia/config";
+import { NOT_AVAILABLE } from "@/lib/arcaidia/data-state";
+import { AwaitingSource, StateValue } from "@/components/data/state-views";
+import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
+import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
+import { useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
+
+
+export const Route = createFileRoute("/earn")({
+  head: () => ({
+    meta: [
+      { title: "Earn — deploy a solver vault | Arcaidia" },
+      {
+        name: "description",
+        content:
+          "Deploy your own Arcaidia solver vault: choose a chain, fund it with USDC, set its economics, connect a solver and go live competing for the first valid fill.",
+      },
+      { property: "og:title", content: "Earn — deploy a solver vault | Arcaidia" },
+      {
+        property: "og:description",
+        content:
+          "An operator console for running an autonomous liquidity business: your vault, your capital, your fee curve.",
+      },
+    ],
+  }),
+  component: EarnPage,
+});
+
+const STEPS = [
+  { n: 1, label: "Choose chain" },
+  { n: 2, label: "Create vault" },
+  { n: 3, label: "Fund vault" },
+  { n: 4, label: "Configure economics" },
+  { n: 5, label: "Set up solver" },
+  { n: 6, label: "Go live" },
+] as const;
+
+type SolverMode = "REFERENCE" | "EXTERNAL";
+
+/** Reference solver deployment recipes. The solver owns its operator key, not Arcaidia. */
+const DEPLOY_TARGETS: Array<{ id: SolverDeployTarget; label: string; command: string }> = [
+  {
+    id: "DOCKER",
+    label: "Docker",
+    command: `docker run -d --name arcaidia-solver \\
+  -v arcaidia-keys:/keys \\
+  -e ARC_VAULT=0xYourVault \\
+  -e ARC_RPC_URL=https://... \\
+  ghcr.io/arcaidia/reference-solver:latest
+
+# prints: solver operator address 0x…`,
+  },
+  {
+    id: "VPS",
+    label: "VPS",
+    command: `curl -fsSL https://get.arcaidia.xyz/solver | sh
+arcaidia-solver init --keystore ~/.arcaidia/keys
+arcaidia-solver run --vault 0xYourVault --rpc https://...
+
+# prints: solver operator address 0x…`,
+  },
+  {
+    id: "LOCAL",
+    label: "Local",
+    command: `git clone https://github.com/arcaidia/reference-solver
+cd reference-solver && bun install
+bun run solver --vault 0xYourVault --rpc http://127.0.0.1:8545
+
+# prints: solver operator address 0x…`,
+  },
+  {
+    id: "KUBERNETES",
+    label: "Kubernetes",
+    command: `kubectl create secret generic arcaidia-solver-key --from-file=key=./operator.key
+helm install arcaidia-solver arcaidia/reference-solver \\
+  --set vault=0xYourVault --set rpcUrl=https://...
+
+# kubectl logs prints: solver operator address 0x…`,
+  },
+];
+
+/**
+ * HANDOFF — Earn / operator flow.
+ *
+ * Every step state comes from a real action, never assumed:
+ *   wallet connected      -> useWallet (Privy)
+ *   vault deployed        -> factory tx receipt; `vaultAddress` stays null until then
+ *   funding confirmed     -> USDC transfer receipt
+ *   solver operator known -> pasted by the owner / reported by telemetry pairing
+ *   authorised onchain    -> useSolverMetrics().authState (contract read)
+ *   solver live           -> telemetry heartbeat, which is NOT authorisation
+ * Vault health and fills read from contract/indexer hooks and show honest
+ * unavailable states until those are wired.
+ */
+function EarnPage() {
+  const { status: walletStatus, address, connect } = useWallet();
+  const connected = walletStatus === "CONNECTED";
+
+  const [step, setStep] = useState(1);
+  const [chainId, setChainId] = useState(ARC_TESTNET);
+  const [funding, setFunding] = useState("");
+  const [baseFeeBps, setBaseFeeBps] = useState(12);
+  const [curve, setCurve] = useState("utilisation-linear-v1");
+  const [utilisationCeilingBps, setUtilisationCeilingBps] = useState(7000);
+  const [maxFillSize, setMaxFillSize] = useState("50000");
+  const [solverMode, setSolverMode] = useState<SolverMode>("REFERENCE");
+  const [deployTarget, setDeployTarget] = useState<SolverDeployTarget>("DOCKER");
+  const [solverOperator, setSolverOperator] = useState("");
+
+  /** Set only from a confirmed factory deployment receipt. */
+  const [vaultAddress] = useState<Address | null>(null);
+  const deployed = vaultAddress !== null;
+  const factoryReady = chainConfig(chainId)?.vaultFactory !== null;
+
+  const metrics = useSolverMetrics(chainId, vaultAddress);
+  const telemetry = useSolverTelemetry(vaultAddress);
+  const fills = useVaultFills(chainId, vaultAddress);
+
+  const authorised = metrics.status === "ready" && metrics.data.authState === "AUTHORISED";
+  const live = metrics.status === "ready" && metrics.data.runtimeStatus === "ONLINE";
+
+  const funded = parseUsdc(funding) ?? 0n;
+  const reserveFloor = funded / 10n;
+  const usable = funded - reserveFloor;
+  const operatorValid = isAddressLike(solverOperator.trim());
+
+
+  return (
+    <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
+      <p className="num text-xs uppercase tracking-[0.3em] text-acid">Operator console</p>
+      <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">Earn — run a solver vault</h1>
+      <p className="measure mt-2 text-sm text-text-dim">
+        This is not a staking page. You deploy a vault you control, fund it with your own USDC, set the price
+        you are willing to advance liquidity at, and point a solver at the intent stream. When your solver
+        lands the first valid fill, your vault pays the recipient and earns the fee; canonical CCTP settlement
+        reimburses it later. Your capital is at risk while a fill is outstanding.
+      </p>
+      <p className="measure mt-2 text-sm text-text-dim">
+        There are no pooled third-party deposits. Nobody LPs into your vault, and you do not LP into anyone
+        else's.
+      </p>
+
+      <ol className="mt-8 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {STEPS.map((s) => {
+          const state = s.n === step ? "current" : s.n < step ? "done" : "todo";
+          return (
+            <li key={s.n}>
+              <button
+                type="button"
+                onClick={() => setStep(s.n)}
+                aria-current={state === "current"}
+                className={`w-full rounded-md border px-3 py-2 text-left text-xs uppercase tracking-wide transition-colors ${
+                  state === "current"
+                    ? "border-acid/70 bg-acid/10 text-acid"
+                    : state === "done"
+                      ? "border-gold/40 bg-gold/5 text-gold-glow"
+                      : "border-border text-text-dim hover:text-text"
+                }`}
+              >
+                <span className="num block text-[10px] opacity-70">Step {s.n}</span>
+                {s.label}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(360px,1fr)_minmax(340px,420px)]">
+        <section className="panel p-5">
+          {step === 1 ? (
+            <Step title="Choose destination chain" hint="Your vault advances liquidity on this chain.">
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {[ETHEREUM_SEPOLIA, ARC_TESTNET].map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setChainId(id)}
+                    aria-pressed={id === chainId}
+                    className={`instrument p-4 text-left transition-colors ${
+                      id === chainId ? "border-acid/60" : ""
+                    }`}
+                  >
+                    <span className="font-display text-2xl uppercase text-newsprint">{CHAINS[id]?.short}</span>
+                    <span className="num mt-1 block text-[11px] text-text-dim">{CHAINS[id]?.name}</span>
+                  </button>
+                ))}
+              </div>
+            </Step>
+          ) : null}
+
+          {step === 2 ? (
+            <Step
+              title="Create vault"
+              hint="Deploys a standard ArcaidiaSolverVault from the supported factory template. No custom vault code."
+            >
+              <dl className="mt-3 space-y-1.5 text-sm">
+                <Row k="Template" v="ArcaidiaSolverVault (standard)" />
+                <Row k="Chain" v={CHAINS[chainId]?.name ?? NOT_AVAILABLE} />
+                <Row k="Asset" v="USDC" />
+                <Row
+                  k="Owner"
+                  v={connected && address ? truncateAddress(address) : "Connect wallet"}
+                  tone={connected ? "text-text" : "text-warning"}
+                />
+                <Row k="Vault" v={vaultAddress ? truncateAddress(vaultAddress) : "Not deployed yet"} />
+              </dl>
+              {/* WIRE: factory deployment tx -> receipt -> vault address. */}
+              <button
+                type="button"
+                disabled={!connected || !factoryReady}
+                onClick={() => (connected ? undefined : connect())}
+                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+              >
+                Deploy vault
+              </button>
+              {!connected ? (
+                <button
+                  type="button"
+                  onClick={() => connect()}
+                  className="num mt-2 text-[11px] uppercase tracking-wide text-electric-glow hover:text-acid"
+                >
+                  Connect wallet first
+                </button>
+              ) : null}
+              {vaultAddress ? (
+                <p className="num mt-3 text-xs text-text-dim">
+                  Vault <CopyValue value={vaultAddress} label="vault address" />
+                </p>
+              ) : null}
+              {!factoryReady ? (
+                <AwaitingSource>Vault factory not deployed on this chain yet</AwaitingSource>
+              ) : null}
+            </Step>
+
+          ) : null}
+
+          {step === 3 ? (
+            <Step title="Fund vault" hint="Deposit USDC. A reserve floor stays behind so the vault can always unwind.">
+              <div className="panel-raised mt-3 px-3 py-3">
+                <label htmlFor="fund-amount" className="text-[11px] uppercase tracking-wide text-text-dim">
+                  Deposit amount
+                </label>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <input
+                    id="fund-amount"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={funding}
+                    onChange={(e) => setFunding(e.target.value)}
+                    className="num w-full bg-transparent text-2xl text-text outline-none placeholder:text-text-dim/50"
+                  />
+                  <span className="num text-sm text-text-dim">USDC</span>
+                </div>
+              </div>
+              <dl className="mt-4 space-y-1.5 text-sm">
+                <Row k="Reserve floor (10%)" v={`${formatUsdc(reserveFloor)} USDC`} />
+                <Row k="Usable fill capital" v={`${formatUsdc(usable)} USDC`} tone="text-acid" />
+              </dl>
+              <button
+                type="button"
+                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid"
+              >
+                Deposit USDC
+              </button>
+            </Step>
+          ) : null}
+
+          {step === 4 ? (
+            <Step title="Configure economics" hint="Deterministic pricing only. No discretionary quoting.">
+              <div className="mt-3 space-y-4">
+                <Field label={`Base fee — ${formatBps(baseFeeBps)}`} id="base-fee">
+                  <input
+                    id="base-fee"
+                    type="range"
+                    min={5}
+                    max={50}
+                    value={baseFeeBps}
+                    onChange={(e) => setBaseFeeBps(Number(e.target.value))}
+                    className="w-full accent-acid"
+                  />
+                </Field>
+                <Field label="Canonical pricing curve" id="curve">
+                  <select
+                    id="curve"
+                    value={curve}
+                    onChange={(e) => setCurve(e.target.value)}
+                    className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                  >
+                    <option value="utilisation-linear-v1">utilisation-linear-v1 (supported)</option>
+                    <option value="utilisation-convex-v1" disabled>
+                      utilisation-convex-v1 (not audited yet)
+                    </option>
+                  </select>
+                </Field>
+                <Field label={`Utilisation ceiling — ${formatBps(utilisationCeilingBps)}`} id="ceiling">
+                  <input
+                    id="ceiling"
+                    type="range"
+                    min={2000}
+                    max={9500}
+                    step={100}
+                    value={utilisationCeilingBps}
+                    onChange={(e) => setUtilisationCeilingBps(Number(e.target.value))}
+                    className="w-full accent-acid"
+                  />
+                </Field>
+                <Field label="Max single fill (USDC)" id="max-fill">
+                  <input
+                    id="max-fill"
+                    inputMode="decimal"
+                    value={maxFillSize}
+                    onChange={(e) => setMaxFillSize(e.target.value)}
+                    className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                  />
+                </Field>
+              </div>
+            </Step>
+          ) : null}
+
+          {step === 5 ? (
+            <Step
+              title="Set up solver"
+              hint="Arcaidia does not validate or trust a solver binary. It validates the solver operator address you authorise onchain for your vault."
+            >
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    { id: "REFERENCE" as SolverMode, t: "Arcaidia reference solver", d: "Open-source image you run on Docker, a VPS, locally or on Kubernetes." },
+                    { id: "EXTERNAL" as SolverMode, t: "External solver", d: "Any compatible implementation, however you host it." },
+                  ]
+                ).map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => setSolverMode(o.id)}
+                    aria-pressed={solverMode === o.id}
+                    className={`instrument p-4 text-left ${solverMode === o.id ? "border-acid/60" : ""}`}
+                  >
+                    <span className="block text-sm font-semibold text-text">{o.t}</span>
+                    <span className="mt-1 block text-xs text-text-dim">{o.d}</span>
+                  </button>
+                ))}
+              </div>
+
+              {solverMode === "REFERENCE" ? (
+                <div className="mt-5">
+                  <p className="text-[11px] uppercase tracking-wide text-text-dim">Deployment target</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {DEPLOY_TARGETS.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setDeployTarget(t.id)}
+                        aria-pressed={deployTarget === t.id}
+                        className={`rounded-full border px-3 py-1 text-xs uppercase tracking-wide transition-colors ${
+                          deployTarget === t.id
+                            ? "border-acid/60 bg-acid/15 text-acid"
+                            : "border-border text-text-dim hover:text-text"
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  <pre className="num mt-3 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">
+                    {(DEPLOY_TARGETS.find((t) => t.id === deployTarget) ?? DEPLOY_TARGETS[0]!).command}
+                  </pre>
+                  <p className="measure mt-2 text-xs text-text-dim">
+                    On first start the solver creates or loads its own operator wallet and prints the public
+                    address. That key stays with the solver process — Arcaidia and your Privy wallet never
+                    hold it. A supported Circle Agent Wallet address works here too.
+                  </p>
+                </div>
+              ) : (
+                <p className="measure mt-4 text-xs text-text-dim">
+                  Run your own solver anywhere. It needs its own operator address — an EOA or a supported
+                  Circle Agent Wallet — able to submit fast fills against your vault.
+                </p>
+              )}
+
+              <Field label="Solver operator address" id="solver-operator">
+                <input
+                  id="solver-operator"
+                  placeholder="0x…"
+                  value={solverOperator}
+                  onChange={(e) => setSolverOperator(e.target.value)}
+                  className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                />
+              </Field>
+              <p className="num text-[11px] text-text-dim">
+                {operatorValid
+                  ? "Valid address"
+                  : solverOperator.trim().length === 0
+                    ? "Paste the address your solver printed"
+                    : "Not a valid 20-byte address"}
+              </p>
+
+              {/* WIRE: owner-signed authoriseSolver(operator) transaction on the vault. */}
+              <button
+                type="button"
+                disabled={!connected || !deployed || !operatorValid || authorised}
+                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+              >
+                {authorised ? "Solver authorised" : "Sign authorisation transaction"}
+              </button>
+              <p className="num mt-2 text-[11px] text-text-dim">
+                You sign as the vault owner through Privy. This writes the authorised operator to your vault.
+              </p>
+
+              <dl className="mt-4 space-y-1.5 text-sm">
+                <Row
+                  k="Vault"
+                  v={deployed ? truncateAddress(vaultAddress!) : "Deploy vault first"}
+                  tone={deployed ? "text-success" : "text-warning"}
+                />
+                <Row
+                  k="Owner identity"
+                  v={connected && address ? truncateAddress(address) : "Connect wallet"}
+                  tone={connected ? "text-text" : "text-warning"}
+                />
+                <Row
+                  k="Solver operator"
+                  v={operatorValid ? truncateAddress(solverOperator as Address) : NOT_AVAILABLE}
+                />
+                <Row
+                  k="Telemetry pairing"
+                  v={
+                    telemetry.status === "ready"
+                      ? telemetry.data.paired
+                        ? "Runtime paired (not authorisation)"
+                        : "Runtime seen, unpaired"
+                      : "Telemetry unavailable"
+                  }
+                  tone="text-text-dim"
+                />
+                <Row
+                  k="Onchain authorisation state"
+                  v={
+                    metrics.status === "ready"
+                      ? metrics.data.authState === "AUTHORISED"
+                        ? "SOLVER AUTHORISED"
+                        : (metrics.data.authState ?? NOT_AVAILABLE)
+                      : NOT_AVAILABLE
+                  }
+                  tone={authorised ? "text-acid" : "text-text-dim"}
+                />
+              </dl>
+              <AwaitingSource>
+                Authorisation state is read from the vault contract — telemetry pairing never implies it
+              </AwaitingSource>
+              <Link
+                to="/console"
+                className="mt-4 inline-block rounded-lg border border-electric/60 bg-electric/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-electric-glow"
+              >
+                Open solver console
+              </Link>
+            </Step>
+
+          ) : null}
+
+          {step === 6 ? (
+            <Step title="Go live" hint="Review, then activate. You can pause the vault at any time.">
+              <dl className="mt-3 space-y-1.5 text-sm">
+                <Row k="Chain" v={CHAINS[chainId]?.name ?? NOT_AVAILABLE} />
+                <Row k="Vault" v={deployed ? truncateAddress(vaultAddress!) : "Not deployed"} />
+                <Row k="Funded" v={`${formatUsdc(funded)} USDC`} />
+                <Row k="Base fee" v={formatBps(baseFeeBps)} />
+                <Row k="Pricing curve" v={curve} />
+                <Row k="Utilisation ceiling" v={formatBps(utilisationCeilingBps)} />
+                <Row k="Max single fill" v={`${maxFillSize || "0"} USDC`} />
+                <Row k="Solver runtime" v={solverMode === "REFERENCE" ? "Arcaidia reference solver" : "External solver"} />
+                <Row
+                  k="Authorised operator"
+                  v={
+                    metrics.status === "ready" && metrics.data.authorisedSolver
+                      ? truncateAddress(metrics.data.authorisedSolver)
+                      : NOT_AVAILABLE
+                  }
+                  tone={authorised ? "text-acid" : "text-text-dim"}
+                />
+              </dl>
+              {/* WIRE: owner-signed activate/pause transaction on the vault. */}
+              <button
+                type="button"
+                disabled={!authorised}
+                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+              >
+                {live ? "Pause solver" : "Activate solver"}
+              </button>
+
+              <p className="measure mt-3 text-xs text-text-dim">
+                The solver operator address is replaceable at any time — the vault is the durable economic
+                identity, and its history stays with it.
+              </p>
+              <Link
+                to="/console"
+                className="mt-4 inline-block rounded-lg border border-electric/60 bg-electric/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-electric-glow"
+              >
+                Open solver console
+              </Link>
+            </Step>
+          ) : null}
+
+          <div className="mt-6 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setStep((s) => Math.max(1, s - 1))}
+              className="rounded-md border border-border px-3 py-2 text-xs uppercase tracking-wide text-text-dim hover:text-text"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep((s) => Math.min(6, s + 1))}
+              className="rounded-md border border-acid/60 bg-acid/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-acid"
+            >
+              Next step
+            </button>
+          </div>
+        </section>
+
+        <aside className="panel p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-display text-2xl uppercase text-newsprint">Vault health</h2>
+            <span
+              className={`num rounded-sm border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+                live ? "border-success/50 bg-success/10 text-success" : "border-border bg-surface-raised text-text-dim"
+              }`}
+            >
+              {live ? "Live" : "Standby"}
+            </span>
+            <ChainBadge chainId={chainId} />
+          </div>
+          <dl className="mt-4 grid grid-cols-2 gap-3">
+            {(
+              [
+                {
+                  k: "Available capital",
+                  tone: "text-text",
+                  f: (m: { availableLiquidity: bigint | null }) =>
+                    m.availableLiquidity === null ? NOT_AVAILABLE : formatUsdc(m.availableLiquidity),
+                },
+                {
+                  k: "Outstanding exposure",
+                  tone: "text-gold-glow",
+                  f: (m: { outstandingExposure: bigint | null }) =>
+                    m.outstandingExposure === null ? NOT_AVAILABLE : formatUsdc(m.outstandingExposure),
+                },
+                {
+                  k: "Successful fills",
+                  tone: "text-electric-glow",
+                  f: (m: { transactionCount: number | null }) =>
+                    m.transactionCount === null ? NOT_AVAILABLE : `${m.transactionCount}`,
+                },
+                {
+                  k: "Lifetime fees",
+                  tone: "text-acid",
+                  f: (m: { totalFees: bigint | null }) =>
+                    m.totalFees === null ? NOT_AVAILABLE : formatUsdc(m.totalFees),
+                },
+                {
+                  k: "Settled volume",
+                  tone: "text-text",
+                  f: (m: { totalVolume: bigint | null }) =>
+                    m.totalVolume === null ? NOT_AVAILABLE : formatUsdc(m.totalVolume),
+                },
+                {
+                  k: "Utilisation",
+                  tone: "text-text",
+                  f: (m: { utilisationBps: number | null }) =>
+                    m.utilisationBps === null ? NOT_AVAILABLE : formatBps(m.utilisationBps),
+                },
+              ] as const
+            ).map((m) => (
+              <div key={m.k} className="instrument p-3">
+                <dt className="text-[11px] uppercase tracking-wide text-text-dim">{m.k}</dt>
+                <dd className={`num mt-1 text-base ${m.tone}`}>
+                  <StateValue state={metrics} format={m.f} />
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <div className="mt-3">
+            <UtilisationMeter bps={metrics.status === "ready" ? metrics.data.utilisationBps : null} />
+          </div>
+          <div className="instrument mt-4 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-text-dim">Solver status</p>
+            <p className="num mt-1 text-sm text-text">
+              {metrics.status === "ready" && metrics.data.runtimeStatus
+                ? metrics.data.runtimeStatus
+                : "Awaiting solver"}
+            </p>
+            <p className="num mt-1 text-xs text-text-dim">
+              Heartbeat{" "}
+              <StateValue
+                state={telemetry}
+                format={(t) => <TimeValue at={t.lastHeartbeatAt} />}
+                fallback="Telemetry unavailable"
+              />
+            </p>
+          </div>
+          <AwaitingSource>Vault reads and telemetry heartbeat, once your vault is deployed</AwaitingSource>
+        </aside>
+      </div>
+
+      <section className="panel mt-8 p-5">
+        <h2 className="font-display text-2xl uppercase text-newsprint">Recent fills</h2>
+        <p className="mt-1 text-sm text-text-dim">
+          Intents your vault won and funded. Each one advanced capital to a recipient before canonical
+          settlement returned it.
+        </p>
+        <FillsTable state={fills} />
+
+      </section>
+    </div>
+  );
+}
+
+function Step({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h2 className="font-display text-2xl uppercase text-newsprint">{title}</h2>
+      <p className="measure mt-1 text-sm text-text-dim">{hint}</p>
+      {children}
+    </div>
+  );
+}
+
+function Row({ k, v, tone = "text-text" }: { k: string; v: string; tone?: string }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt className="text-text-dim">{k}</dt>
+      <dd className={`num text-right ${tone}`}>{v}</dd>
+    </div>
+  );
+}
+
+function Field({ label, id, children }: { label: string; id: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-3">
+      <label htmlFor={id} className="text-[11px] uppercase tracking-wide text-text-dim">
+        {label}
+      </label>
+      <div className="mt-1.5">{children}</div>
+    </div>
+  );
+}

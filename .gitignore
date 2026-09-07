@@ -8,3 +8,7 @@ coverage/
 *.log
 .DS_Store
 broadcast/
+
+# apps/web build output not already covered by its own .gitignore
+apps/web/.output/
+apps/web/.vinxi/
