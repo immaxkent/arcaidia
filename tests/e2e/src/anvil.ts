@@ -62,7 +62,17 @@ export async function startAnvil(chainId: number, port: number): Promise<AnvilCh
     rpcUrls: { default: { http: [rpcUrl] } },
   });
 
-  const client = createPublicClient({ chain, transport: http(rpcUrl) }) as PublicClient;
+  // `cacheTime: 0` is load-bearing. viem caches the chain head for 4s by
+  // default, and `readContract` against `latest` then executes at that cached
+  // block. A fill mined 50ms ago still reads as unfilled — which is exactly
+  // how the golden run fails on CI. The source reader already opts out
+  // per-call; the harness opts out for the whole client because every e2e
+  // assertion is a read of just-written state.
+  const client = createPublicClient({
+    chain,
+    transport: http(rpcUrl),
+    cacheTime: 0,
+  }) as PublicClient;
 
   await waitForChain(client, chainId, process_, () => output);
 

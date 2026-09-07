@@ -445,8 +445,17 @@ function walletFor(chain: AnvilChain, key: Hex): never {
   });
 
   // The adapters need only `writeContract`, so this narrows to exactly that.
+  // Wait for inclusion before returning: `processIntent` reports FILLED from
+  // this resolving, and a hash in the mempool is not a fill.
   return {
-    writeContract: (args: Record<string, unknown>) => wallet.writeContract(args as never),
+    writeContract: async (args: Record<string, unknown>) => {
+      const hash = await wallet.writeContract(args as never);
+      const receipt = await chain.client.waitForTransactionReceipt({ hash });
+      if (receipt.status === 'reverted') {
+        throw new Error(`Transaction ${hash} reverted.`);
+      }
+      return hash;
+    },
   } as never;
 }
 
