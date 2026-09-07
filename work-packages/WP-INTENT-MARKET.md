@@ -109,3 +109,13 @@ it already is.
   competition to fill a user's order has no clear anti-spam justification here, since the
   intents are read openly rather than broadcast at volume. If Sybil/spam pressure on the
   opportunity feed becomes real, revisit.
+
+## 7. Cross-reference — the reference solver runtime already matches this
+
+WP-05's extension (Docker Compose reference deployment, telemetry, operator pairing) was built
+to target V1's one protocol-owned shared vault, with the protocol calling
+`setAuthorisedSigner` to authorise a paired operator. That call is identical to what a
+self-deployed vault's owner would make here — `msg.sender`/vault-owner authority over the same
+function, just on a vault they deployed instead of the shared one. The pairing and telemetry
+layer therefore requires no rework when this ships: only which vault address an operator points
+their reference runtime at changes.
