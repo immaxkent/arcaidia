@@ -15,7 +15,13 @@ import {ArcaidiaDeployment} from "../src/deploy/ArcaidiaDeployment.sol";
 ///      test suite exercises in both directions. This file only reads config,
 ///      asserts the predicted addresses and broadcasts.
 ///
-///      Usage:
+///      Usage (keystore-cached wallet, no plaintext key anywhere):
+///        forge script script/Deploy.s.sol \
+///          --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
+///          --account <cast-wallet-name> --sender <that-account's-address> \
+///          --broadcast
+///
+///      Usage (plaintext key via DEPLOYER_PRIVATE_KEY, e.g. CI or local anvil):
 ///        forge script script/Deploy.s.sol \
 ///          --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --broadcast
 contract DeployScript is Script {
@@ -29,7 +35,11 @@ contract DeployScript is Script {
     bytes32 internal constant DEPLOYER_SALT = keccak256("arcaidia.v1.deployer");
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        // Optional: only set when broadcasting with a plaintext key (CI, local
+        // anvil runs). Left unset, --account/--sender on the forge CLI supplies
+        // the signer instead, so a keystore-cached wallet never needs its key
+        // to touch an env var or this script.
+        uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
 
         ArcaidiaDeployment.Config memory config = ArcaidiaDeployment.Config({
             owner: vm.envAddress("PROTOCOL_OWNER"),
@@ -47,7 +57,11 @@ contract DeployScript is Script {
 
         require(ARACHNID_FACTORY.code.length > 0, "CREATE2 factory missing on this chain");
 
-        vm.startBroadcast(deployerKey);
+        if (deployerKey != 0) {
+            vm.startBroadcast(deployerKey);
+        } else {
+            vm.startBroadcast();
+        }
 
         ArcaidiaDeployer deployer = _ensureDeployer();
         ArcaidiaDeployment.Deployment memory predicted = ArcaidiaDeployment.predict(deployer);
