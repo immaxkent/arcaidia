@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { createWalletClient, custom, type WalletClient } from "viem";
 import { toast } from "sonner";
 import { ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
 import { SERVICES, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
 import { unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import { useUsdcBalance } from "@/hooks/arcaidia/use-usdc-balance";
+import { viemChainFor } from "@/lib/arcaidia/viem-chains";
 
 /**
  * Human owner identity boundary.
@@ -34,6 +36,8 @@ interface WalletValue {
   connect: () => void;
   disconnect: () => void;
   switchChain: (chainId: number) => void;
+  /** A viem WalletClient for the active wallet, for signing a transaction on `chainId`. */
+  getWalletClient: (chainId: number) => Promise<WalletClient>;
 }
 
 const WalletContext = createContext<WalletValue | null>(null);
@@ -85,9 +89,22 @@ function ConfiguredWalletProvider({ children }: { children: ReactNode }) {
     [activeWallet],
   );
 
+  const getWalletClient = useCallback(
+    async (targetChainId: number) => {
+      if (!activeWallet || !address) throw new Error("No wallet connected.");
+      const provider = await activeWallet.getEthereumProvider();
+      return createWalletClient({
+        account: address,
+        chain: viemChainFor(targetChainId),
+        transport: custom(provider),
+      });
+    },
+    [activeWallet, address],
+  );
+
   const value = useMemo<WalletValue>(
-    () => ({ status, address, chainId, loginConfigured: true, connect, disconnect, switchChain }),
-    [status, address, chainId, connect, disconnect, switchChain],
+    () => ({ status, address, chainId, loginConfigured: true, connect, disconnect, switchChain, getWalletClient }),
+    [status, address, chainId, connect, disconnect, switchChain, getWalletClient],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
@@ -105,6 +122,10 @@ function UnconfiguredWalletProvider({ children }: { children: ReactNode }) {
 
   const disconnect = useCallback(() => {}, []);
 
+  const getWalletClient = useCallback(async (): Promise<never> => {
+    throw new Error("Wallet sign-in is not connected yet.");
+  }, []);
+
   const value = useMemo<WalletValue>(
     () => ({
       status: "DISCONNECTED",
@@ -115,8 +136,9 @@ function UnconfiguredWalletProvider({ children }: { children: ReactNode }) {
       disconnect,
       switchChain: (next: number) =>
         setChainId(SUPPORTED_CHAIN_IDS.includes(next as never) ? next : ETHEREUM_SEPOLIA),
+      getWalletClient,
     }),
-    [chainId, connect, disconnect],
+    [chainId, connect, disconnect, getWalletClient],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

@@ -4,7 +4,7 @@ import { SettlementTimeline } from "@/components/transfer/settlement-timeline";
 import { DecisionPanel } from "@/components/transfer/decision-panel";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { EmptyPanel, StateSection } from "@/components/data/state-views";
-import { useIntent, useIntentSettlement } from "@/hooks/arcaidia/use-intent";
+import { IntentProvider, useIntent, useIntentSettlement } from "@/hooks/arcaidia/use-intent";
 
 export const Route = createFileRoute("/transfer")({
   head: () => ({
@@ -29,8 +29,19 @@ export const Route = createFileRoute("/transfer")({
  * HANDOFF — no example intent, tx hash, fee or timeline is rendered here.
  * The timeline appears only once useIntent() reports a real created intent and
  * useIntentSettlement() reports real fast-fill / canonical settlement facts.
+ *
+ * IntentProvider is mounted here, once, above both the form and the settlement
+ * panel below — they are siblings that must share one created-intent instance.
  */
 function TransferPage() {
+  return (
+    <IntentProvider>
+      <TransferPageContent />
+    </IntentProvider>
+  );
+}
+
+function TransferPageContent() {
   const { status, connect } = useWallet();
   const { state: intentState } = useIntent();
   const intent = intentState.status === "ready" ? intentState.data : null;
