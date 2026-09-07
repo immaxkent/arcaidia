@@ -1,7 +1,15 @@
-# The intent market — permissionless solver vaults (post-V1, parked)
+# The intent market — permissionless solver network (post-V1, parked)
 
-**Status:** designed, not built. **Depends on:** nothing in V1 — see §5. **Blocks:** nothing.
-**Sits:** after WP-13 (freeze), before or alongside V2 (Uniswap) / V3 (Hedera/x402).
+**Status:** designed, not built — no code, no frontend. **Depends on:** nothing in V1 — see §5.
+**Blocks:** nothing. **Roadmap position, fixed:** ships strictly after WP-13 (freeze), as its own
+phase — *"solver network production and integration"* — **before** V2 (Uniswap) and V3
+(Hedera/x402). Its frontend (the Solver Console, pairing UI) ships as part of this phase, not
+before: there is nothing to wire against until the contracts and runtime exist.
+
+Covers the intent market mechanism (§1–6) and the reference solver runtime that makes a
+permissionless vault operable — Docker Compose packaging, telemetry, and the operator-pairing
+flow (§7). Both are the same phase of work and depend on each other's context, so they live in
+one document rather than being split.
 
 ## 1. The idea
 
@@ -110,12 +118,172 @@ it already is.
   intents are read openly rather than broadcast at volume. If Sybil/spam pressure on the
   opportunity feed becomes real, revisit.
 
-## 7. Cross-reference — the reference solver runtime already matches this
+## 7. The reference solver runtime — Docker, telemetry, operator pairing
 
-WP-05's extension (Docker Compose reference deployment, telemetry, operator pairing) was built
-to target V1's one protocol-owned shared vault, with the protocol calling
-`setAuthorisedSigner` to authorise a paired operator. That call is identical to what a
-self-deployed vault's owner would make here — `msg.sender`/vault-owner authority over the same
-function, just on a vault they deployed instead of the shared one. The pairing and telemetry
-layer therefore requires no rework when this ships: only which vault address an operator points
-their reference runtime at changes.
+An earlier draft of this section conflated two different things and stated the boundary
+wrongly: it described Arcaidia authorising third-party operators to run against the shared
+House Vault. **That is not correct and is not the design.** Restated precisely:
+
+> **ARCAIDIA CONTROLS THE HOUSE VAULT.**
+> **INDEPENDENT VAULT OWNERS CONTROL THEIR OWN VAULTS.**
+> **THE INTENT MARKET IS PERMISSIONLESS.**
+> **ARCAIDIA DOES NOT AUTHORISE THIRD-PARTY SOLVERS TO USE HOUSE VAULT CAPITAL.**
+
+### V1 — unchanged, and this document does not touch it
+
+V1 has exactly one participant: Arcaidia.
+
+```
+Arcaidia House Vault
+  owner              = Arcaidia protocol/admin
+  liquidity           = Arcaidia's own
+  authorised operator = Arcaidia House Solver, and only ever that
+```
+
+`setAuthorisedSigner(address, bool) external onlyOwner` (built in WP-02) already does exactly
+what V1 needs and **stays exactly as it is** — this document does not add third-party
+onboarding to it, does not add a self-service pairing flow to it, and does not change its ABI.
+There is no Docker Compose reference deployment, no telemetry, no pairing UI in V1. WP-03's
+`/solver` page reads existing `AgentDecision` records from the one House Solver; it has nothing
+to do with the runtime described below.
+
+### Post-V1 — every participant, including the House Vault, runs the same way
+
+Once the intent market ships, the House Vault stops being special. It becomes **one participant
+among many**, going through the identical permissionless path everyone else does:
+
+```
+Arcaidia House Vault        Institution Vault           Individual Vault
+  owner: Arcaidia              owner: the institution      owner: the individual
+  funded by: Arcaidia          funded by: the institution  funded by: the individual
+  operator: Arcaidia's own     operator: their own          operator: their own
+        \                            |                            /
+         \___________________ same IArcaidiaSolverVault interface _______________/
+                                        |
+                              races through the shared IntentMarket
+                                  first valid fill wins
+```
+
+**No approval step exists.** Participation is:
+
+1. deploy a conforming `IArcaidiaSolverVault` (§4)
+2. fund it with your own liquidity
+3. authorise your own solver operator — on **your own vault**, by **your own** vault-owner call
+4. run the reference solver, a fork, or any compatible custom implementation
+5. compete through the `IntentMarket`
+
+The only gate is the objective interface/contract-validity check the market itself enforces on
+any vault that calls into it (§4) — never a human or protocol decision about *who* may
+participate. Arcaidia reviewing or whitelisting a third party's operator key is explicitly
+outside this design.
+
+### Telemetry pairing — corrected, two separate lifecycles
+
+`TELEMETRY PAIRED` and `SOLVER AUTHORISED` remain distinct facts, as originally specified:
+
+- **`TELEMETRY PAIRED`** — the runtime has proven it controls the claimed operator key. Grants
+  **zero** protocol execution rights on its own, in either lifecycle below.
+- **`SOLVER AUTHORISED`** — the relevant vault's owner has granted that operator address onchain
+  authority over *that specific vault*. Only this grants execution rights.
+
+**V1 lifecycle** (internal to Arcaidia; no third party ever reaches this flow):
+telemetry identifies the Arcaidia House Solver runtime → the Arcaidia protocol owner authorises
+that operator against the shared House Vault. There is no self-service path here for anyone
+else, by design.
+
+**Post-V1 permissionless lifecycle** (every participant, House Vault included):
+the independent vault owner logs in through Privy → deploys and funds their own SolverVault →
+starts the Docker Compose solver + telemetry stack → telemetry proves possession of that
+operator key → **that same vault owner** authorises the operator on **their own vault** →
+`SOLVER AUTHORISED`. No protocol-admin approval appears anywhere in this sequence.
+
+```
+deploy/fund YOUR vault
+  → frontend generates non-secret runtime config (VAULT_ADDRESS, CHAIN_ID, RPC_URL, ...)
+  → docker compose up -d
+  → solver loads/creates its operator key
+  → telemetry registers with the Relay, signs a challenge bound to {vaultAddress, operatorAddress}
+  → console shows "SOLVER DETECTED — operator: 0x..."      (TELEMETRY PAIRED, zero rights)
+  → YOUR vault's owner calls setAuthorisedSigner(operatorAddress, true) — or the eventual
+    equivalent, see the naming note below — on YOUR OWN vault, nobody else's
+  → console reads authorisation directly from YOUR vault contract (authoritative, not telemetry)
+  → SOLVER AUTHORISED / LIVE
+```
+
+**History attaches to the vault, never the operator key.** Rotating or revoking a signer via
+`setAuthorisedSigner` (already supported, already tested in WP-02) does not fragment a vault's
+fill/fee/settlement history, because that history is already indexed by vault address, not by
+signer (WP-08's subgraph schema).
+
+**On the primitive's name — a decision explicitly left open.** `setAuthorisedSigner(address,bool)`
+is adequate for V1 and must not be changed there merely for naming symmetry with what comes
+later. For the permissionless vault, the same owner-scoped primitive can be reused as-is per
+vault — nothing forces a rename. Clearer semantics (`setSolverOperator()`, a `SOLVER_ROLE`) are
+a legitimate option *at that time*, weighed against the vault interface's stability once
+third parties are integrating against it. Not decided now; not blocking anything now.
+
+### Components (unchanged in shape from the earlier draft, now correctly scoped to post-V1 only)
+
+- **`arcaidia-solver`** — the solver loop (`processIntent`, `ObservationProvider`,
+  `SettlementAdapter`, `AgentAuthority` — all exist today from WP-05/06/08/09), packaged to run
+  unattended against **whichever vault its operator points it at**: watches the market for
+  intents, independently verifies source RPC (unchanged — WP-04.9's rule holds exactly as
+  built), reads that vault's own state, decides, signs, submits. Owns its own operator key —
+  an EOA, or a Circle Agent Wallet (WP-09's `AgentAuthority` already abstracts this).
+- **`arcaidia-telemetry`** — a sidecar with **no vault custody, settlement, or execution
+  authority**. Forwards lifecycle events, sends outbound HTTPS to the Relay, authenticates via
+  the solver operator key. Cannot move funds by construction.
+
+**Telemetry is observation, never authorisation — the same rule WP-08 already applies to The
+Graph, one level up the stack.** If the Relay is offline, every conforming solver — House or
+independent — keeps discovering, verifying, deciding, filling, and receiving reimbursement
+exactly as the WP-07 golden run proves. Only the console's live view degrades. Every telemetry
+event is provisional and is overridden by onchain/market state the moment that state exists:
+`tx_submitted` → RPC receipt; `fill_won`/`fill_lost` → the market's consumed-intent event;
+settlement, fees, volume → onchain accounting, never the telemetry stream.
+
+**Transport:** outbound-only, `solver → telemetry sidecar → HTTPS → Relay`. No inbound ports on
+any solver, no NAT traversal, no publicly exposed solver API — true for the House Solver and
+every independent one alike. Frontend subscribes via SSE
+(`GET /v1/telemetry/vault/{vault}/stream`); Relay surface is `pair` / `heartbeat` / `events`.
+
+**Reference runtime configuration** (non-secret half generated by the frontend; the operator
+key itself is generated or loaded locally by the container, never emitted to frontend JS, a
+URL, or a copy-paste pairing link):
+
+```
+VAULT_ADDRESS, CHAIN_ID, RPC_URL, GRAPH_ENDPOINT
+ARCAIDIA_API_BASE_URL, ARCAIDIA_TELEMETRY_URL
+SOLVER_KEY  |  Circle Agent Wallet config          # AgentAuthority — WP-05/WP-09, unchanged
+TELEMETRY_ENABLED=true                              # on by default; solver is correct if false
+X402_ENABLED, x402 client config                    # optional
+RISK_POLICY_CONFIG, LOG_LEVEL
+```
+
+### Sub-tasks (none started — this entire section is post-V1)
+
+- [ ] The `IntentMarket` contract and `IArcaidiaSolverVault` interface (§3–4) — prerequisite to
+      any of the below; nothing here is buildable before that exists.
+- [ ] Package the existing solver loop as `arcaidia-solver`, parametric on which vault it is
+      pointed at — no new decision logic.
+- [ ] Build `arcaidia-telemetry` — event forwarder + heartbeat, outbound HTTPS only.
+- [ ] Docker Compose reference stack, `TELEMETRY_ENABLED=true` default.
+- [ ] Relay: `pair` / `heartbeat` / `events`, SSE stream per vault.
+- [ ] Frontend, built only once the above exists: config generator, Solver Console state machine
+      (`SCANNING → INTENT DISCOVERED → VERIFYING SOURCE → FORMULATING FILL → SUBMITTED →
+      FAST FILL CONFIRMED → AWAITING CCTP → SETTLED`, `LOST RACE → SCANNING`), the
+      `SOLVER DETECTED → SOLVER AUTHORISED` transition reading authorisation directly from the
+      relevant vault contract.
+- [ ] Migrate the House Vault to participate through the same path as everyone else, once it is
+      ready to stop being the sole participant.
+- [ ] Kill-the-Relay test: the full fill/verify/decide/submit/reimburse cycle passes with
+      `TELEMETRY_ENABLED=false` and the Relay unreachable, for both the House Solver and an
+      independent solver. This is the gate.
+
+### Acceptance gate (this section only)
+
+Any independent participant can go from `docker compose up -d` against their own freshly
+deployed and funded vault to `SOLVER AUTHORISED / LIVE`, using only steps they control — no
+Arcaidia approval anywhere in that path — **and** the golden-run-equivalent lifecycle passes
+unmodified with telemetry disabled or the Relay offline, for both the House Solver and an
+independent one.

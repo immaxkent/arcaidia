@@ -114,6 +114,20 @@ Re-ordered around what unlocks prize coverage and what is blocked on credentials
 WP-03 and the P1 upgrade sit first deliberately: both are unblocked, and doing
 them while credentials are gathered means no idle time.
 
+## Roadmap after V1 freezes (WP-13)
+
+Fixed order, confirmed 2026-09-07. Nothing in this tier starts before WP-13 is tagged, and its
+frontend does not start before its backend exists — there is nothing to wire against otherwise.
+
+1. **Solver network production and integration** — the intent market, the reference solver
+   runtime, telemetry, and the Solver Console frontend. See `WP-INTENT-MARKET.md`, which
+   contains the full design, including the explicit boundary between V1's protocol-owned House
+   Vault (unchanged, no third-party onboarding) and the post-V1 permissionless model (every
+   participant, House Vault included, deploys and authorises their own vault; no Arcaidia
+   approval).
+2. **V2 — Uniswap.** Generalised swap intents, per §20.4 of the specification.
+3. **V3 — Hedera/x402.** Machine-payable solver services, per §20.5 of the specification.
+
 ## Bounty requirements
 
 [BOUNTY-REQUIREMENTS.md](BOUNTY-REQUIREMENTS.md) maps every targeted sponsor requirement to the

@@ -45,10 +45,9 @@ directions, **without changing core agent logic**.
 - Letting Circle SDK types leak into the risk engine. The adapter boundary is the whole point.
 - Keeping only wallet policy or only vault caps. The claim is two independent layers — build both.
 
-## Cross-reference — reference solver runtime
+## Cross-reference — reference solver runtime (post-V1)
 
-WP-05's extension (Docker Compose reference deployment, telemetry) lists
-`SOLVER_KEY | Circle Agent Wallet config` as a single configuration choice. That is exactly
-this work package's swap — `AgentAuthority` already abstracts local key vs. Circle Agent Wallet,
-so the reference runtime needs no branch of its own for it. Nothing here changes as a result of
-that extension existing.
+`WP-INTENT-MARKET.md` §7 lists `SOLVER_KEY | Circle Agent Wallet config` as a single
+configuration choice for the post-V1 permissionless solver runtime. That is exactly this work
+package's swap — `AgentAuthority` already abstracts local key vs. Circle Agent Wallet, so
+nothing here changes, and that later work needs no rework of it.
