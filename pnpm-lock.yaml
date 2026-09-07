@@ -26,6 +26,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@arcaidia/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.9.1(ajv@8.20.0)(react-hook-form@7.87.0(react@19.2.8))(superstruct@1.0.4)(zod@3.25.76)
@@ -14012,7 +14015,7 @@ snapshots:
 
   extension-port-stream@3.0.0:
     dependencies:
-      readable-stream: 3.6.2
+      readable-stream: 4.7.0
       webextension-polyfill: 0.10.0
 
   eyes@0.1.8: {}

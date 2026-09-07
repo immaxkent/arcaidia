@@ -16,6 +16,7 @@
     "rolldown": "1.2.1"
   },
   "dependencies": {
+    "@arcaidia/domain": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
     "@privy-io/react-auth": "^3.40.0",
     "@radix-ui/react-accordion": "^1.2.12",
