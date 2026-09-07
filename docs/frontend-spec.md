@@ -207,7 +207,10 @@ Expandable. When the solver has quoted, show the exact inputs it used:
 
 - Available liquidity · Utilisation (%) · Outstanding exposure
 - Settlement backlog · Transport health (badge: Healthy / Slowing / Unavailable)
-- Confirmations (`4 / 3` format) · Quoted fee vs. the user's ceiling
+- **Source confirmations**, shown as `observed / required` — e.g. *"Confirmations 4 / 3"* means
+  the source transaction has 4 confirmations and this size of transfer requires 3. Label it
+  explicitly; a bare `4 / 3` reads as a ratio or a count of something else.
+- Quoted fee vs. the user's ceiling
 - Verdict badge: **ACCEPT** (blue) / **REJECT** (red) / **PAUSE** (amber)
 
 Present it as a readout, not a chart — a monospace key/value grid with generous line height. This
