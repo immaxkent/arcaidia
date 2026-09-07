@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { CopyValue } from "@/components/site/copy-value";
 import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
@@ -214,19 +214,9 @@ function LiquidityPage() {
         <VaultDetail vault={vault} tab={tab} setTab={setTab} onClose={() => setSelected(null)} />
       ) : null}
 
-      <section className="panel mt-8 p-5">
-        <h2 className="font-display text-2xl uppercase text-newsprint">Run your own vault</h2>
-        <p className="measure mt-2 text-sm text-text-dim">
-          Anyone can deploy a solver vault, fund it, set its economics and compete for fills. There are no
-          pooled third-party deposits — you fund and operate the capital you control.
-        </p>
-        <Link
-          to="/earn"
-          className="mt-4 inline-flex rounded-md border border-acid/60 bg-acid/10 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-acid transition-colors hover:bg-acid/20"
-        >
-          Go to Earn
-        </Link>
-      </section>
+      {/* "Run your own vault" (permissionless solver onboarding) is a post-V1
+          Intent Market surface — WP-INTENT-MARKET.md — not promoted here until
+          that work starts. */}
     </div>
   );
 }

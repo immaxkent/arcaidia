@@ -1,12 +1,15 @@
 import { Link } from "@tanstack/react-router";
 import { WalletControl } from "./wallet-control";
 
+// "Earn" (self-service solver vault deploy) and "Console" (solver telemetry)
+// are post-V1 Intent Market surfaces — WP-INTENT-MARKET.md — not linked here
+// until that work starts. The routes still exist and self-gate on config; only
+// the nav entry is removed, per the shipped sequencing (V1 ships, then the
+// Intent Market, including its frontend).
 const ROUTES = [
   { to: "/transfer", label: "Transfer" },
   { to: "/solver", label: "Solver" },
   { to: "/liquidity", label: "Liquidity" },
-  { to: "/earn", label: "Earn" },
-  { to: "/console", label: "Console" },
   { to: "/roadmap", label: "Roadmap" },
   { to: "/docs", label: "Docs" },
   { to: "/about", label: "How it works" },
