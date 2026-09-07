@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { ArcaidiaMark } from "./arcaidia-mark";
 import { WalletControl } from "./wallet-control";
 
 // "Earn" (self-service solver vault deploy) and "Console" (solver telemetry)
@@ -27,7 +28,7 @@ export function TopBar() {
       </div>
       <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-5 px-4 sm:px-6">
         <Link to="/" className="flex shrink-0 items-center gap-3" aria-label="Arcaidia home">
-          <span className="brand-diamond grid size-8 place-items-center border-2 border-acid text-sm font-black text-acid">A</span>
+          <ArcaidiaMark className="size-8 shrink-0" />
           <span className="font-display text-2xl uppercase text-newsprint">Arcaidia</span>
         </Link>
         {/* Desktop: inline nav. Mobile: a dedicated scrollable row below, so the
