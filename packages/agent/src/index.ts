@@ -67,7 +67,8 @@ export type {
   EvmReceipt,
 } from './adapters/evm-clients.js';
 
-// Observation — a local cache standing in for The Graph until WP-08
+// Observation — GraphObservationProvider once a subgraph is deployed (WP-08);
+// InMemoryObservationProvider stands in for tests and local runs either way.
 export { InMemoryObservationProvider } from './observation/in-memory-observation-provider.js';
 export { GraphObservationProvider } from './observation/graph-observation-provider.js';
 export type {
@@ -76,3 +77,10 @@ export type {
 } from './observation/graph-observation-provider.js';
 export { FetchGraphQueryClient } from './observation/graph-client.js';
 export type { GraphQueryClient } from './observation/graph-client.js';
+
+// The worker — WP-11. runSolverPass is one discover-and-process cycle;
+// startSolverWorker is "keep doing that forever" around it.
+export { runSolverPass } from './worker/run-solver-pass.js';
+export type { SolverPassOutcome, SolverPassResult } from './worker/run-solver-pass.js';
+export { startSolverWorker } from './worker/solver-worker.js';
+export type { SolverWorkerHandle, SolverWorkerOptions } from './worker/solver-worker.js';

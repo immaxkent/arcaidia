@@ -25,6 +25,9 @@ export class FakeObservationProvider implements ObservationProvider {
   vault: VaultState;
   health: SettlementHealth;
   vaultStateCalls = 0;
+  pending: Intent[] = [];
+  pendingIntentsFailWith: Error | null = null;
+  pendingIntentsCalls = 0;
 
   constructor(vault: VaultState, health: SettlementHealth) {
     this.vault = vault;
@@ -32,7 +35,9 @@ export class FakeObservationProvider implements ObservationProvider {
   }
 
   async pendingIntents(): Promise<readonly Intent[]> {
-    return [];
+    this.pendingIntentsCalls += 1;
+    if (this.pendingIntentsFailWith) throw this.pendingIntentsFailWith;
+    return this.pending;
   }
 
   async vaultState(): Promise<VaultState> {
