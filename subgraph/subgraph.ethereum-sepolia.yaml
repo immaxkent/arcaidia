@@ -17,7 +17,7 @@ dataSources:
     source:
       address: "0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357"
       abi: ArcaidiaIntentRouter
-      startBlock: 0
+      startBlock: 11660148
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -37,7 +37,7 @@ dataSources:
     source:
       address: "0x9F5813cD0Ea34403f78769076043436E67736da3"
       abi: ArcaidiaLiquidityVault
-      startBlock: 0
+      startBlock: 11660148
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -67,7 +67,7 @@ dataSources:
     source:
       address: "0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC"
       abi: SettlementReceiver
-      startBlock: 0
+      startBlock: 11660148
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7

@@ -8,28 +8,37 @@
  *
  * `--check` fails when the committed manifests are stale, in the same way
  * `abi:check` does for the ABI barrel.
+ *
+ * `manifest()` is exported and side-effect free (no file I/O) so
+ * generate-subgraph.test.ts can assert on it directly; only the block guarded
+ * by `isMain` below touches the filesystem or `process`.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CHAINS, deploymentFor, type ChainConfig, type ChainKey } from '../packages/domain/src/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SUBGRAPH = join(ROOT, 'subgraph');
 
+/** Stands in for a chain whose contracts aren't deployed yet. */
+export const PLACEHOLDER = '0x0000000000000000000000000000000000000000';
+
 /**
  * Where each chain's indexing begins.
  *
- * Zero is wrong for a real deployment — it would replay the entire chain — so
- * this is filled in with the protocol's deployment block when WP-10 deploys.
+ * Zero would replay the entire chain — wasteful and, on Studio's free tier,
+ * slow enough to matter. These are the real block the 2026-09-08 deployment
+ * landed in on each chain (contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json),
+ * one block before any protocol event could possibly exist.
  */
-const START_BLOCKS: Record<ChainKey, number> = {
-  'ethereum-sepolia': 0,
-  'arc-testnet': 0,
+export const START_BLOCKS: Record<ChainKey, number> = {
+  'ethereum-sepolia': 11_660_148,
+  'arc-testnet': 61_052_876,
 };
 
-function manifest(chain: ChainConfig): string {
+export function manifest(chain: ChainConfig): string {
   const contracts = deploymentFor(chain.key);
   const router = contracts.intentRouter ?? PLACEHOLDER;
   const vault = contracts.liquidityVault ?? PLACEHOLDER;
@@ -123,15 +132,6 @@ dataSources:
 `;
 }
 
-/** Stands in until WP-10 deploys and writes real addresses into the config. */
-const PLACEHOLDER = '0x0000000000000000000000000000000000000000';
-
-const targets = (Object.keys(CHAINS) as ChainKey[]).map((key) => ({
-  key,
-  path: join(SUBGRAPH, `subgraph.${key}.yaml`),
-  content: manifest(CHAINS[key]),
-}));
-
 // The ABIs the mappings decode against, taken from the same barrel every other
 // package uses.
 function writeAbis(): void {
@@ -144,31 +144,42 @@ function writeAbis(): void {
   }
 }
 
-const check = process.argv.includes('--check');
-let stale = false;
+function runCli(): void {
+  const targets = (Object.keys(CHAINS) as ChainKey[]).map((key) => ({
+    key,
+    path: join(SUBGRAPH, `subgraph.${key}.yaml`),
+    content: manifest(CHAINS[key]),
+  }));
 
-for (const target of targets) {
-  if (check) {
-    let current = '';
-    try {
-      current = readFileSync(target.path, 'utf8');
-    } catch {
-      /* missing counts as stale */
+  const check = process.argv.includes('--check');
+  let stale = false;
+
+  for (const target of targets) {
+    if (check) {
+      let current = '';
+      try {
+        current = readFileSync(target.path, 'utf8');
+      } catch {
+        /* missing counts as stale */
+      }
+      if (current !== target.content) {
+        console.error(`${target.path} is stale.`);
+        stale = true;
+      }
+    } else {
+      writeFileSync(target.path, target.content);
     }
-    if (current !== target.content) {
-      console.error(`${target.path} is stale.`);
-      stale = true;
-    }
-  } else {
-    writeFileSync(target.path, target.content);
   }
+
+  if (!check) writeAbis();
+
+  if (check && stale) {
+    console.error('Run `pnpm subgraph:generate` and commit the result.');
+    process.exit(1);
+  }
+
+  console.log(check ? 'Subgraph manifests are up to date.' : `Wrote ${targets.length} manifests and 3 ABIs.`);
 }
 
-if (!check) writeAbis();
-
-if (check && stale) {
-  console.error('Run `pnpm subgraph:generate` and commit the result.');
-  process.exit(1);
-}
-
-console.log(check ? 'Subgraph manifests are up to date.' : `Wrote ${targets.length} manifests and 3 ABIs.`);
+const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) runCli();
