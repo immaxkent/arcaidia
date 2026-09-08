@@ -75,11 +75,26 @@ library ArcaidiaDeployment {
     }
 
     /// @notice Deploy and wire the full protocol on the current chain.
-    function deployAll(ArcaidiaDeployer deployer, Config memory config)
+    /// @param deployingAs The address that will appear as `msg.sender` to the
+    ///        deployed contracts for the wiring calls below, so it can hold
+    ///        temporary ownership just long enough to wire them before
+    ///        `_handOver` transfers it to `config.owner`.
+    /// @dev Deliberately explicit rather than inferred: this function is
+    ///      inlined into whatever calls it (a library's internal functions
+    ///      are never a separate call frame), so neither `address(this)` nor
+    ///      `msg.sender` reliably names "whoever the wiring calls below will
+    ///      appear to come from" — that depends on the CALLER's own context
+    ///      (a test contract making plain calls sees itself; a `forge script`
+    ///      under `vm.startBroadcast()` has every top-level call re-attributed
+    ///      to the broadcaster). Only the caller knows which applies, so the
+    ///      caller states it: `address(this)` from a test, `msg.sender` from
+    ///      `DeployScript.run()` (which post-`--sender` already equals the
+    ///      broadcaster before broadcasting even starts).
+    function deployAll(ArcaidiaDeployer deployer, Config memory config, address deployingAs)
         internal
         returns (Deployment memory deployment)
     {
-        address self = address(this);
+        address self = deployingAs;
 
         // Take ownership first, wire, then hand over.
         deployment.vault = deployer.deploy(

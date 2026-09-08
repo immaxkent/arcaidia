@@ -64,7 +64,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     /// is caught before funds are spent rather than after.
     function test_deploymentLandsWherePredicted() public {
         ArcaidiaDeployment.Deployment memory predicted = ArcaidiaDeployment.predict(deployer);
-        ArcaidiaDeployment.Deployment memory actual = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory actual = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         assertEq(actual.router, predicted.router, "router");
         assertEq(actual.vault, predicted.vault, "vault");
@@ -72,7 +72,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     }
 
     function test_theThreeContractsOccupyDistinctAddresses() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
         assertTrue(d.router != d.vault);
         assertTrue(d.vault != d.settlementReceiver);
         assertTrue(d.router != d.settlementReceiver);
@@ -96,7 +96,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     // -----------------------------------------------------------------------
 
     function test_allThreeContractsAreInitialized() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         assertTrue(ArcaidiaIntentRouter(d.router).initialized());
         assertTrue(ArcaidiaLiquidityVault(d.vault).initialized());
@@ -104,7 +104,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     }
 
     function test_everyContractPointsAtTheConfiguredAsset() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         assertEq(address(ArcaidiaIntentRouter(d.router).settlementAsset()), address(asset));
         assertEq(address(ArcaidiaLiquidityVault(d.vault).asset()), address(asset));
@@ -112,7 +112,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     }
 
     function test_limitsAndFloorAreApplied() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         assertEq(ArcaidiaIntentRouter(d.router).maxIntentAmount(), MAX_INTENT);
         assertEq(ArcaidiaIntentRouter(d.router).maxInFlightValue(), MAX_IN_FLIGHT);
@@ -125,17 +125,17 @@ contract ArcaidiaDeploymentTest is ChainFixture {
 
     /// Only the local receiver may reimburse the local vault.
     function test_vaultAcceptsOnlyItsOwnSettlementReceiver() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
         assertEq(ArcaidiaLiquidityVault(d.vault).settlementReceiver(), d.settlementReceiver);
     }
 
     function test_receiverKnowsItsVault() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
         assertEq(address(SettlementReceiver(d.settlementReceiver).vault()), d.vault);
     }
 
     function test_treasuryAndFeeSplitAreConfigured() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
         assertEq(ArcaidiaLiquidityVault(d.vault).treasury(), protocolTreasury);
         assertEq(ArcaidiaLiquidityVault(d.vault).protocolFeeShareBps(), PROTOCOL_SHARE_BPS);
     }
@@ -146,13 +146,13 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         ArcaidiaDeployment.Config memory config = _config();
         config.treasury = address(0);
 
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config);
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config, address(this));
         assertEq(ArcaidiaLiquidityVault(d.vault).treasury(), address(0));
         assertEq(ArcaidiaLiquidityVault(d.vault).protocolFeeShareBps(), 0);
     }
 
     function test_settlementReporterIsAuthorised() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
         assertTrue(SettlementReceiver(d.settlementReceiver).isReporter(settlementReporter));
         assertFalse(SettlementReceiver(d.settlementReceiver).isReporter(makeAddr("stranger")));
     }
@@ -160,7 +160,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     /// The router points at the destination chain's receiver, and only that one.
     function test_routerRoutesOnlyToTheConfiguredDestination() public {
         ArcaidiaDeployment.Config memory config = _config();
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config);
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config, address(this));
 
         assertEq(
             ArcaidiaIntentRouter(d.router).destinationReceiver(destinationChainId),
@@ -175,7 +175,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         ArcaidiaDeployment.Config memory config = _config();
         config.settlementReporter = address(0);
 
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config);
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config, address(this));
         assertFalse(SettlementReceiver(d.settlementReceiver).isReporter(address(this)));
     }
 
@@ -187,7 +187,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     /// the deploying key as owner would put the protocol behind a hot key used
     /// once and then forgotten.
     function test_ownershipEndsWithTheIntendedOwner() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         assertEq(ArcaidiaIntentRouter(d.router).owner(), protocolOwner);
         assertEq(ArcaidiaLiquidityVault(d.vault).owner(), protocolOwner);
@@ -195,7 +195,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     }
 
     function test_deployingAddressRetainsNoAuthority() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         vm.expectRevert(ArcaidiaLiquidityVault.NotOwner.selector);
         ArcaidiaLiquidityVault(d.vault).setPaused(true);
@@ -208,7 +208,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     }
 
     function test_intendedOwnerCanOperateImmediately() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         vm.startPrank(protocolOwner);
         ArcaidiaLiquidityVault(d.vault).setPaused(true);
@@ -225,7 +225,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
 
     /// A freshly deployed protocol must accept an intent without further setup.
     function test_freshDeploymentAcceptsAnIntent() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         address user = makeAddr("user");
         asset.mint(user, 10_000e6);
@@ -244,7 +244,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
 
     /// And must accept LP capital without further setup.
     function test_freshDeploymentAcceptsLiquidity() public {
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config());
+        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         address lp = makeAddr("lp");
         asset.mint(lp, 100_000e6);

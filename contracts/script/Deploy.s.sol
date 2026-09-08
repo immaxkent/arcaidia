@@ -34,6 +34,38 @@ contract DeployScript is Script {
     ///      derives from the deployer's address.
     bytes32 internal constant DEPLOYER_SALT = keccak256("arcaidia.v1.deployer");
 
+    uint256 internal constant ETHEREUM_SEPOLIA = 11155111;
+    uint256 internal constant ARC_TESTNET = 5042002;
+
+    /// @dev Real testnet USDC, permanent addresses (work-packages/OPEN-QUESTIONS.md
+    ///      Q3) — not secrets, so they need no env entry for the two chains we
+    ///      actually target. `vm.envOr` still lets an anvil/other-chain run
+    ///      override this with a freshly-deployed MockUSDC without touching code.
+    function _defaultSettlementAsset(uint256 chainId) internal pure returns (address) {
+        if (chainId == ETHEREUM_SEPOLIA) return 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
+        if (chainId == ARC_TESTNET) return 0x3600000000000000000000000000000000000000;
+        return address(0);
+    }
+
+    /// @dev The other of Arcaidia's two supported chains — also not a secret,
+    ///      just the fact that this protocol has exactly two sides.
+    function _defaultDestinationChainId(uint256 chainId) internal pure returns (uint256) {
+        if (chainId == ETHEREUM_SEPOLIA) return ARC_TESTNET;
+        if (chainId == ARC_TESTNET) return ETHEREUM_SEPOLIA;
+        return 0;
+    }
+
+    /// @dev The one genuinely per-deploy value: which MockSettlementInitiator
+    ///      (WP-06) — or, once WP-10 lands, which real CCTP adapter — this chain
+    ///      should wire in. Chain-suffixed so one .env holds both chains' values
+    ///      at once with no collision; SETTLEMENT_INITIATOR is the fallback for
+    ///      an unrecognised chain (anvil, a future network).
+    function _settlementInitiator(uint256 chainId) internal view returns (address) {
+        if (chainId == ETHEREUM_SEPOLIA) return vm.envAddress("SETTLEMENT_INITIATOR_ETHEREUM_SEPOLIA");
+        if (chainId == ARC_TESTNET) return vm.envAddress("SETTLEMENT_INITIATOR_ARC_TESTNET");
+        return vm.envAddress("SETTLEMENT_INITIATOR");
+    }
+
     function run() external {
         // Optional: only set when broadcasting with a plaintext key (CI, local
         // anvil runs). Left unset, --account/--sender on the forge CLI supplies
@@ -43,9 +75,9 @@ contract DeployScript is Script {
 
         ArcaidiaDeployment.Config memory config = ArcaidiaDeployment.Config({
             owner: vm.envAddress("PROTOCOL_OWNER"),
-            settlementAsset: vm.envAddress("SETTLEMENT_ASSET"),
-            settlementInitiator: vm.envAddress("SETTLEMENT_INITIATOR"),
-            destinationChainId: vm.envUint("DESTINATION_CHAIN_ID"),
+            settlementAsset: vm.envOr("SETTLEMENT_ASSET", _defaultSettlementAsset(block.chainid)),
+            settlementInitiator: _settlementInitiator(block.chainid),
+            destinationChainId: vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid)),
             destinationSettlementReceiver: vm.envAddress("DESTINATION_SETTLEMENT_RECEIVER"),
             reserveFloorBps: uint16(vm.envUint("RESERVE_FLOOR_BPS")),
             treasury: vm.envAddress("PROTOCOL_TREASURY"),
@@ -56,6 +88,12 @@ contract DeployScript is Script {
         });
 
         require(ARACHNID_FACTORY.code.length > 0, "CREATE2 factory missing on this chain");
+
+        // The address every wiring call inside deployAll will broadcast as —
+        // derived from the key when one is given (unambiguous), else from
+        // --sender, which forge sets as msg.sender for this whole run before
+        // broadcasting even starts.
+        address deployingAs = deployerKey != 0 ? vm.addr(deployerKey) : msg.sender;
 
         if (deployerKey != 0) {
             vm.startBroadcast(deployerKey);
@@ -72,7 +110,8 @@ contract DeployScript is Script {
         console.log("predicted vault         ", predicted.vault);
         console.log("predicted receiver      ", predicted.settlementReceiver);
 
-        ArcaidiaDeployment.Deployment memory deployment = ArcaidiaDeployment.deployAll(deployer, config);
+        ArcaidiaDeployment.Deployment memory deployment =
+            ArcaidiaDeployment.deployAll(deployer, config, deployingAs);
 
         vm.stopBroadcast();
 
