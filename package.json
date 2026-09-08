@@ -29,7 +29,8 @@
     "subgraph:codegen": "graph codegen subgraph/subgraph.ethereum-sepolia.yaml --output-dir subgraph/generated",
     "subgraph:build": "pnpm subgraph:generate && pnpm subgraph:codegen && graph build subgraph/subgraph.ethereum-sepolia.yaml --output-dir subgraph/build",
     "test:mcp": "pnpm --filter @arcaidia/mcp test",
-    "test:scripts": "vitest run scripts"
+    "test:scripts": "vitest run scripts",
+    "solver:start": "tsx --env-file=.env packages/agent/src/entrypoint/main.ts"
   },
   "devDependencies": {
     "@graphprotocol/graph-cli": "^0.98.1",
