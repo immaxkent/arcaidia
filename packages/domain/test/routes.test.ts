@@ -5,6 +5,8 @@ import {
   ErrorCode,
   findChain,
   isSupportedRoute,
+  registerDeployment,
+  resetDeployments,
   resolveEndpoints,
   resolveRoute,
   supportedRoutes,
@@ -63,14 +65,25 @@ describe('supportedRoutes', () => {
 });
 
 describe('resolveEndpoints', () => {
-  it('refuses to resolve endpoints before the contracts are deployed', () => {
-    // WP-01 populates `contracts`. Until then this must fail loudly rather than
-    // hand a caller a zero address.
+  it('resolves real deployed addresses now that WP-01 has run', () => {
+    const endpoints = resolveEndpoints(resolveRoute(SEPOLIA, ARC));
+    expect(endpoints.sourceRouter).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(endpoints.destinationVault).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(endpoints.destinationSettlementReceiver).toMatch(/^0x[0-9a-fA-F]{40}$/);
+  });
+
+  it('still refuses to resolve a route whose contracts are unset', () => {
+    // Simulates the pre-WP-01 state via an override, so the safety behaviour
+    // this function exists for stays covered even though every real chain is
+    // deployed now.
+    registerDeployment('arc-testnet', {});
     try {
       resolveEndpoints(resolveRoute(SEPOLIA, ARC));
       expect.unreachable('should have thrown');
     } catch (error) {
       expect((error as ArcaidiaError).code).toBe(ErrorCode.INVALID_CHAIN_CONFIG);
+    } finally {
+      resetDeployments();
     }
   });
 });

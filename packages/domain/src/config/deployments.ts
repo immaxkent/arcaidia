@@ -5,16 +5,27 @@
  * the settlement worker all read one source rather than each carrying its own
  * copy of an address.
  *
- * Empty until WP-01's deployment runs. `resolveEndpoints` refuses to resolve a
- * route whose contracts are unset rather than handing a caller a zero address.
+ * Live on both testnets as of 2026-09-08 (contracts/script/Deploy.s.sol,
+ * broadcast tx hashes under contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json).
+ * Settlement transport on both chains is still MockSettlementInitiator (WP-06);
+ * real CCTP is WP-10 and will need a redeploy of the router (its settlement
+ * transport is fixed at initialize()).
  */
 
 import type { Address } from '../types/primitives.js';
 import type { ChainKey, ProtocolContracts, TokenConfig } from './chains.js';
 
 export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
-  'ethereum-sepolia': {},
-  'arc-testnet': {},
+  'ethereum-sepolia': {
+    intentRouter: '0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357',
+    liquidityVault: '0x9F5813cD0Ea34403f78769076043436E67736da3',
+    settlementReceiver: '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
+  },
+  'arc-testnet': {
+    intentRouter: '0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357',
+    liquidityVault: '0x9F5813cD0Ea34403f78769076043436E67736da3',
+    settlementReceiver: '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
+  },
 } as const;
 
 /**

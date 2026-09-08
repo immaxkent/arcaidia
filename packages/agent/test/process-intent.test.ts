@@ -294,7 +294,11 @@ describe('processIntent', () => {
   // -----------------------------------------------------------------------
 
   it('refuses a route whose contracts are not deployed', async () => {
-    resetDeployments();
+    // Overriding to {} rather than resetDeployments(): the committed record
+    // is real now (both chains deployed 2026-09-08), so simulating "not
+    // deployed" needs an explicit empty override, not a fall-through to it.
+    registerDeployment('ethereum-sepolia', {});
+    registerDeployment('arc-testnet', {});
     await expect(processIntent(baseIntent, deps)).rejects.toThrow();
   });
 });

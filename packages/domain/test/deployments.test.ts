@@ -54,11 +54,12 @@ describe('deployments', () => {
     },
   );
 
-  it('is empty until the deployment has run', () => {
-    // A deliberate tripwire: when this starts failing, WP-01's deployment has
-    // happened and the README's address table needs updating alongside it.
-    const total = PROTOCOL_CONTRACT_NAMES.flatMap((name) => deployedAddresses(name)).length;
-    expect(total).toBe(0);
+  it('is live on both chains, at the same address, since the 2026-09-08 deployment', () => {
+    for (const name of PROTOCOL_CONTRACT_NAMES) {
+      const deployed = deployedAddresses(name);
+      expect(deployed.map((d) => d.chain).sort()).toEqual(['arc-testnet', 'ethereum-sepolia']);
+      expect(new Set(deployed.map((d) => d.address.toLowerCase())).size).toBe(1);
+    }
   });
 });
 
@@ -90,8 +91,10 @@ describe('deployment overrides', () => {
   /// The committed record is what ships; overrides exist so local runs need no
   /// second code path, not so production can be reconfigured at runtime.
   it('does not alter the committed record', () => {
+    const committed = DEPLOYMENTS['arc-testnet'].intentRouter;
     registerDeployment('arc-testnet', { intentRouter: ROUTER });
-    expect(DEPLOYMENTS['arc-testnet'].intentRouter).toBeUndefined();
+    expect(DEPLOYMENTS['arc-testnet'].intentRouter).toBe(committed);
+    expect(DEPLOYMENTS['arc-testnet'].intentRouter).not.toBe(ROUTER);
   });
 });
 
