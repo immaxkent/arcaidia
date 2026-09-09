@@ -24,6 +24,7 @@ const CONTRACTS = [
   'ArcaidiaDeployer',
   'MockUSDC',
   'MockSettlementInitiator',
+  'CircleCCTPInitiator',
 ];
 
 function readAbi(name) {

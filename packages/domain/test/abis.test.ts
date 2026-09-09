@@ -27,6 +27,7 @@ describe('generated ABI barrel', () => {
       'ArcaidiaDeployer',
       'ArcaidiaIntentRouter',
       'ArcaidiaLiquidityVault',
+      'CircleCCTPInitiator',
       'MockSettlementInitiator',
       'MockUSDC',
       'SettlementReceiver',
@@ -107,6 +108,19 @@ describe('generated ABI barrel', () => {
       const events = names(ABIS.SettlementReceiver, 'event');
       expect(events).toContain('LpReimbursed');
       expect(events).toContain('RecipientPaidByFallback');
+    });
+  });
+
+  describe('CircleCCTPInitiator', () => {
+    it('exposes the settlement-initiator surface the router depends on', () => {
+      const functions = names(ABIS.CircleCCTPInitiator, 'function');
+      expect(functions).toContain('initiateSettlement');
+      expect(functions).toContain('supportsDestination');
+      expect(functions).toContain('setDomain');
+    });
+
+    it('emits SettlementInitiated for the settlement worker to discover', () => {
+      expect(names(ABIS.CircleCCTPInitiator, 'event')).toContain('SettlementInitiated');
     });
   });
 });

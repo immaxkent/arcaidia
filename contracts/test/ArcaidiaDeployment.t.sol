@@ -9,6 +9,8 @@ import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 import {SettlementReceiver} from "../src/SettlementReceiver.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {MockSettlementInitiator} from "../src/mocks/MockSettlementInitiator.sol";
+import {MockTokenMessengerV2} from "../src/mocks/MockTokenMessengerV2.sol";
+import {CircleCCTPInitiator} from "../src/CircleCCTPInitiator.sol";
 
 /// @notice The deployment as it will actually run, exercised in both directions.
 /// @dev Wiring is where deployments fail, and a wiring mistake is only visible
@@ -257,5 +259,129 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         assertGt(shares, 0);
         assertEq(ArcaidiaLiquidityVault(d.vault).totalAssets(), 100_000e6);
         assertEq(ArcaidiaLiquidityVault(d.vault).availableLiquidity(), 90_000e6);
+    }
+
+    // -----------------------------------------------------------------------
+    // Replacement router (WP-10)
+    // -----------------------------------------------------------------------
+    //
+    // `settlementInitiator` is fixed at the router's `initialize()` with no
+    // setter, so wiring in the real CCTP transport means deploying a *new*
+    // router rather than upgrading the existing one. These tests exercise that
+    // path: a fresh router at `ROUTER_CCTP_SALT`, reusing the vault and
+    // receiver an ordinary `deployAll` already produced.
+
+    function _deployBase() internal returns (ArcaidiaDeployment.Deployment memory) {
+        return ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
+    }
+
+    function test_replacementRouterLandsWherePredicted() public {
+        _deployBase();
+        address predicted = ArcaidiaDeployment.predictReplacementRouter(deployer);
+
+        address router = ArcaidiaDeployment.deployReplacementRouter(
+            deployer,
+            ArcaidiaDeployment.RouterConfig({
+                settlementInitiator: address(initiator),
+                settlementAsset: address(asset),
+                destinationChainId: destinationChainId,
+                destinationSettlementReceiver: makeAddr("destinationReceiver"),
+                maxIntentAmount: MAX_INTENT,
+                maxInFlightValue: MAX_IN_FLIGHT,
+                owner: protocolOwner,
+                deployingAs: address(this)
+            })
+        );
+
+        assertEq(router, predicted);
+    }
+
+    function test_replacementRouterDiffersFromTheOriginal() public {
+        ArcaidiaDeployment.Deployment memory original = _deployBase();
+
+        address router = ArcaidiaDeployment.deployReplacementRouter(
+            deployer,
+            ArcaidiaDeployment.RouterConfig({
+                settlementInitiator: address(initiator),
+                settlementAsset: address(asset),
+                destinationChainId: destinationChainId,
+                destinationSettlementReceiver: makeAddr("destinationReceiver"),
+                maxIntentAmount: MAX_INTENT,
+                maxInFlightValue: MAX_IN_FLIGHT,
+                owner: protocolOwner,
+                deployingAs: address(this)
+            })
+        );
+
+        assertTrue(router != original.router, "replacement must not collide with the original router");
+    }
+
+    function test_replacementRouterIsOwnedByTheConfiguredOwner() public {
+        _deployBase();
+
+        address router = ArcaidiaDeployment.deployReplacementRouter(
+            deployer,
+            ArcaidiaDeployment.RouterConfig({
+                settlementInitiator: address(initiator),
+                settlementAsset: address(asset),
+                destinationChainId: destinationChainId,
+                destinationSettlementReceiver: makeAddr("destinationReceiver"),
+                maxIntentAmount: MAX_INTENT,
+                maxInFlightValue: MAX_IN_FLIGHT,
+                owner: protocolOwner,
+                deployingAs: address(this)
+            })
+        );
+
+        assertEq(ArcaidiaIntentRouter(router).owner(), protocolOwner);
+    }
+
+    /// The reused vault must accept a fill routed through the *replacement*
+    /// router's intent exactly as it would through the original — proof that
+    /// neither contract stores or checks a router address.
+    function test_replacementRouterInteroperatesWithTheReusedVaultAndReceiver() public {
+        ArcaidiaDeployment.Deployment memory base = _deployBase();
+
+        MockTokenMessengerV2 tokenMessenger = new MockTokenMessengerV2();
+        CircleCCTPInitiator cctp = new CircleCCTPInitiator(address(this), address(tokenMessenger), address(asset));
+        cctp.setDomain(destinationChainId, 26);
+
+        address router = ArcaidiaDeployment.deployReplacementRouter(
+            deployer,
+            ArcaidiaDeployment.RouterConfig({
+                settlementInitiator: address(cctp),
+                settlementAsset: address(asset),
+                destinationChainId: destinationChainId,
+                // CREATE2 parity: the receiver `deployAll` produced is what a
+                // real redeploy would also pass here.
+                destinationSettlementReceiver: base.settlementReceiver,
+                maxIntentAmount: MAX_INTENT,
+                maxInFlightValue: MAX_IN_FLIGHT,
+                owner: protocolOwner,
+                deployingAs: address(this)
+            })
+        );
+
+        address user = makeAddr("cctpUser");
+        asset.mint(user, 10_000e6);
+
+        vm.startPrank(user);
+        asset.approve(router, type(uint256).max);
+        bytes32 intentId = ArcaidiaIntentRouter(router)
+            .createIntent(makeAddr("recipient"), 1_000e6, destinationChainId, 30, uint64(block.timestamp + 1 hours), 1);
+        vm.stopPrank();
+
+        assertTrue(ArcaidiaIntentRouter(router).intentExists(intentId));
+        assertEq(tokenMessenger.callCount(), 1, "the replacement router's intent must burn through real CCTP");
+
+        // The pre-existing vault, from the base deployment, is unaffected and
+        // still independently usable — nothing about it was touched.
+        address lp = makeAddr("cctpLp");
+        asset.mint(lp, 50_000e6);
+        vm.startPrank(lp);
+        asset.approve(base.vault, type(uint256).max);
+        uint256 shares = ArcaidiaLiquidityVault(base.vault).deposit(50_000e6, lp);
+        vm.stopPrank();
+        assertGt(shares, 0);
     }
 }

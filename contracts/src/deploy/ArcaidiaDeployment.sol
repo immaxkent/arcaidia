@@ -28,6 +28,15 @@ library ArcaidiaDeployment {
     bytes32 internal constant VAULT_SALT = keccak256("arcaidia.v1.liquidity-vault");
     bytes32 internal constant RECEIVER_SALT = keccak256("arcaidia.v1.settlement-receiver");
 
+    /// @dev WP-10: the original router (`ROUTER_SALT`) was initialized against
+    ///      `MockSettlementInitiator`, and `settlementInitiator` is fixed at
+    ///      `initialize()` with no setter — this contract has no upgrade path.
+    ///      Swapping in `CircleCCTPInitiator` therefore means a *new* router at
+    ///      a new salt, deployed by `deployReplacementRouter` below, not a
+    ///      change to the one at `ROUTER_SALT`. Distinct from that salt forever,
+    ///      for the same reason the others above must never change.
+    bytes32 internal constant ROUTER_CCTP_SALT = keccak256("arcaidia.v1.intent-router.cctp");
+
     struct Config {
         /// Final owner, after wiring.
         address owner;
@@ -152,5 +161,63 @@ library ArcaidiaDeployment {
         ArcaidiaLiquidityVault(deployment.vault).transferOwnership(owner);
         SettlementReceiver(deployment.settlementReceiver).transferOwnership(owner);
         ArcaidiaIntentRouter(deployment.router).transferOwnership(owner);
+    }
+
+    /// @notice Where the replacement router will land, before deploying it.
+    function predictReplacementRouter(ArcaidiaDeployer deployer) internal view returns (address) {
+        return deployer.predictAddress(ROUTER_CCTP_SALT, keccak256(type(ArcaidiaIntentRouter).creationCode));
+    }
+
+    /// @dev Bundled rather than passed as loose parameters: `forge script`'s
+    ///      `run()` builds enough other locals (env reads, the deployer, the
+    ///      freshly deployed initiator) that adding eight more scalar
+    ///      parameters here overflows EVM stack depth without `via_ir`, which
+    ///      this project deliberately does not enable. One struct-typed local
+    ///      is one stack slot, matching how `Config` avoids the same problem
+    ///      in `deployAll` above.
+    struct RouterConfig {
+        address settlementInitiator;
+        address settlementAsset;
+        uint256 destinationChainId;
+        address destinationSettlementReceiver;
+        uint256 maxIntentAmount;
+        uint256 maxInFlightValue;
+        address owner;
+        address deployingAs;
+    }
+
+    /// @notice Deploy a replacement router wired to a new settlement initiator
+    ///         (WP-10), reusing the vault and settlement receiver already live
+    ///         on this chain.
+    /// @dev The vault and receiver are untouched: neither stores or checks a
+    ///      router address — the vault's authorised-signer fills and the
+    ///      receiver's allowlisted-reporter settlement are both independent of
+    ///      which router exists — so nothing about them needs to move for the
+    ///      router to change. `destinationSettlementReceiver` is passed
+    ///      explicitly rather than assumed equal to the existing receiver's own
+    ///      address for the same reason `deployAll` does: CREATE2 parity means
+    ///      they are equal in practice, but that should never be an implicit
+    ///      dependency.
+    function deployReplacementRouter(ArcaidiaDeployer deployer, RouterConfig memory config)
+        internal
+        returns (address router)
+    {
+        router = deployer.deploy(
+            ROUTER_CCTP_SALT,
+            type(ArcaidiaIntentRouter).creationCode,
+            abi.encodeCall(
+                ArcaidiaIntentRouter.initialize,
+                (
+                    config.deployingAs,
+                    config.settlementAsset,
+                    config.settlementInitiator,
+                    config.maxIntentAmount,
+                    config.maxInFlightValue
+                )
+            )
+        );
+
+        ArcaidiaIntentRouter(router).setDestination(config.destinationChainId, config.destinationSettlementReceiver);
+        ArcaidiaIntentRouter(router).transferOwnership(config.owner);
     }
 }
