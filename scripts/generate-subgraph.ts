@@ -26,21 +26,36 @@ const SUBGRAPH = join(ROOT, 'subgraph');
 export const PLACEHOLDER = '0x0000000000000000000000000000000000000000';
 
 /**
- * Where each chain's indexing begins.
+ * Where the vault and settlement receiver's indexing begins.
  *
  * Zero would replay the entire chain — wasteful and, on Studio's free tier,
  * slow enough to matter. These are the real block the 2026-09-08 deployment
- * landed in on each chain (contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json),
- * one block before any protocol event could possibly exist.
+ * landed in on each chain (contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json).
+ * Neither contract has been redeployed since, so this has not changed.
  */
 export const START_BLOCKS: Record<ChainKey, number> = {
   'ethereum-sepolia': 11_660_148,
   'arc-testnet': 61_052_876,
 };
 
+/**
+ * Where the router's indexing begins — separately, because the router was
+ * redeployed 2026-09-09 (WP-10, real CCTP transport;
+ * contracts/broadcast/DeployCctpRouter.s.sol/<chainId>/run-latest.json) and the
+ * vault/receiver were not. Indexing the new router from the old block would
+ * replay the retired router's history under the new address, which never
+ * existed there — nothing would match, but it costs real sync time to find
+ * that out on every deploy.
+ */
+export const ROUTER_START_BLOCKS: Record<ChainKey, number> = {
+  'ethereum-sepolia': 11_667_863,
+  'arc-testnet': 61_236_176,
+};
+
 export function manifest(chain: ChainConfig): string {
   const contracts = deploymentFor(chain.key);
   const router = contracts.intentRouter ?? PLACEHOLDER;
+  const routerStartBlock = ROUTER_START_BLOCKS[chain.key];
   const vault = contracts.liquidityVault ?? PLACEHOLDER;
   const receiver = contracts.settlementReceiver ?? PLACEHOLDER;
   const startBlock = START_BLOCKS[chain.key];
@@ -64,7 +79,7 @@ dataSources:
     source:
       address: "${router}"
       abi: ArcaidiaIntentRouter
-      startBlock: ${startBlock}
+      startBlock: ${routerStartBlock}
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
