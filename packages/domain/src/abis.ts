@@ -2571,6 +2571,17 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "IntentAlreadySettledCanonically",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "IntentNotFilled",
       "inputs": [
         {

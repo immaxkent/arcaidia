@@ -44,6 +44,15 @@ contract VaultReentrancyTest is ChainFixture {
         vault.deposit(100_000e6, lp);
     }
 
+    /// Stands in as `settlementReceiver` (set above) so this contract can call
+    /// `recordReimbursement` directly. `fastFill` now checks `isSettled` before
+    /// paying out (WP-10 hardening); these tests are all about fast-fill and
+    /// reimbursement mechanics, never about a canonical-settlement race, so
+    /// "never settled" is the correct constant answer here.
+    function isSettled(bytes32) external pure returns (bool) {
+        return false;
+    }
+
     function _authorization(uint256 nonce, uint256 input, uint256 fee)
         internal
         view

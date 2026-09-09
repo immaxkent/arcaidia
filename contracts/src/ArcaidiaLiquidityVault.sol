@@ -9,6 +9,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IFillRegistry} from "./interfaces/IFillRegistry.sol";
+import {ISettlementCheck} from "./interfaces/ISettlementCheck.sol";
 import {FillAuthorization} from "./libraries/ArcaidiaTypes.sol";
 import {FillAuthorizationLib} from "./libraries/FillAuthorizationLib.sol";
 
@@ -167,6 +168,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     error InsufficientLiquidity(uint256 requested, uint256 available);
     error NotSettlementReceiver();
     error IntentAlreadyFilled(bytes32 intentId);
+    error IntentAlreadySettledCanonically(bytes32 intentId);
     error IntentNotFilled(bytes32 intentId);
     error ReimbursementBelowPrincipal(uint256 received, uint256 principal);
     error AuthorizationExpired(uint64 expiry, uint256 nowTimestamp);
@@ -508,6 +510,20 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         uint256 newExposure = outstandingExposure + authorization.outputAmount;
         if (newExposure > maxOutstandingExposure) {
             revert ExposureCapExceeded(newExposure, maxOutstandingExposure);
+        }
+
+        // Mirrors the check `SettlementReceiver.settle()` already makes in the
+        // other direction (`IFillRegistry.isFilled`) before choosing its own
+        // branch. Without it, an intent nobody fast-filled — already paid by
+        // settle()'s fallback branch once the real CCTP mint landed — would be
+        // indistinguishable here from one nobody has touched, since that
+        // branch never calls this vault. A late fill would pay the recipient
+        // a second time, out of LP capital, with no mint ever backing it.
+        if (
+            settlementReceiver != address(0)
+                && ISettlementCheck(settlementReceiver).isSettled(authorization.intentId)
+        ) {
+            revert IntentAlreadySettledCanonically(authorization.intentId);
         }
 
         signer = ECDSA.recover(hashFillAuthorization(authorization), signature);

@@ -66,6 +66,27 @@ mechanisms considered (Dutch auction, sealed quotes, request-for-quote window, f
 and simplest for a concrete reason — nothing about it can go wrong live, which matters more
 than optimal price discovery for a first permissionless version.
 
+**Gap found while building WP-10, not yet resolved here.** `consumed: mapping(bytes32 => bool)`
+answers "has anyone already won this" but not "which vault won it" — and `SettlementReceiver`
+needs the second answer, not the first. Today, with exactly one vault, `SettlementReceiver`
+holds one hardcoded `IFillRegistry vault` reference and asks it directly. With many competing
+vaults, `settle()` has no fixed vault to ask. The natural fix is the same shape the WP-10 fix
+below already takes: widen `consumed` to `mapping(bytes32 => address) filledBy` — `address(0)`
+for unclaimed, the winning vault's address otherwise — and have `settle()` read
+`market.filledBy(intentId)` instead of one fixed reference. One mapping then answers both "may
+this vault claim it" and "who do I reimburse," which is why one contract can do both jobs rather
+than needing a second registry alongside it. Not designed in depth here; flagging so it is not
+rediscovered under time pressure at market-build time.
+
+**WP-10 also closed a related, narrower gap that this market design should inherit the shape
+of.** `ArcaidiaLiquidityVault.fastFill()` now checks `SettlementReceiver.isSettled(intentId)`
+before paying out (see `ISettlementCheck`) — without it, an intent nobody fast-filled, already
+paid via `settle()`'s fallback branch once the real CCTP mint landed, was indistinguishable from
+one nobody had touched, because that branch never touched the vault. A late fill would have paid
+the recipient a second time out of LP capital. `market.claimIntent()` will need the identical
+check, once, centrally, rather than every vault re-deriving it — the same consolidation the
+`filledBy` mapping above is doing for the other half of this problem.
+
 ## 4. Standardisation is an interface, not a new library
 
 `FillAuthorizationLib` already is the shared library — canonical EIP-712 hashing, used

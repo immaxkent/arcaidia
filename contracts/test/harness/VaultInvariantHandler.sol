@@ -85,6 +85,14 @@ contract VaultInvariantHandler is Test {
         } catch {}
     }
 
+    /// Stands in as `settlementReceiver` (see the test's setUp) purely so
+    /// `fastFill`'s WP-10 settlement-check has something to call. Every fill
+    /// here uses a freshly minted `intentId`, never one already settled
+    /// canonically, so "never settled" is always the right answer.
+    function isSettled(bytes32) external pure returns (bool) {
+        return false;
+    }
+
     /// @dev Builds and signs a legal authorization, then submits it. Illegal
     ///      ones are the unit suite's job; here the point is that *legal*
     ///      sequences never break an invariant.
