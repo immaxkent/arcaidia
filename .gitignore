@@ -12,3 +12,9 @@ broadcast/
 # apps/web build output not already covered by its own .gitignore
 apps/web/.output/
 apps/web/.vinxi/
+
+# graph-cli writes here when run from the repo root without --output-dir
+/build/
+
+# the live solver's own decision log (packages/agent/src/entrypoint/main.ts)
+solver-decisions*.jsonl

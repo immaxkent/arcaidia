@@ -11,7 +11,7 @@ cite them.
 | Q3 | Canonical USDC address per network; testnet faucet | WP-10 | **ANSWERED 2026-09-04** |
 | Q4 | Circle Agent Wallet: raw EIP-712 signature or execute-only? | WP-09 (reaches WP-05) | **ANSWERED 2026-09-04**, one residual (EOA vs SCA) |
 | Q5 | Agent Wallet policy controls | WP-09 | **ANSWERED 2026-09-04** |
-| Q6 | Can The Graph index Arc? | WP-08 | **ANSWERED 2026-09-04**, one residual (Studio vs network) |
+| Q6 | Can The Graph index Arc? | WP-08 | **ANSWERED 2026-09-04**, residual resolved 2026-09-09 (Studio, confirmed by deploying) |
 | Q7 | One subgraph per chain, or cross-chain composition? | WP-08 | **ANSWERED 2026-09-04** |
 | Q8 | Privy wallet model; can it sign for Arc? | WP-03 | **ANSWERED 2026-09-05** |
 | Q9 | Confirmation threshold policy for the demo | WP-04 | OPEN — informed by Q2's finality finding |
@@ -177,9 +177,11 @@ cross-chain composition primitive that would simplify this. Each chain's indexin
 lag must be tracked independently and exposed to the risk engine as staleness —
 already modelled as `DecisionInputs.observationAgeSeconds`.
 
-**Residual for WP-08:** confirm whether `arc-testnet` is served by Subgraph Studio,
-the decentralised network, or both, and check the feature-support matrix. This
-affects the deployment command, not the architecture.
+**Residual RESOLVED 2026-09-09:** `arc-testnet` is served by Subgraph Studio.
+Deployed both subgraphs there directly (`graph deploy arcaidia-ethereum-sepolia`
+/ `graph deploy arcaidia-arc-testnet`) — both indexing live with zero errors,
+confirmed via each endpoint's `_meta { hasIndexingErrors }`. No self-hosted
+graph-node or decentralised-network publish needed for either chain.
 
 Sources: [Arc Testnet](https://thegraph.com/docs/en/supported-networks/arc-testnet/),
 [Supported networks](https://thegraph.com/docs/en/supported-networks/)
