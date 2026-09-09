@@ -36,13 +36,21 @@ export interface SettlementTransportConfig {
 }
 
 /**
- * Addresses of Arcaidia's own contracts. Populated by the CREATE2 deployment in
- * WP-01 — which is expected to produce the *same* addresses on every chain.
+ * Addresses of Arcaidia's own contracts. `intentRouter`, `liquidityVault` and
+ * `settlementReceiver` are populated by the CREATE2 deployment in WP-01 — which
+ * is expected to produce the *same* addresses on every chain.
  */
 export interface ProtocolContracts {
   readonly intentRouter?: Address;
   readonly liquidityVault?: Address;
   readonly settlementReceiver?: Address;
+  /**
+   * The router's canonical settlement transport (WP-10). Deployed with a plain
+   * `new`, not CREATE2 — nothing predicts or depends on its address the way
+   * `intentRouter` does, so unlike the three above it is *not* expected to
+   * match across chains, and `deployments.test.ts`'s parity check excludes it.
+   */
+  readonly settlementInitiator?: Address;
 }
 
 export interface ChainConfig {

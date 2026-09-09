@@ -61,6 +61,33 @@ describe('deployments', () => {
       expect(new Set(deployed.map((d) => d.address.toLowerCase())).size).toBe(1);
     }
   });
+
+  describe('settlementInitiator (WP-10)', () => {
+    it('is set on both chains, since the 2026-09-09 CCTP router redeploy', () => {
+      for (const chain of Object.values(CHAINS)) {
+        expect(DEPLOYMENTS[chain.key].settlementInitiator).toMatch(/^0x[0-9a-fA-F]{40}$/);
+      }
+    });
+
+    /// Deployed via a plain `new`, not CREATE2 — unlike the three parity-checked
+    /// contracts, matching across chains is neither expected nor meaningful.
+    it('is deliberately excluded from the cross-chain parity check', () => {
+      expect(PROTOCOL_CONTRACT_NAMES as readonly string[]).not.toContain('settlementInitiator');
+    });
+
+    it('genuinely differs between the two chains, confirming it is not CREATE2-deployed', () => {
+      const sepolia = DEPLOYMENTS['ethereum-sepolia'].settlementInitiator;
+      const arc = DEPLOYMENTS['arc-testnet'].settlementInitiator;
+      expect(sepolia?.toLowerCase()).not.toBe(arc?.toLowerCase());
+    });
+  });
+
+  it('retired the pre-WP-10 router: the new intentRouter differs from the original mock-backed one', () => {
+    const RETIRED_ROUTER = '0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357';
+    for (const chain of Object.values(CHAINS)) {
+      expect(DEPLOYMENTS[chain.key].intentRouter?.toLowerCase()).not.toBe(RETIRED_ROUTER.toLowerCase());
+    }
+  });
 });
 
 describe('deployment overrides', () => {
