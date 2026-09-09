@@ -10,6 +10,14 @@
 export { MockSettlementAdapter } from './adapters/mock-settlement-adapter.js';
 export type { MockSettlementOptions } from './adapters/mock-settlement-adapter.js';
 
+// The real transport (WP-10)
+export { CircleCCTPAdapter } from './adapters/circle-cctp-adapter.js';
+export type {
+  CircleCCTPAdapterOptions,
+  CctpReadClient,
+  CctpWriteClient,
+} from './adapters/circle-cctp-adapter.js';
+
 // The worker
 export { processSettlement, runSettlementPass } from './worker/process-settlement.js';
 export type {
