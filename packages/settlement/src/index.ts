@@ -32,6 +32,24 @@ export type {
   SettlementOutcomeReport,
 } from './worker/ports.js';
 
+// Discovery + the continuous loop, for a live process (WP-10)
+export { runSettlementWorkerPass } from './worker/run-settlement-worker-pass.js';
+export type {
+  Registrable,
+  SettlementWorkerDependencies,
+  SettlementWorkerPassResult,
+} from './worker/run-settlement-worker-pass.js';
+export { startSettlementWorker } from './worker/settlement-worker.js';
+export type { SettlementWorkerOptions, SettlementWorkerHandle } from './worker/settlement-worker.js';
+export { GraphSettlementDiscovery } from './observation/discover-settlements.js';
+export type {
+  SettlementChainSource,
+  GraphSettlementDiscoveryOptions,
+  SettlementDiscoveryProvider,
+} from './observation/discover-settlements.js';
+export { FetchGraphQueryClient } from './observation/graph-client.js';
+export type { GraphQueryClient } from './observation/graph-client.js';
+
 // Health, derived independently of the transport's own report
 export { deriveSettlementHealth } from './health.js';
 export type { HealthOptions } from './health.js';
