@@ -3,7 +3,13 @@ import { useState } from "react";
 import { CopyValue } from "@/components/site/copy-value";
 import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
 import { formatBps, formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
-import { ChainBadge, FillsTable, OperatorBadge, StatusChip, UtilisationMeter } from "@/components/vaults/vault-bits";
+import {
+  ChainBadge,
+  FillsTable,
+  OperatorBadge,
+  StatusChip,
+  UtilisationMeter,
+} from "@/components/vaults/vault-bits";
 import {
   AwaitingSource,
   EmptyChart,
@@ -55,7 +61,9 @@ function LiquidityPage() {
   const directory = useVaults(chainId);
   const market = useMarketIntelligence(chainId);
   const vault =
-    directory.status === "ready" ? (directory.data.find((v) => v.vaultAddress === selected) ?? null) : null;
+    directory.status === "ready"
+      ? (directory.data.find((v) => v.vaultAddress === selected) ?? null)
+      : null;
 
   const openVault = (address: Address) => {
     setSelected(address);
@@ -64,15 +72,17 @@ function LiquidityPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
-      <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">Liquidity market</h1>
+      <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">
+        Liquidity market
+      </h1>
       <p className="measure mt-2 text-sm text-text-dim">
         Arcaidia is not one pool. Every destination chain has its own directory of vaults: the{" "}
         <span className="text-gold-glow">Arcaidia House Vault</span> plus{" "}
-        <span className="text-acid">permissionless independent solver vaults</span>. Each vault risks capital
-        it owns to advance USDC to a recipient, and{" "}
-        <span className="text-text">the first valid fill wins</span>. Canonical CCTP settlement later
-        reimburses whichever vault filled — it is not best-price execution, and reimbursement is not yet
-        trustless.
+        <span className="text-acid">permissionless independent solver vaults</span>. Each vault
+        risks capital it owns to advance USDC to a recipient, and{" "}
+        <span className="text-text">the first valid fill wins</span>. Canonical CCTP settlement
+        later reimburses whichever vault filled — it is not best-price execution, and reimbursement
+        is not yet trustless.
       </p>
 
       {/* Market intelligence surface — x402 endpoints, unavailable until published. */}
@@ -80,8 +90,14 @@ function LiquidityPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-text">Market state</h2>
         <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-6">
           {[
-            { k: "Aggregate liquidity", f: (m: MarketFields) => value(m.aggregateLiquidity, formatUsdc) },
-            { k: "Aggregate utilisation", f: (m: MarketFields) => value(m.aggregateUtilisationBps, formatBps) },
+            {
+              k: "Aggregate liquidity",
+              f: (m: MarketFields) => value(m.aggregateLiquidity, formatUsdc),
+            },
+            {
+              k: "Aggregate utilisation",
+              f: (m: MarketFields) => value(m.aggregateUtilisationBps, formatBps),
+            },
             {
               k: "Executable fee range",
               f: (m: MarketFields) =>
@@ -115,7 +131,11 @@ function LiquidityPage() {
         </AwaitingSource>
       </section>
 
-      <div className="mt-8 flex flex-wrap items-center gap-2" role="tablist" aria-label="Vault directory">
+      <div
+        className="mt-8 flex flex-wrap items-center gap-2"
+        role="tablist"
+        aria-label="Vault directory"
+      >
         {[ETHEREUM_SEPOLIA, ARC_TESTNET].map((id) => (
           <button
             key={id}
@@ -126,7 +146,9 @@ function LiquidityPage() {
               setSelected(null);
             }}
             className={`rounded-md border px-3.5 py-1.5 text-sm uppercase tracking-wide transition-colors ${
-              id === chainId ? "border-acid/60 bg-acid/10 text-acid" : "border-border text-text-dim hover:text-text"
+              id === chainId
+                ? "border-acid/60 bg-acid/10 text-acid"
+                : "border-border text-text-dim hover:text-text"
             }`}
           >
             {CHAINS[id]?.short} vaults
@@ -182,22 +204,40 @@ function LiquidityPage() {
                           <OperatorBadge type={v.operatorType} />
                           <ChainBadge chainId={v.chainId} />
                         </span>
-                        <span className="num mt-1 block text-[11px] text-text-dim">
-                          {v.pricingModelId ?? NOT_AVAILABLE}
+                        <span
+                          className="mt-1 flex items-center gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <CopyValue
+                            value={v.vaultAddress}
+                            label="vault address"
+                            className="text-[11px]"
+                          />
+                          <span className="text-[11px] text-text-dim">
+                            {v.pricingModelId ?? NOT_AVAILABLE}
+                          </span>
                         </span>
                       </td>
-                      <td className="num px-4 py-3 text-text">{value(v.availableLiquidity, formatUsdc)}</td>
-                      <td className="num px-4 py-3 text-gold-glow">{value(v.outstandingExposure, formatUsdc)}</td>
+                      <td className="num px-4 py-3 text-text">
+                        {value(v.availableLiquidity, formatUsdc)}
+                      </td>
+                      <td className="num px-4 py-3 text-gold-glow">
+                        {value(v.outstandingExposure, formatUsdc)}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="w-28">
                           <UtilisationMeter bps={v.utilisationBps} />
                         </div>
                       </td>
-                      <td className="num px-4 py-3 text-acid">{value(v.currentFeeBps, formatBps)}</td>
+                      <td className="num px-4 py-3 text-acid">
+                        {value(v.currentFeeBps, formatBps)}
+                      </td>
                       <td className="num px-4 py-3 text-text-dim">
                         {value(v.successfulFillCount, (n) => n.toLocaleString("en-US"))}
                       </td>
-                      <td className="num px-4 py-3 text-text-dim">{value(v.lifetimeFees, formatUsdc)}</td>
+                      <td className="num px-4 py-3 text-text-dim">
+                        {value(v.lifetimeFees, formatUsdc)}
+                      </td>
                       <td className="px-4 py-3">
                         <StatusChip status={v.status} />
                       </td>
@@ -287,12 +327,32 @@ function VaultDetail({
         <>
           <dl className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              { k: "Available liquidity", v: value(vault.availableLiquidity, (x) => `${formatUsdc(x)} USDC`), tone: "text-text" },
-              { k: "Outstanding exposure", v: value(vault.outstandingExposure, (x) => `${formatUsdc(x)} USDC`), tone: "text-gold-glow" },
+              {
+                k: "Available liquidity",
+                v: value(vault.availableLiquidity, (x) => `${formatUsdc(x)} USDC`),
+                tone: "text-text",
+              },
+              {
+                k: "Outstanding exposure",
+                v: value(vault.outstandingExposure, (x) => `${formatUsdc(x)} USDC`),
+                tone: "text-gold-glow",
+              },
               { k: "Current fee", v: value(vault.currentFeeBps, formatBps), tone: "text-acid" },
-              { k: "Authorised solver", v: value(vault.authorisedSolver, (a) => truncateAddress(a)), tone: "text-electric-glow" },
-              { k: "Successful fills", v: value(vault.successfulFillCount, (n) => n.toLocaleString("en-US")), tone: "text-text" },
-              { k: "Lifetime fees", v: value(vault.lifetimeFees, (x) => `${formatUsdc(x)} USDC`), tone: "text-acid" },
+              {
+                k: "Authorised solver",
+                v: value(vault.authorisedSolver, (a) => truncateAddress(a)),
+                tone: "text-electric-glow",
+              },
+              {
+                k: "Successful fills",
+                v: value(vault.successfulFillCount, (n) => n.toLocaleString("en-US")),
+                tone: "text-text",
+              },
+              {
+                k: "Lifetime fees",
+                v: value(vault.lifetimeFees, (x) => `${formatUsdc(x)} USDC`),
+                tone: "text-acid",
+              },
               { k: "Pricing model", v: vault.pricingModelId ?? NOT_AVAILABLE, tone: "text-text" },
               { k: "Utilisation", v: value(vault.utilisationBps, formatBps), tone: "text-text" },
             ].map((m) => (
@@ -314,10 +374,11 @@ function VaultDetail({
             )}
           </div>
           <p className="measure mt-4 text-sm text-text-dim">
-            This vault advances its own capital on {CHAINS[vault.chainId]?.name} and earns the fee attached to
-            each intent it fills first. Advanced capital returns when canonical CCTP settlement reimburses the
-            vault; until then it counts as outstanding exposure. No reputation score is shown — the protocol
-            does not have a defensible reputation model yet.
+            This vault advances its own capital on {CHAINS[vault.chainId]?.name} and earns the fee
+            attached to each intent it fills first. Advanced capital returns when canonical CCTP
+            settlement reimburses the vault; until then it counts as outstanding exposure. No
+            reputation score is shown — the protocol does not have a defensible reputation model
+            yet.
           </p>
           <AwaitingSource>
             Vault state from direct contract reads · aggregates and charts from the indexer
@@ -326,8 +387,8 @@ function VaultDetail({
       ) : (
         <>
           <p className="mt-3 text-sm text-text-dim">
-            Intents this vault won and funded. There is no losing-bid order book: first valid fill wins, so
-            only completed fills exist onchain.
+            Intents this vault won and funded. There is no losing-bid order book: first valid fill
+            wins, so only completed fills exist onchain.
           </p>
           <FillsTable state={fills} />
         </>
