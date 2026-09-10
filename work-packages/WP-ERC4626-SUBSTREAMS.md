@@ -1,10 +1,29 @@
 # WP — ERC-4626 Substreams module (The Graph P1)
 
-**Status:** scoped, not started. **Targets:** The Graph P1 — Best Use of Composable or
-Standardized Graph Products, $5,000. **Deadline:** submission closes Sunday 2026-09-13,
-12:00pm EDT (verified against the live ETHGlobal rules page, not a secondhand date).
+**Status:** in progress, branch `erc4626-substreams`. **Targets:** The Graph P1 — Best Use of
+Composable or Standardized Graph Products, $5,000. **Deadline:** submission closes Sunday
+2026-09-13, 12:00pm EDT (verified against the live ETHGlobal rules page, not a secondhand date).
 **Depends on:** nothing. **Runs in parallel with:** the intent market work (separate fork/agent) —
 confirmed no shared surface, see §1.
+
+## Progress (updated as it lands — see branch history for detail)
+
+- [x] §5.1–5.2 `map_vault_flows` — generic Deposit/Withdraw decoding, 10/10 tests including a
+      real fixture pulled from Arcaidia's own Sepolia vault via `cast logs`. Wasm build + pack
+      both green.
+- [x] §5.3, the reachable half — verified against a real on-chain log. The live-Firehose half
+      (`substreams run` against a real endpoint) needs a Substreams/Graph Market API key only the
+      account owner can create — not attempted; flagging per this doc's own instruction rather
+      than working around it.
+- [ ] §5.4 publish to the Substreams Registry — same account blocker as above (`substreams
+      publish` needs the same auth). Blocked until the user provisions a key.
+- [~] §5.5 wire into a Studio subgraph — `graph_out` (VaultFlows -> EntityChanges) is written and
+      unit-tested but not yet wasm-linkable: `substreams-entity-change` pins a `substreams` version
+      that collides with ours at wasm-link time. Reverted to keep the tree green; the fix is to
+      hand-build `EntityChanges` against our own dependency versions instead of pulling that crate
+      in. `vault-flows-subgraph/` is scaffolded and schema-complete, staged on this.
+- [ ] §5.6 docs on what became easier — not started; natural to write once §5.5 actually deploys,
+      so it can say something true rather than speculative.
 
 ## 1. Why this doesn't collide with the intent market work
 
