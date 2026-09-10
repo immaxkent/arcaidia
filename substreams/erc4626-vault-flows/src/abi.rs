@@ -243,4 +243,60 @@ mod tests {
         log.address = hex::decode("dead00000000000000000000000000000000ff").unwrap();
         assert!(decode_deposit(&log).flatten().is_some());
     }
+
+    /// WP-ERC4626-SUBSTREAMS.md §5.3 — not a synthetic fixture: this is the
+    /// exact topics/data of a real `Deposit` log, fetched live via
+    /// `cast logs` against Arcaidia's actual deployed vault on Ethereum
+    /// Sepolia (`0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1`,
+    /// tx `0x03aba6621279c69d4ad41aa5e23d5cf6d8bf2f42ba8ab9be9f67015117f6bf51`,
+    /// block 11675763). Ground truth for `assets`/`shares` cross-checked
+    /// independently against the vault's own `totalSupply()` (1e14) via
+    /// `cast call` earlier this session, not derived from this decoder.
+    ///
+    /// Live Substreams auth (`substreams run` against a real Firehose
+    /// endpoint) needs an API key only the account owner can create — not
+    /// attempted here. This is the verification that's actually reachable
+    /// without it: the same decoding logic the wasm module runs, exercised
+    /// against a real chain event instead of a hand-built one.
+    #[test]
+    fn decodes_a_real_deposit_log_from_arcaidias_own_sepolia_vault() {
+        let log = Log {
+            address: hex::decode("c74e693938dfbf7c11b787ba27cdde4c0215aaf1").unwrap(),
+            topics: vec![
+                DEPOSIT_TOPIC0.to_vec(),
+                hex::decode("000000000000000000000000538e5e9797fa86ee25e97289439b6a3aba0165b0")
+                    .unwrap(),
+                hex::decode("000000000000000000000000538e5e9797fa86ee25e97289439b6a3aba0165b0")
+                    .unwrap(),
+            ],
+            data: hex::decode(concat!(
+                "0000000000000000000000000000000000000000000000000000000005f5e100",
+                "00000000000000000000000000000000000000000000000000005af3107a4000",
+            ))
+            .unwrap(),
+            index: 0x8c,
+            block_index: 0,
+            ordinal: 0,
+        };
+
+        let decoded = decode_deposit(&log)
+            .flatten()
+            .expect("a real vault deposit must decode");
+
+        assert_eq!(decoded.sender, "0x538e5e9797fa86ee25e97289439b6a3aba0165b0");
+        assert_eq!(decoded.owner, "0x538e5e9797fa86ee25e97289439b6a3aba0165b0");
+        // 100_000_000 (100 USDC at 6 decimals) — the real $100 test deposit
+        // from earlier this session, not a round number chosen for the
+        // test. Minimal big-endian bytes computed independently in Python,
+        // not sliced from to_be_bytes() at a hand-counted offset — that
+        // exact mistake bit an earlier test in this same file.
+        assert_eq!(decoded.assets.bytes, vec![0x05, 0xF5, 0xE1, 0x00]);
+        // 100_000_000_000_000 — matches totalSupply() read live via `cast
+        // call` against the real vault (single depositor, so its whole
+        // supply is this one deposit's shares).
+        assert_eq!(
+            decoded.shares.bytes,
+            vec![0x5A, 0xF3, 0x10, 0x7A, 0x40, 0x00]
+        );
+    }
 }
