@@ -11,6 +11,7 @@ import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {MockSettlementInitiator} from "../src/mocks/MockSettlementInitiator.sol";
 import {MockTokenMessengerV2} from "../src/mocks/MockTokenMessengerV2.sol";
 import {CircleCCTPInitiator} from "../src/CircleCCTPInitiator.sol";
+import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
 
 /// @notice The deployment as it will actually run, exercised in both directions.
 /// @dev Wiring is where deployments fail, and a wiring mistake is only visible
@@ -383,5 +384,160 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         uint256 shares = ArcaidiaLiquidityVault(base.vault).deposit(50_000e6, lp);
         vm.stopPrank();
         assertGt(shares, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Replacement vault + receiver (WP-12)
+    // -----------------------------------------------------------------------
+    //
+    // `maxFillBps`/`maxExposureBps` replaced flat absolutes on the vault, and
+    // `SettlementReceiver.vault` is fixed at `initialize()` with no setter, so
+    // this is a new vault AND a new receiver, reusing the existing router (it
+    // never stored a vault or receiver address either).
+
+    function _v2Config(address solverSigner, address reporter)
+        internal
+        view
+        returns (ArcaidiaDeployment.VaultV2Config memory)
+    {
+        return ArcaidiaDeployment.VaultV2Config({
+            settlementAsset: address(asset),
+            reserveFloorBps: RESERVE_FLOOR_BPS,
+            treasury: protocolTreasury,
+            protocolFeeShareBps: PROTOCOL_SHARE_BPS,
+            solverSigner: solverSigner,
+            settlementReporter: reporter,
+            owner: protocolOwner,
+            deployingAs: address(this)
+        });
+    }
+
+    function test_replacementVaultAndReceiverLandWherePredicted() public {
+        ArcaidiaDeployment.VaultV2Deployment memory predicted =
+            ArcaidiaDeployment.predictReplacementVaultAndReceiver(deployer);
+
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
+
+        assertEq(d.vault, predicted.vault, "vault");
+        assertEq(d.settlementReceiver, predicted.settlementReceiver, "settlement receiver");
+    }
+
+    function test_replacementVaultDiffersFromTheOriginal() public {
+        ArcaidiaDeployment.Deployment memory original = _deployBase();
+
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
+
+        assertTrue(d.vault != original.vault, "replacement must not collide with the original vault");
+        assertTrue(
+            d.settlementReceiver != original.settlementReceiver,
+            "replacement must not collide with the original receiver"
+        );
+    }
+
+    /// The whole point: a fresh vault fills immediately, no `setFillLimits`
+    /// call required — this is what shipping without one, on the original
+    /// vault, actually cost (see ArcaidiaLiquidityVault's DEFAULT_MAX_*_BPS).
+    function test_replacementVaultAcceptsAFillWithNoFurtherOwnerAction() public {
+        (address agent, uint256 agentKey) = makeAddrAndKey("v2Agent");
+
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(agent, address(0)));
+
+        address lp = makeAddr("v2Lp");
+        asset.mint(lp, 100_000e6);
+        vm.startPrank(lp);
+        asset.approve(d.vault, type(uint256).max);
+        ArcaidiaLiquidityVault(d.vault).deposit(100_000e6, lp);
+        vm.stopPrank();
+
+        FillAuthorization memory auth = FillAuthorization({
+            intentId: keccak256("v2-intent"),
+            sourceChainId: sourceChainId,
+            sourceTxHash: keccak256("v2-tx"),
+            recipient: makeAddr("v2Recipient"),
+            inputAmount: 10_000e6,
+            outputAmount: 9_950e6,
+            feeAmount: 50e6,
+            expiry: uint64(block.timestamp + 1 hours),
+            nonce: 1
+        });
+        // The domain separator binds to block.chainid, so signing must happen
+        // on the destination chain — the same chain fastFill will verify on.
+        vm.chainId(destinationChainId);
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(agentKey, ArcaidiaLiquidityVault(d.vault).hashFillAuthorization(auth));
+
+        address signer = ArcaidiaLiquidityVault(d.vault).fastFill(auth, abi.encodePacked(r, s, v));
+
+        assertEq(signer, agent);
+        assertEq(asset.balanceOf(auth.recipient), 9_950e6);
+    }
+
+    function test_replacementVaultPointsAtItsOwnNewReceiver() public {
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
+
+        assertEq(ArcaidiaLiquidityVault(d.vault).settlementReceiver(), d.settlementReceiver);
+        assertEq(address(SettlementReceiver(d.settlementReceiver).vault()), d.vault);
+    }
+
+    function test_replacementSolverSignerIsAuthorisedWhenProvided() public {
+        address signer = makeAddr("v2Signer");
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(signer, address(0)));
+
+        assertTrue(ArcaidiaLiquidityVault(d.vault).isAuthorisedSigner(signer));
+    }
+
+    function test_omittingTheReplacementSolverSignerAuthorisesNobody() public {
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
+
+        assertFalse(ArcaidiaLiquidityVault(d.vault).isAuthorisedSigner(address(this)));
+    }
+
+    function test_replacementReporterIsGrantedWhenProvided() public {
+        address reporter = makeAddr("v2Reporter");
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), reporter));
+
+        assertTrue(SettlementReceiver(d.settlementReceiver).isReporter(reporter));
+    }
+
+    function test_replacementVaultAndReceiverAreOwnedByTheConfiguredOwner() public {
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
+
+        assertEq(ArcaidiaLiquidityVault(d.vault).owner(), protocolOwner);
+        assertEq(SettlementReceiver(d.settlementReceiver).owner(), protocolOwner);
+    }
+
+    function test_deployingAddressRetainsNoAuthorityOverTheReplacementVault() public {
+        ArcaidiaDeployment.VaultV2Deployment memory d =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
+
+        vm.expectRevert(ArcaidiaLiquidityVault.NotOwner.selector);
+        ArcaidiaLiquidityVault(d.vault).setPaused(true);
+    }
+
+    /// The original vault is untouched by a WP-12 redeploy — no pause, no
+    /// forced withdrawal, nothing. Existing LPs migrate by their own choice,
+    /// on their own timeline, with two ordinary calls (redeem, then deposit).
+    function test_theOriginalVaultIsUntouchedByTheReplacement() public {
+        ArcaidiaDeployment.Deployment memory original = _deployBase();
+
+        address lp = makeAddr("originalLp");
+        asset.mint(lp, 20_000e6);
+        vm.startPrank(lp);
+        asset.approve(original.vault, type(uint256).max);
+        ArcaidiaLiquidityVault(original.vault).deposit(20_000e6, lp);
+        vm.stopPrank();
+
+        ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
+
+        assertFalse(ArcaidiaLiquidityVault(original.vault).paused());
+        assertEq(ArcaidiaLiquidityVault(original.vault).totalAssets(), 20_000e6);
     }
 }

@@ -220,4 +220,96 @@ library ArcaidiaDeployment {
         ArcaidiaIntentRouter(router).setDestination(config.destinationChainId, config.destinationSettlementReceiver);
         ArcaidiaIntentRouter(router).transferOwnership(config.owner);
     }
+
+    /// @dev WP-12: `maxFillBps`/`maxExposureBps`/`maxFeeBps` were added to
+    ///      `ArcaidiaLiquidityVault`, replacing flat absolutes — new storage
+    ///      layout, same "no upgrade path" reasoning as `ROUTER_CCTP_SALT`
+    ///      above, so this is a new vault (and, since `SettlementReceiver.vault`
+    ///      is fixed at `initialize()` with no setter, a new receiver too) at
+    ///      new salts, not a change to the ones at `VAULT_SALT`/`RECEIVER_SALT`.
+    bytes32 internal constant VAULT_V2_SALT = keccak256("arcaidia.v1.liquidity-vault.v2");
+    bytes32 internal constant RECEIVER_V2_SALT = keccak256("arcaidia.v1.settlement-receiver.v2");
+
+    struct VaultV2Deployment {
+        address vault;
+        address settlementReceiver;
+    }
+
+    /// @dev Same stack-depth reasoning as `RouterConfig`.
+    struct VaultV2Config {
+        address settlementAsset;
+        uint16 reserveFloorBps;
+        address treasury;
+        uint16 protocolFeeShareBps;
+        /// Granted `setAuthorisedSigner(..., true)` on the new vault if not
+        /// address(0) — optional so a chain with no live signer yet (or one
+        /// granted separately) doesn't need a placeholder.
+        address solverSigner;
+        /// Granted `setReporter(..., true)` on the new receiver, same rule.
+        address settlementReporter;
+        address owner;
+        address deployingAs;
+    }
+
+    /// @notice Where the replacement vault and receiver will land, before
+    ///         deploying either.
+    function predictReplacementVaultAndReceiver(ArcaidiaDeployer deployer)
+        internal
+        view
+        returns (VaultV2Deployment memory)
+    {
+        return VaultV2Deployment({
+            vault: deployer.predictAddress(VAULT_V2_SALT, keccak256(type(ArcaidiaLiquidityVault).creationCode)),
+            settlementReceiver: deployer.predictAddress(
+                RECEIVER_V2_SALT, keccak256(type(SettlementReceiver).creationCode)
+            )
+        });
+    }
+
+    /// @notice Deploy a replacement vault and its receiver (WP-12, live
+    ///         percentage-based fill limits), reusing the existing router —
+    ///         neither the vault nor the receiver was ever router-aware, so
+    ///         only the router's own `setDestination` needs repointing at the
+    ///         new receiver, which the caller does separately with the
+    ///         router's existing owner key (this function never touches the
+    ///         router, since it isn't itself being redeployed).
+    /// @dev The new vault's `maxFillBps`/`maxExposureBps`/`maxFeeBps` come from
+    ///      `initialize()`'s own baked-in defaults (50%/80%/1.5%), not this
+    ///      config — that default existing unconditionally, for every vault
+    ///      this deploys from here on, is the actual fix; nothing here
+    ///      overrides it, though the owner still can via `setFillLimits` later.
+    function deployReplacementVaultAndReceiver(ArcaidiaDeployer deployer, VaultV2Config memory config)
+        internal
+        returns (VaultV2Deployment memory deployment)
+    {
+        address self = config.deployingAs;
+
+        deployment.vault = deployer.deploy(
+            VAULT_V2_SALT,
+            type(ArcaidiaLiquidityVault).creationCode,
+            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (self, config.settlementAsset, config.reserveFloorBps))
+        );
+
+        deployment.settlementReceiver = deployer.deploy(
+            RECEIVER_V2_SALT,
+            type(SettlementReceiver).creationCode,
+            abi.encodeCall(SettlementReceiver.initialize, (self, config.settlementAsset, deployment.vault))
+        );
+
+        ArcaidiaLiquidityVault(deployment.vault).setSettlementReceiver(deployment.settlementReceiver);
+
+        if (config.treasury != address(0)) {
+            ArcaidiaLiquidityVault(deployment.vault).setTreasury(config.treasury);
+            ArcaidiaLiquidityVault(deployment.vault).setProtocolFeeShareBps(config.protocolFeeShareBps);
+        }
+        if (config.solverSigner != address(0)) {
+            ArcaidiaLiquidityVault(deployment.vault).setAuthorisedSigner(config.solverSigner, true);
+        }
+        if (config.settlementReporter != address(0)) {
+            SettlementReceiver(deployment.settlementReceiver).setReporter(config.settlementReporter, true);
+        }
+
+        ArcaidiaLiquidityVault(deployment.vault).transferOwnership(config.owner);
+        SettlementReceiver(deployment.settlementReceiver).transferOwnership(config.owner);
+    }
 }
