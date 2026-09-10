@@ -28,6 +28,9 @@ num-bigint = "0.4"
 [dev-dependencies]
 # Fixture-driven tests decode raw log bytes/topics captured from real chain
 # activity — no live network access needed to run `cargo test`.
+# Needed only to construct a BlockHeader.timestamp fixture directly (its
+# field type, not something substreams-ethereum re-exports on its own).
+prost-types = "0.13"
 
 [profile.release]
 lto = true
