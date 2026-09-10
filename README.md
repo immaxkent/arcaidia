@@ -84,6 +84,43 @@ tests/e2e/              # golden local end-to-end harness
 
 Pre-M0. Nothing is built yet. Start at [WP-00](work-packages/WP-00-domain.md).
 
+## Deployed addresses (frozen, WP-13)
+
+CREATE2 gives every protocol contract the same address on both chains — one table, not two.
+
+| Contract | Address | Chains |
+| --- | --- | --- |
+| `ArcaidiaIntentRouter` | `0x58868465d14e0694d033bD511588AE90482b21CC` | Ethereum Sepolia, Arc Testnet |
+| `ArcaidiaLiquidityVault` | `0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1` | Ethereum Sepolia, Arc Testnet |
+| `SettlementReceiver` | `0x9a47a161ea8328b96Ad976264d42790881570E71` | Ethereum Sepolia, Arc Testnet |
+
+The canonical settlement transport (`CircleCCTPInitiator`) is deployed with a plain `new`, not
+CREATE2, so it is *not* expected to share an address across chains: Ethereum Sepolia
+`0x7C84CB7bb7fB261F579eD5Fc3956c504C640F5Ba`, Arc Testnet `0x0caE5879B7d6f8FB02e7a9D932Ee2CcF267C6ca0`.
+
+An earlier vault/settlement-receiver pair (`0x9F5813cD0Ea34403f78769076043436E67736da3` /
+`0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC`) and an earlier router
+(`0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357`) are retired — still settling their own
+already-pending intents onchain, but no new deposits or fills should target them. See
+`packages/domain/src/config/deployments.ts` for the full history.
+
+## Known limitations (disclosed, not gaps)
+
+- **Circle wallet spending-policy CLI refuses on any testnet chain.** `circle wallet limit set` —
+  the only documented way to set spending caps or allowlist/blocklist rules on a Circle Agent
+  Wallet — is a mainnet-only capability today. It is not required by any targeted bounty's stated
+  criteria; it is a real, disclosed constraint of building on testnet, not a gap in the
+  implementation, and is expected to be revisited once Arc mainnet is live.
+- **Arc mainnet is not yet a supported chain in code**, separately from the contracts themselves
+  being deployment-ready. `packages/domain/src/config/chains.ts` / `deployments.ts` are pure data
+  and need only a new entry. But the viem chain object itself is currently hand-defined in three
+  places (`packages/agent/src/entrypoint/viem-chains.ts`, `packages/settlement/src/entrypoint/viem-chains.ts`,
+  `apps/web/src/lib/arcaidia/viem-chains.ts`), each with a matching `if (chainId === ...)` branch
+  in its `build-dependencies.ts` (agent, settlement) or `privy-provider.tsx` (web) — plus a new
+  subgraph deployment. None of this is a testnet gap; it is simply unbuilt because Arc mainnet
+  does not exist yet (launches 2026-09-16). Adding it is small, mechanical, and identical in shape
+  across all three copies, but it is real code, not only configuration.
+
 ## Trust assumption (state this plainly in the demo)
 
 V1 uses an **authorised solver model**. The destination `ArcaidiaLiquidityVault` trusts EIP-712
