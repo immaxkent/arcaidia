@@ -101,54 +101,54 @@ explicitly in the submission.
 
 ### Arc/Circle P2 — Best Agentic Economy Application
 
-- [ ] Agents with **clear decision logic tied to real signals** → `AgentDecision.inputsUsed` records live liquidity, exposure, utilisation and settlement latency behind every quote (WP-04, WP-08).
-- [ ] **Autonomous spending and settlement flows using USDC** → solver advances USDC from the vault without human approval (WP-05, WP-09).
-- [ ] **Agent Stack integration** connecting wallets to onchain actions → Circle Agent Wallet signs the EIP-712 fill authorization (WP-09).
-- [ ] Nanopayments / Paymaster / App Kits where relevant → evaluate in WP-09; "where relevant", so not required if the others are strong.
-- [ ] Arc names the core products for this prize as: **Arc, USDC, Agent Stack, App Kits, Circle Wallets, Circle Contracts, Nanopayments, Paymaster**. We hit Arc, USDC, Agent Stack and Circle Wallets; Circle Contracts is worth a look in WP-09.
-- [ ] Architecture diagram, video, docs, repo → WP-12.
+- [x] Agents with **clear decision logic tied to real signals** → `AgentDecision.inputsUsed` records live liquidity, exposure, utilisation and settlement latency behind every quote (WP-04, WP-08, WP-14). Verified live.
+- [ ] **Autonomous spending and settlement flows using USDC** → the *mechanism* is real and live (solver fast-fills from the vault with no human approval), but the signer is still `LocalAgentSigner`, not the sponsor's wallet — see next row. Partial.
+- [ ] **Agent Stack integration** connecting wallets to onchain actions → **not started**. WP-09 is still parked, blocked on the user obtaining a Circle API key.
+- [ ] Nanopayments / Paymaster / App Kits where relevant → not evaluated; folded into WP-09.
+- [ ] Arc names the core products for this prize as: **Arc, USDC, Agent Stack, App Kits, Circle Wallets, Circle Contracts, Nanopayments, Paymaster**. We hit Arc and USDC live. Agent Stack/Circle Wallets are **not** hit yet — today's wallet layer is Privy's embedded wallet, not a Circle Wallet, and that's a real product-naming gap until WP-09 lands.
+- [ ] Architecture diagram, video, docs, repo → repo done; diagram/video/docs not started (WP-12).
 
 ### Arc/Circle P4 — Launch on Arc Testnet & Push to Mainnet
 
-- [ ] **Crosschain transfers with Arc settlement** → the entire product (WP-10, WP-11).
-- [ ] **Settlement logic** → dual fast/canonical settlement with LP reimbursement (WP-06, WP-10).
-- [ ] **Deployed or deployment-ready on Arc mainnet by 2026-09-30** → see gap 2 above (WP-10, WP-12).
-- [ ] Architecture diagram, video, docs, repo → WP-12.
+- [x] **Crosschain transfers with Arc settlement** → live, real CCTP, verified end-to-end this session (WP-10, WP-14).
+- [x] **Settlement logic** → dual fast/canonical settlement with LP reimbursement, including the double-settlement fix, live-verified (WP-06, WP-10).
+- [ ] **Deployed or deployment-ready on Arc mainnet by 2026-09-30** → not started. Arc mainnet launches 2026-09-16 (6 days out) — nothing to do until then except keep the config-diff/CREATE2 readiness argument true, which it currently is.
+- [ ] Architecture diagram, video, docs, repo → not started (WP-12).
 
 ### Arc/Circle P1 — Best DeFi/Onchain Finance Application
 
-- [ ] **Meaningful Arc and USDC integration** → real USDC, real Arc execution, not a logo (WP-10).
-- [ ] **Advanced programmable money flows** → conditional advance against verified commitment; onchain automation (WP-05, WP-06).
-- [ ] Payment/liquidity workflows → LP vault, fee accounting, reimbursement (WP-02, WP-06).
-- [ ] Arc names the core products for this prize as: **Arc, USDC, App Kits, Circle Wallets, Circle Contracts, CCTP, Gateway, StableFX**. We hit Arc, USDC, Circle Wallets and CCTP squarely.
+- [x] **Meaningful Arc and USDC integration** → real USDC, real Arc execution, verified live (WP-10).
+- [x] **Advanced programmable money flows** → conditional advance against a verified commitment, live (WP-05, WP-06).
+- [x] Payment/liquidity workflows → LP vault, fee accounting, reimbursement, live and tested (WP-02, WP-06).
+- [ ] Arc names the core products for this prize as: **Arc, USDC, App Kits, Circle Wallets, Circle Contracts, CCTP, Gateway, StableFX**. Arc, USDC, CCTP squarely hit. "Circle Wallets" has the same gap noted under P2 — today's wallet is Privy's, not Circle's.
 
 ### The Graph P2 — Best AI Tooling or AI Use Case (From Scratch)
 
-- [ ] **The Graph is load-bearing** → disabling it halts automated discovery entirely (WP-08 gate).
-- [ ] **Live data from a Graph provider** (Subgraph Studio or The Graph Market) → both subgraphs deployed and queried live (WP-08).
-- [ ] **No mocked or static datasets in the qualifying path** → mocks exist only in the local E2E harness; state this distinction plainly (WP-07 vs WP-11).
-- [ ] **Meaningful work with the data**: reasoning, decisions, automation → the risk engine decides, prices and acts (WP-04).
-- [ ] Open-source with clear README → WP-12.3.
-- [ ] Public repo + 2–4 minute demo video → WP-12.
-- [ ] **Begun and built during the hackathon** → commit history evidences this. Note the exact wording: *"Open-source starter kits are fine; project-specific prior code is not."* We are clean.
-- [ ] **Start Fresh pool selected** in the dashboard — the track is judged in two pools and this determines which we compete in.
-- [ ] Optional: **x402 per-query payment** — P2 offers *"let your agent pay per query autonomously with x402"*. This is the same x402 surface the specification defers to V3; if it appears cheaply here it is worth more than as a V3 stretch.
+- [x] **The Graph is load-bearing** → asserted as a test, not a claim: disabling it halts discovery (WP-08 gate).
+- [x] **Live data from a Graph provider** → both subgraphs deployed and queried live at v0.0.2 on Subgraph Studio, wired into the frontend this session (WP-08, this session's frontend wiring).
+- [ ] **No mocked or static datasets in the qualifying path** → true today (mocks only in the local E2E harness), but the *qualifying run itself* (WP-11.1, Privy → Graph discovery → Agent Wallet → fast-fill → CCTP settle, one continuous path) has never actually been executed — it can't complete until WP-09 lands. Real risk decisions and real quotes are live; the single unbroken qualifying run is not yet captured.
+- [x] **Meaningful work with the data**: reasoning, decisions, automation → the risk engine decides, prices and acts on it, live (WP-04, WP-14).
+- [ ] Open-source with clear README → README is substantial but has no LICENSE file yet (MIT/Apache, WP-00.2) and no bounty-mapping section (see deliverables table below).
+- [ ] Public repo + 2–4 minute demo video → repo done; video not started.
+- [x] **Begun and built during the hackathon** → confirmed against `git log`: first commit 2026-09-04, clean incremental history through today, no prior code.
+- [ ] **Start Fresh pool selected** in the dashboard → can't verify from the repo; needs the user to confirm on the ETHGlobal project entry.
+- [ ] Optional: **x402 per-query payment** → not built, deferred to V3 per the spec.
 
 ### The Graph P1 — Composable/Standardized (optional upgrade)
 
-- [ ] Compose **two or more** Graph products, **or** build meaningfully on a standardized schema.
+- [ ] Compose **two or more** Graph products, **or** build meaningfully on a standardized schema. **Still fully open** — no ERC-4626 conversion, no Subgraph MCP work has started.
 - [ ] Route A: subgraphs + **Subgraph MCP** for cross-protocol/natural-language access.
 - [ ] Route B: **ERC-4626 vault** + a contributed composable **Substreams module** for ERC-4626 vault flows — the example the prize text names.
-- [ ] **Make the standards leverage clear**: show what became *easier* because a shared schema or composed product was used. This is the stated judging emphasis, so it needs a specific before/after claim, not a mention.
+- [ ] **Make the standards leverage clear**: show what became *easier* because a shared schema or composed product was used.
 
 ### Privy P2 — Best Financial Flow
 
-- [ ] **Privy is integral** → it is the only authentication and wallet layer (WP-03).
-- [ ] **At least one Privy wallet created or used** → the user's wallet signs the intent (WP-03).
-- [ ] **A complete functional financial flow** using a generally available feature → bridging / stablecoin transfer, both named as eligible (WP-03, WP-11).
-- [ ] Working demo + source access → WP-11, WP-12.
-- [ ] Explain how Privy **improves the user experience** → WP-12.3. The stated bar is hiding unnecessary onchain complexity, which is our whole thesis: the user expresses an outcome and never touches a bridge.
-- [ ] Note the mocking rule: *"Features requiring commercial or guided onboarding may be mocked, but they do not count as the required functional Privy integration."* Our live flow must be a real Privy wallet action, not a mock.
+- [x] **Privy is integral** → confirmed live this session — it is the only authentication and wallet layer; the user connected via Privy successfully (WP-03).
+- [x] **At least one Privy wallet created or used** → confirmed live: the connected wallet signs `approve`/`createIntent` (WP-03).
+- [ ] **A complete functional financial flow** using a generally available feature → the pieces are individually proven live (approve+deposit, createIntent, real quote), but the single continuous demo run (WP-11.1) capturing them as one flow hasn't been executed yet.
+- [ ] Working demo + source access → source yes; recorded demo not started.
+- [ ] Explain how Privy **improves the user experience** → not yet written into the README (WP-12.3).
+- [x] Mocking-rule discipline: *"...must be a real Privy wallet action, not a mock."* → true today — every Privy-gated action this session was a real signed transaction, never mocked.
 
 ### Privy P1 — Best B2B Financial Product (scope decision)
 
@@ -166,3 +166,15 @@ reuses WP-02's vault. Judge it as scope creep unless WP-11 lands early.
 - [ ] Confirm the **submission deadline** and judging schedule from the dashboard; not on the public pages.
 - [ ] Confirm **Start Fresh** is selected on the project entry.
 - [ ] Review Circle's [Agent Stack starter kits](https://github.com/circlefin/agent-stack-starter-kits) before WP-09.
+
+---
+
+## Audit — 2026-09-10, post-WP-14
+
+**Bottom line:** the mechanism is real and load-bearing everywhere it's supposed to be (Arc/USDC/CCTP transfers, The Graph discovery and risk data, Privy auth) — verified live, not by reading code. Every gap left is one of three kinds, not a design problem:
+
+1. **WP-09 (Circle Agent Wallet) is the single biggest blocker.** It gates: the Agent Stack line item on both Arc prizes, "Circle Wallets" product coverage on both Arc prizes, and the one-continuous-run acceptance gate for both The Graph P2 and Privy P2 (WP-11.1). Still parked on the user's Circle API key.
+2. **Submission-evidence deliverables haven't started at all** — architecture diagram, demo video, bounty-mapping section in the README, LICENSE file. All WP-12, all mechanical once the product work above is settled.
+3. **Two dashboard-only confirmations** (Start Fresh pool selection, submission deadline) can't be verified from the repo — need the user to check the ETHGlobal entry directly.
+
+Not a gap, but worth flagging again: **The Graph P1 ($5,000) is still fully unaddressed** — no ERC-4626 conversion, no Subgraph MCP work. It's the single largest prize left on the table and needs an explicit go/no-go decision, not a default.
