@@ -16,9 +16,8 @@ Agent Wallet, without touching core agent logic.
 - [x] **9.2 Provision the wallet.** `packages/agent/scripts/setup-circle-agent-wallet.ts` generates
       + registers the entity secret and creates an EOA wallet on `ARC-TESTNET` via Circle's
       Developer-Controlled Wallets API — run once, live, this session:
-      address `0x6b73143220c1fb00b96d7dbde302ff55157f3424`. **Not yet granted onchain** — run
-      `contracts/script/AuthorizeSolverSigner.s.sol` with `SOLVER_SIGNER_ADDRESS` set to that
-      address, on both chains, before the live solver can use it.
+      address `0x6b73143220c1fb00b96d7dbde302ff55157f3424` — granted as an authorised solver
+      signer via `AuthorizeSolverSigner.s.sol` on **both** chains, 2026-09-10.
 - [x] **9.3 `CircleAgentWalletSigner`** (`packages/agent/src/signing/circle-agent-wallet-signer.ts`)
       implementing `AgentAuthority` exactly — `processIntent` and everything upstream is unchanged.
       Selected over `LocalAgentSigner` in `build-dependencies.ts` by `SolverEntrypointConfig.signerAuthority.mode`,
@@ -28,8 +27,12 @@ Agent Wallet, without touching core agent logic.
       own address exactly, confirming the EOA/`ecrecover` path the vault expects actually works —
       not just that the SDK call succeeds.
 - [ ] **9.4 Wallet policies** (Q5): contract allowlist, asset allowlist, per-transaction cap,
-      daily cap. **Not started** — these are configured against Circle's console/API, not code;
-      still open.
+      daily cap. **Not started, and genuinely blocked on testnet**: Circle's own CLI (`circle
+      wallet limit set`, the only documented way to set these — no console UI, no plain REST
+      endpoint) refuses with `"Spending policies are mainnet-only"` on any testnet chain,
+      including the allowlist/blocklist rule types (same command, same gate). Our wallet is
+      `ARC-TESTNET`. This isn't a "not built yet" gap, it's a "cannot exist yet" one — see the
+      Traps section for the options.
 - [x] **9.5 Operational hardening (signing path only).** `CircleAgentWalletSigner` throws
       `CircleSigningError` on a missing or malformed signature rather than passing it through, and
       propagates the client's own errors (API failure, rate limit) rather than swallowing them —
@@ -57,10 +60,10 @@ Agent Wallet, without touching core agent logic.
 ## Acceptance gate
 
 **Partially met.** The signing mechanism is real, live-verified end to end through Circle's actual
-API, and produces a signature the vault's `ecrecover` will accept — the harder, less certain half
-of this work package. **Not yet met**: the wallet isn't onchain-authorised on either chain, wallet
-policies (9.4) don't exist, and no actual fill has been executed by this authority (9.6) — that
-last piece is WP-11.1's job, not a separate effort.
+API, and produces a signature the vault's `ecrecover` will accept. The wallet is now onchain-
+authorised on **both** chains (`AuthorizeSolverSigner.s.sol`, run 2026-09-10). **Not yet met**:
+wallet policies (9.4) are blocked on testnet (see above), and no actual fill has been executed by
+this authority (9.6) — that last piece is WP-11.1's job, not a separate effort.
 
 ## Traps
 
@@ -76,6 +79,17 @@ last piece is WP-11.1's job, not a separate effort.
   the shared helper — viem's contract for every other caller stays unchanged.
 - `SOLVER_SIGNER_ADDRESS` for `AuthorizeSolverSigner.s.sol` reuses the existing script/allowlist —
   the Circle wallet is just another address to grant, not a new authorization mechanism.
+- **Wallet policies are a mainnet-only product feature**, not a permissions or setup gap: Circle's
+  `circle wallet limit set` (the only documented way to set per-tx/daily caps and
+  allowlist/blocklist rules — no console UI, no plain REST endpoint found) returns
+  `"Spending policies are mainnet-only"` on any testnet chain. Three honest options once Arc
+  mainnet is live (2026-09-16): (a) set real policies against the mainnet wallet and demonstrate
+  them there, folding into the P4 mainnet-readiness story; (b) state the limitation plainly in the
+  submission — "the vault's own onchain caps are the enforced control on testnet; wallet policies
+  are Circle's mainnet-only feature, verified against console documentation, not yet demonstrable
+  pre-launch"; (c) skip 9.4 for the demo and rely on the vault's independent onchain caps as the
+  one control layer that *is* live everywhere. Not decided — needs a call once WP-12 firms up the
+  submission story.
 
 ## Cross-reference — reference solver runtime (post-V1)
 
