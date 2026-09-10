@@ -1,0 +1,37 @@
+# Matches the fields `graph_out` (../erc4626-vault-flows/src/graph_out.rs)
+# writes into each table row — kept in sync by hand since a
+# substreams/graph-entities data source has no separate mapping.ts to derive
+# this from. Field names here are the authoritative contract; graph_out.rs
+# must match this, not the other way around.
+#
+# NOT YET DEPLOYABLE: graph_out isn't wired into substreams.yaml yet (see
+# ../erc4626-vault-flows/src/lib.rs) — this schema is the intended shape,
+# staged ahead of that so both land together once the wasm-link blocker is
+# resolved. See WP-ERC4626-SUBSTREAMS.md.
+
+type VaultDeposit @entity(immutable: true) {
+  id: ID! # "{txHash}-{logIndex}"
+  vault: Bytes!
+  sender: Bytes!
+  owner: Bytes!
+  assets: BigInt!
+  shares: BigInt!
+  txHash: Bytes!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  logIndex: BigInt!
+}
+
+type VaultWithdraw @entity(immutable: true) {
+  id: ID! # "{txHash}-{logIndex}"
+  vault: Bytes!
+  sender: Bytes!
+  receiver: Bytes!
+  owner: Bytes!
+  assets: BigInt!
+  shares: BigInt!
+  txHash: Bytes!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  logIndex: BigInt!
+}

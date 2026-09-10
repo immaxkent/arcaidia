@@ -32,3 +32,9 @@ modules:
     doc: |
       Every EIP-4626 Deposit/Withdraw event emitted by any address in this
       block, decoded by event signature — not by an allowlisted address list.
+      The generic, reusable artifact — everything downstream is optional.
+
+  # graph_out (VaultFlows -> EntityChanges, for the substreams-powered
+  # subgraph in ../vault-flows-subgraph) is staged in src/graph_out.rs but
+  # not wired in yet — see that file's header and lib.rs for why. Add back
+  # here once it builds for wasm32-unknown-unknown.

@@ -1,0 +1,40 @@
+# Graph CLI generated artifacts
+build/
+generated/
+
+# The single-module (map_vault_flows only) package graph init copied in —
+# not the real artifact: `substreams/graph-entities` needs the graph_out
+# module, which isn't wired in yet (see ../erc4626-vault-flows). Regenerate
+# with `substreams pack` once it is; commit that one, not this placeholder.
+substreams.spkg
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# dotenv environment variables file
+.env
+
+# Testing
+coverage
+coverage.json
+
+# Typechain
+typechain
+typechain-types
+
+# Hardhat files
+cache

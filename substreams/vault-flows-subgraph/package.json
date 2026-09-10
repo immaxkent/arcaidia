@@ -1,0 +1,13 @@
+{
+  "name": "vault-flows-subgraph",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "graph build",
+    "deploy": "graph deploy --node https://api.studio.thegraph.com/deploy/ vault-flows-subgraph",
+    "create-local": "graph create --node http://localhost:8020/ vault-flows-subgraph",
+    "remove-local": "graph remove --node http://localhost:8020/ vault-flows-subgraph",
+    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 vault-flows-subgraph",
+    "test": "graph test"
+  },
+  "dependencies": { "@graphprotocol/graph-cli": "0.98.1" }
+}

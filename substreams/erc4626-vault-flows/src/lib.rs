@@ -9,6 +9,14 @@
 //! `maxFillBps`) are deliberately absent — see `WP-ERC4626-SUBSTREAMS.md` §2.
 
 mod abi;
+// mod graph_out; — staged, not wired in yet. See graph_out.rs's own header
+// comment: substreams-entity-change 2.0.0 pins substreams "0.6", which
+// collides with our own substreams 0.7.6 at wasm-link time ("Linking
+// globals named 'alloc': symbol multiply defined!"), not at type-check
+// time — cargo test passes, cargo build --target wasm32-unknown-unknown
+// does not. Needs EntityChanges hand-built against our own prost/substreams
+// stack instead of pulling in that crate. Tracked in
+// WP-ERC4626-SUBSTREAMS.md.
 pub mod pb;
 
 use pb::erc4626::v1::{Deposit, VaultFlows, Withdraw};

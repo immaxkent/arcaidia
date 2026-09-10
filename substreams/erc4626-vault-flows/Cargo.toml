@@ -18,6 +18,10 @@ substreams-ethereum = "0.11.1"
 prost = "0.13"
 hex = "0.4"
 hex-literal = "0.4"
+# substreams-entity-change 2.0.0 and num-bigint deliberately NOT listed here:
+# entity-change pins substreams "0.6", which collides with our own 0.7.6 at
+# wasm-link time (duplicate 'alloc' global), not at type-check time. See
+# src/graph_out.rs and lib.rs for the staged-but-unwired module this was for.
 
 [dev-dependencies]
 # Fixture-driven tests decode raw log bytes/topics captured from real chain
