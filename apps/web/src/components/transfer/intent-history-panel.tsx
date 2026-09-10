@@ -8,13 +8,55 @@
  * — the same two-track model the rest of the app holds to, never merged into
  * one boolean.
  */
-import { ETHEREUM_SEPOLIA, ARC_TESTNET, type Address } from "@/lib/arcaidia/types";
+import { toast } from "sonner";
+import { ETHEREUM_SEPOLIA, ARC_TESTNET, type Address, type Hex } from "@/lib/arcaidia/types";
 import { formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
+import { explorerTxUrl } from "@/lib/arcaidia/config";
 import { StateSection } from "@/components/data/state-views";
 import { ChainBadge } from "@/components/vaults/vault-bits";
 import { TimeValue } from "@/components/site/time-value";
 import { useIntentHistory, type IntentHistoryRow } from "@/hooks/arcaidia/use-intent-history";
 import { cn } from "@/lib/utils";
+
+/**
+ * Click copies the intent id; Cmd/Ctrl-click opens the *creation* tx (the
+ * only real transaction an intent id itself corresponds to) on the source
+ * chain's own explorer — which chain that is depends on the intent, not a
+ * fixed choice. A real `<a href>` so Cmd/Ctrl-click gets the browser's own
+ * open-in-new-tab behaviour for free; the plain-click path intercepts it.
+ */
+function IntentLink({
+  intentId,
+  sourceChainId,
+  sourceTxHash,
+}: {
+  intentId: Hex;
+  sourceChainId: number;
+  sourceTxHash: Hex | undefined;
+}) {
+  const href = sourceTxHash ? explorerTxUrl(sourceChainId, sourceTxHash) : null;
+  return (
+    <a
+      href={href ?? undefined}
+      target="_blank"
+      rel="noreferrer"
+      title={
+        href
+          ? `${intentId}\nClick to copy · Cmd/Ctrl-click to view the creation tx`
+          : intentId
+      }
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey) return;
+        event.preventDefault();
+        navigator.clipboard?.writeText(intentId);
+        toast.success("Copied", { description: truncateAddress(intentId, 10, 8) });
+      }}
+      className="num cursor-pointer text-text-dim transition-colors hover:text-electric-glow"
+    >
+      {truncateAddress(intentId, 8, 4)}
+    </a>
+  );
+}
 
 /**
  * How the recipient actually got paid, and how long it took — one derived
@@ -121,8 +163,12 @@ export function IntentHistoryPanel({ owner }: { owner: Address | null }) {
                   const resolution = resolutionFor(row);
                   return (
                     <tr key={row.intent.intentId} className="border-t border-border/60">
-                      <td className="num py-2.5 text-text-dim">
-                        {truncateAddress(row.intent.intentId, 8, 4)}
+                      <td className="num py-2.5">
+                        <IntentLink
+                          intentId={row.intent.intentId}
+                          sourceChainId={row.intent.sourceChainId}
+                          sourceTxHash={row.intent.sourceTxHash}
+                        />
                       </td>
                       <td className="py-2.5">
                         <span className="flex items-center gap-1.5">
