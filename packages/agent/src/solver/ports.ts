@@ -51,6 +51,28 @@ export class SequentialNonceSource implements NonceSource {
   }
 }
 
+/**
+ * Random nonces, for a live process.
+ *
+ * Found live, 2026-09-10: `SequentialNonceSource` starts over at 1 every time
+ * the process restarts, but `agentNonceUsed` on the vault is permanent,
+ * onchain state — the first fill attempted after *any* restart collides with
+ * nonce 1 from whichever earlier run already used it, and reverts
+ * (`AgentNonceAlreadyUsed`) every time thereafter, for that one intent,
+ * forever. Nothing about the vault requires sequential nonces — only that
+ * each one is unused — so a large random value makes a same-process collision
+ * astronomically unlikely without needing to persist anything across
+ * restarts. Same approach the frontend's own `createIntent` nonce already
+ * uses (`apps/web/src/hooks/arcaidia/use-intent.tsx`'s `randomNonce`).
+ */
+export class RandomNonceSource implements NonceSource {
+  next(): bigint {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    return bytes.reduce((acc, byte) => (acc << 8n) | BigInt(byte), 0n);
+  }
+}
+
 /** Records the intents this process has already acted on, to avoid duplicate work. */
 export interface SubmissionJournal {
   has(intentId: Bytes32): boolean;

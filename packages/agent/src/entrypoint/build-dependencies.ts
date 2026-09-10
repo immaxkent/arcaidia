@@ -19,7 +19,7 @@ import {
   GraphObservationProvider,
   InMemorySubmissionJournal,
   LocalAgentSigner,
-  SequentialNonceSource,
+  RandomNonceSource,
   ViemFillSubmitter,
   ViemSourceChainReader,
   type DecisionLog,
@@ -115,7 +115,7 @@ export function buildSolverDependencies(
     submitter: new ViemFillSubmitter(buildWriteClients(config.chains, config.submitterPrivateKey)),
     log: options.log,
     clock: options.clock ?? (() => Math.floor(Date.now() / 1000)),
-    nonces: new SequentialNonceSource(),
+    nonces: new RandomNonceSource(),
     journal: new InMemorySubmissionJournal(),
     config: {
       policy: DEFAULT_RISK_POLICY,

@@ -56,6 +56,7 @@ export type {
 } from './solver/process-intent.js';
 export {
   SequentialNonceSource,
+  RandomNonceSource,
   InMemorySubmissionJournal,
 } from './solver/ports.js';
 export type {
