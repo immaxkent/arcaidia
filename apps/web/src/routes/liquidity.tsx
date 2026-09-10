@@ -17,7 +17,12 @@ import {
   StateValue,
 } from "@/components/data/state-views";
 import { NOT_AVAILABLE } from "@/lib/arcaidia/data-state";
-import { useVaults, useVaultAnalytics, type VaultDirectoryRow } from "@/hooks/arcaidia/use-vaults";
+import {
+  useAggregateVaultState,
+  useVaults,
+  useVaultAnalytics,
+  type VaultDirectoryRow,
+} from "@/hooks/arcaidia/use-vaults";
 import { useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
 import { useMarketIntelligence } from "@/hooks/arcaidia/use-market-intelligence";
 
@@ -60,6 +65,7 @@ function LiquidityPage() {
 
   const directory = useVaults(chainId);
   const market = useMarketIntelligence(chainId);
+  const aggregate = useAggregateVaultState(directory);
   const vault =
     directory.status === "ready"
       ? (directory.data.find((v) => v.vaultAddress === selected) ?? null)
@@ -85,49 +91,69 @@ function LiquidityPage() {
         is not yet trustless.
       </p>
 
-      {/* Market intelligence surface — x402 endpoints, unavailable until published. */}
+      {/* Aggregate liquidity/utilisation/exposure are real, computed client-side
+          from the same vault directory read below — V1 has exactly one vault
+          per chain, so "aggregate" is honestly just that vault's own numbers
+          today, no dedicated service required. Fee range and canonical
+          settlement latency percentiles genuinely need the x402 market
+          intelligence service (fee-quote history, per-fill latency samples) —
+          those stay on `market`, unavailable until it's published. */}
       <section className="panel mt-6 p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-text">Market state</h2>
         <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-6">
-          {[
-            {
-              k: "Aggregate liquidity",
-              f: (m: MarketFields) => value(m.aggregateLiquidity, formatUsdc),
-            },
-            {
-              k: "Aggregate utilisation",
-              f: (m: MarketFields) => value(m.aggregateUtilisationBps, formatBps),
-            },
-            {
-              k: "Executable fee range",
-              f: (m: MarketFields) =>
-                m.executableFeeRangeBps === null
-                  ? NOT_AVAILABLE
-                  : `${formatBps(m.executableFeeRangeBps[0])} – ${formatBps(m.executableFeeRangeBps[1])}`,
-            },
-            {
-              k: "Canonical latency (median)",
-              f: (m: MarketFields) => value(m.medianCanonicalLatencySeconds, formatDuration),
-            },
-            {
-              k: "Canonical latency (p95)",
-              f: (m: MarketFields) => value(m.p95CanonicalLatencySeconds, formatDuration),
-            },
-            {
-              k: "Outstanding settlement exposure",
-              f: (m: MarketFields) => value(m.outstandingSettlementExposure, formatUsdc),
-            },
-          ].map((m) => (
-            <div key={m.k} className="instrument p-3">
-              <dt className="text-[11px] uppercase tracking-wide text-text-dim">{m.k}</dt>
-              <dd className="num mt-1 text-base text-text">
-                <StateValue state={market} format={(data) => m.f(data)} />
-              </dd>
-            </div>
-          ))}
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Aggregate liquidity</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue state={aggregate} format={(a) => formatUsdc(a.liquidity)} />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Aggregate utilisation</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue state={aggregate} format={(a) => formatBps(a.utilisationBps)} />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Executable fee range</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue
+                state={market}
+                format={(m: MarketFields) =>
+                  m.executableFeeRangeBps === null
+                    ? NOT_AVAILABLE
+                    : `${formatBps(m.executableFeeRangeBps[0])} – ${formatBps(m.executableFeeRangeBps[1])}`
+                }
+              />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Canonical latency (median)</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue
+                state={market}
+                format={(m: MarketFields) => value(m.medianCanonicalLatencySeconds, formatDuration)}
+              />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Canonical latency (p95)</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue
+                state={market}
+                format={(m: MarketFields) => value(m.p95CanonicalLatencySeconds, formatDuration)}
+              />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Outstanding settlement exposure</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue state={aggregate} format={(a) => formatUsdc(a.exposure)} />
+            </dd>
+          </div>
         </dl>
         <AwaitingSource>
-          Awaiting the market intelligence service (/v1/market, /v1/settlement, /v1/risk)
+          Fee range and settlement latency await the market intelligence service (/v1/settlement,
+          /v1/risk) — liquidity and utilisation above are real, aggregated from the vault directory.
         </AwaitingSource>
       </section>
 

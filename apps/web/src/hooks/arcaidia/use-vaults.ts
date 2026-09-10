@@ -196,3 +196,42 @@ export function useVaultAnalytics(
   // TODO(integration): aggregate indexed fills into real historical series.
   return unavailableState("Indexer not connected");
 }
+
+export interface AggregateVaultState {
+  liquidity: bigint;
+  exposure: bigint;
+  utilisationBps: number;
+}
+
+/**
+ * Liquidity/exposure/utilisation summed across a chain's vault directory.
+ *
+ * Not the x402 market intelligence service (useMarketIntelligence) — that one
+ * covers fields genuinely requiring a backend (fee-quote history, per-fill
+ * settlement latency percentiles). "Aggregate liquidity" needs none of that:
+ * V1 has exactly one vault per chain, so it's honestly just that vault's own
+ * `availableLiquidity`/`outstandingExposure`, already fetched by `useVaults`.
+ * Requires every row's figures to be present — with one row today, a partial
+ * sum would just be silently wrong rather than merely incomplete.
+ */
+export function useAggregateVaultState(
+  directory: DataState<readonly VaultDirectoryRow[]>,
+): DataState<AggregateVaultState> {
+  if (directory.status !== "ready") return unavailableState("Vault directory not connected");
+  if (directory.data.length === 0) return unavailableState("No vaults in this directory yet");
+
+  let liquidity = 0n;
+  let exposure = 0n;
+  for (const row of directory.data) {
+    if (row.availableLiquidity === null || row.outstandingExposure === null) {
+      return unavailableState("One or more vault reads are incomplete");
+    }
+    liquidity += row.availableLiquidity;
+    exposure += row.outstandingExposure;
+  }
+
+  const total = liquidity + exposure;
+  const utilisationBps = total === 0n ? 0 : Number((exposure * 10_000n) / total);
+
+  return readyState({ liquidity, exposure, utilisationBps });
+}

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { TransferForm } from "@/components/transfer/transfer-form";
 import { SettlementTimeline } from "@/components/transfer/settlement-timeline";
 import { DecisionPanel } from "@/components/transfer/decision-panel";
+import { IntentHistoryPanel } from "@/components/transfer/intent-history-panel";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { EmptyPanel, StateSection } from "@/components/data/state-views";
 import { IntentProvider, useIntent, useIntentSettlement } from "@/hooks/arcaidia/use-intent";
@@ -44,7 +45,7 @@ function TransferPage() {
 }
 
 function TransferPageContent() {
-  const { status, connect } = useWallet();
+  const { status, address, connect } = useWallet();
   const { state: intentState } = useIntent();
   const intent = intentState.status === "ready" ? intentState.data : null;
   const settlement = useIntentSettlement(intent?.intentId ?? null);
@@ -102,6 +103,8 @@ function TransferPageContent() {
           </div>
 
           <DecisionPanel decision={liveQuote} />
+
+          <IntentHistoryPanel owner={address} />
         </div>
       </div>
     </div>
