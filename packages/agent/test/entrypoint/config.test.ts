@@ -30,7 +30,7 @@ describe('loadSolverConfig', () => {
   it('happy path: builds a full config from a complete environment', () => {
     const config = loadSolverConfig(baseEnv());
 
-    expect(config.signerPrivateKey).toBe(SIGNER_KEY);
+    expect(config.signerAuthority).toEqual({ mode: 'local', privateKey: SIGNER_KEY });
     expect(config.submitterPrivateKey).toBe(SUBMITTER_KEY);
     expect(config.pollIntervalMs).toBe(10_000);
     expect(config.authorizationTtlSeconds).toBe(45);
@@ -127,5 +127,52 @@ describe('loadSolverConfig', () => {
     expect(() => loadSolverConfig({ ...baseEnv(), SOLVER_QUOTE_PORT: '0' })).toThrow(ConfigError);
     expect(() => loadSolverConfig({ ...baseEnv(), SOLVER_QUOTE_PORT: '70000' })).toThrow(ConfigError);
     expect(() => loadSolverConfig({ ...baseEnv(), SOLVER_QUOTE_PORT: 'soon' })).toThrow(ConfigError);
+  });
+
+  // --- WP-09: Circle Agent Wallet signer selection ----------------------------
+
+  const CIRCLE_ADDRESS = '0x5555555555555555555555555555555555555555' as const;
+
+  function circleEnv(): Record<string, string> {
+    return {
+      ...baseEnv(),
+      CIRCLE_API_KEY: 'TEST_API_KEY:abc:def',
+      CIRCLE_ENTITY_SECRET: '11'.repeat(32),
+      CIRCLE_AGENT_WALLET_ID: 'wallet-id-1',
+      CIRCLE_AGENT_WALLET_ADDRESS: CIRCLE_ADDRESS,
+    };
+  }
+
+  it('selects the Circle Agent Wallet authority when all four Circle vars are set', () => {
+    const config = loadSolverConfig(circleEnv());
+    expect(config.signerAuthority).toEqual({
+      mode: 'circle',
+      apiKey: 'TEST_API_KEY:abc:def',
+      entitySecret: '11'.repeat(32),
+      walletId: 'wallet-id-1',
+      address: CIRCLE_ADDRESS,
+    });
+  });
+
+  it('does not require LOCAL_AGENT_PRIVATE_KEY when using the Circle authority', () => {
+    const env = circleEnv();
+    delete (env as Partial<typeof env>).LOCAL_AGENT_PRIVATE_KEY;
+    expect(() => loadSolverConfig(env)).not.toThrow();
+  });
+
+  it.each(['CIRCLE_API_KEY', 'CIRCLE_ENTITY_SECRET', 'CIRCLE_AGENT_WALLET_ID', 'CIRCLE_AGENT_WALLET_ADDRESS'])(
+    'refuses a partial Circle config missing %s, rather than silently falling back to local',
+    (missingKey) => {
+      const env = circleEnv();
+      delete (env as Partial<typeof env>)[missingKey as keyof typeof env];
+      expect(() => loadSolverConfig(env)).toThrow(ConfigError);
+      expect(() => loadSolverConfig(env)).toThrow(/Partial Circle Agent Wallet config/);
+    },
+  );
+
+  it('refuses a Circle wallet address that is not 0x-prefixed hex', () => {
+    expect(() =>
+      loadSolverConfig({ ...circleEnv(), CIRCLE_AGENT_WALLET_ADDRESS: 'not-an-address' }),
+    ).toThrow(ConfigError);
   });
 });

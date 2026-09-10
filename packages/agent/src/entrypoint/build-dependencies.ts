@@ -9,8 +9,11 @@
 
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import type { AgentAuthority } from '@arcaidia/domain';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
+  buildCircleSigningClient,
+  CircleAgentWalletSigner,
   DEFAULT_RISK_POLICY,
   FetchGraphQueryClient,
   GraphObservationProvider,
@@ -24,6 +27,18 @@ import {
 } from '../index.js';
 import type { EvmReadClient, EvmWriteClient } from '../adapters/evm-clients.js';
 import type { SolverEntrypointConfig } from './config.js';
+
+/** WP-09: local key or Circle Agent Wallet, chosen by `config.signerAuthority.mode`. */
+function buildAuthority(signerAuthority: SolverEntrypointConfig['signerAuthority']): AgentAuthority {
+  if (signerAuthority.mode === 'local') {
+    return new LocalAgentSigner(signerAuthority.privateKey);
+  }
+  const client = buildCircleSigningClient({
+    apiKey: signerAuthority.apiKey,
+    entitySecret: signerAuthority.entitySecret,
+  });
+  return new CircleAgentWalletSigner(client, signerAuthority.address, signerAuthority.walletId);
+}
 
 function viemChainFor(chainId: number) {
   if (chainId === ethereumSepoliaChain.id) return ethereumSepoliaChain;
@@ -81,7 +96,7 @@ export function buildSolverDependencies(
   config: SolverEntrypointConfig,
   options: { readonly log: DecisionLog; readonly clock?: () => number },
 ): BuiltSolverDependencies {
-  const authority = new LocalAgentSigner(config.signerPrivateKey);
+  const authority = buildAuthority(config.signerAuthority);
   const submitterAccount = privateKeyToAccount(config.submitterPrivateKey);
 
   const observation = new GraphObservationProvider({

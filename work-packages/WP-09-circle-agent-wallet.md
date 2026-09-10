@@ -8,42 +8,74 @@ Agent Wallet, without touching core agent logic.
 
 ## Sub-tasks
 
-- [ ] **9.1 Resolve Q4 against current Circle documentation** — read the real docs, do not code
-      from assumption. Critical question: can the wallet return a **raw EIP-712 signature**, or
-      does it only *execute* transactions? If the latter, the wallet calls `fastFill` directly and
-      the vault authorises `msg.sender` from the allowlist rather than a recovered signer. Both
-      designs are viable; pick one and record the decision in the README.
-- [ ] **9.2 Provision the wallet**, capture its address, add it to the vault's `authorisedSigners`
-      (or authorised callers) on **both** chains.
-- [ ] **9.3 `CircleAgentWalletSigner`** implementing the WP-05 `AgentSigner` interface. Zero changes
-      to `processIntent`. If a change is needed, the interface was wrong — fix the interface, not
-      the call sites.
+- [x] **9.1 Resolve Q4 against current Circle documentation** — answered in `OPEN-QUESTIONS.md`
+      Q4/Q5 and recorded in the README (§"V1 uses an authorised solver model"): the wallet returns
+      a **raw EIP-712 signature** via `POST /v1/w3s/developer/sign/typedData`; the vault authorises
+      a recovered signer, not `msg.sender`. Account type is **EOA** (the doc's residual — SCA would
+      need EIP-1271, not `ecrecover`).
+- [x] **9.2 Provision the wallet.** `packages/agent/scripts/setup-circle-agent-wallet.ts` generates
+      + registers the entity secret and creates an EOA wallet on `ARC-TESTNET` via Circle's
+      Developer-Controlled Wallets API — run once, live, this session:
+      address `0x6b73143220c1fb00b96d7dbde302ff55157f3424`. **Not yet granted onchain** — run
+      `contracts/script/AuthorizeSolverSigner.s.sol` with `SOLVER_SIGNER_ADDRESS` set to that
+      address, on both chains, before the live solver can use it.
+- [x] **9.3 `CircleAgentWalletSigner`** (`packages/agent/src/signing/circle-agent-wallet-signer.ts`)
+      implementing `AgentAuthority` exactly — `processIntent` and everything upstream is unchanged.
+      Selected over `LocalAgentSigner` in `build-dependencies.ts` by `SolverEntrypointConfig.signerAuthority.mode`,
+      itself chosen in `config.ts` by whether all four `CIRCLE_*` env vars are set (partial config
+      is a hard `ConfigError`, never a silent fallback to local). **Live-verified**: signed a real
+      `FillAuthorization` through Circle's sandbox API; the recovered address matched the wallet's
+      own address exactly, confirming the EOA/`ecrecover` path the vault expects actually works —
+      not just that the SDK call succeeds.
 - [ ] **9.4 Wallet policies** (Q5): contract allowlist, asset allowlist, per-transaction cap,
-      daily cap. Document them as the **second, independent control layer** alongside the vault's
-      onchain caps. The security story is two layers, and judges will ask.
-- [ ] **9.5 Operational hardening.** API failure, rate limits, timeouts, key rotation. A signing
-      failure must never leave a half-executed fill or a consumed intent with no payment.
-- [ ] **9.6 Evidence for the demo.** A transaction on the destination chain whose authority is
-      demonstrably the Agent Wallet, with the policy configuration shown alongside it.
+      daily cap. **Not started** — these are configured against Circle's console/API, not code;
+      still open.
+- [x] **9.5 Operational hardening (signing path only).** `CircleAgentWalletSigner` throws
+      `CircleSigningError` on a missing or malformed signature rather than passing it through, and
+      propagates the client's own errors (API failure, rate limit) rather than swallowing them —
+      `processIntent`'s existing error handling means a signing failure here surfaces the same way
+      a `LocalAgentSigner` failure would, no half-executed fill. Rate-limit backoff and key rotation
+      specifically: not built, no evidence either is needed yet at hackathon-demo call volume.
+- [ ] **9.6 Evidence for the demo.** Not started — needs 9.2's onchain grant plus a real fill
+      through the live solver using this wallet (folds into WP-11.1, the qualifying run).
 
 ## Tests
 
-- Signer parity: `CircleAgentWalletSigner` and `LocalAgentSigner` produce authorizations the same
-  vault accepts (deterministic tests keep using the local signer).
-- Policy enforcement: a transaction exceeding the wallet's per-tx cap is refused **by the wallet**,
-  independently of the vault's own cap. Demonstrate both layers rejecting.
-- Signing-failure path leaves no inconsistent state.
+- `packages/agent/test/circle-agent-wallet-signer.test.ts` (7 tests): signs through an injected
+  fake client and recovers to the wallet's own address (signer parity with `LocalAgentSigner`,
+  proven against a real ECDSA recovery, not just a mock equality check); rejects a missing,
+  malformed, or truncated signature; propagates a client/network error rather than swallowing it.
+- `packages/agent/test/entrypoint/config.test.ts`: selects the Circle authority only when all four
+  `CIRCLE_*` vars are set; refuses a partial Circle config with each single var missing in turn;
+  refuses a non-hex wallet address; does not require `LOCAL_AGENT_PRIVATE_KEY` in Circle mode.
+- `packages/agent/test/entrypoint/build-dependencies.test.ts`: wires a `CircleAgentWalletSigner`
+  keyed to the configured address when `signerAuthority.mode === 'circle'`.
+- Wallet **policy** enforcement (9.4) has no tests yet — nothing to test until the policies exist.
+
+263 agent tests total (was 256 pre-WP-09), typecheck clean across the monorepo.
 
 ## Acceptance gate
 
-An actual Agent Wallet authority signs/executes a bounded destination-chain fill, in both
-directions, **without changing core agent logic**.
+**Partially met.** The signing mechanism is real, live-verified end to end through Circle's actual
+API, and produces a signature the vault's `ecrecover` will accept — the harder, less certain half
+of this work package. **Not yet met**: the wallet isn't onchain-authorised on either chain, wallet
+policies (9.4) don't exist, and no actual fill has been executed by this authority (9.6) — that
+last piece is WP-11.1's job, not a separate effort.
 
 ## Traps
 
 - Discovering the sign-vs-execute distinction here rather than in WP-05. Answer Q4 early.
 - Letting Circle SDK types leak into the risk engine. The adapter boundary is the whole point.
 - Keeping only wallet policy or only vault caps. The claim is two independent layers — build both.
+- **Found live, not obvious from the SDK's types**: `fillAuthorizationTypedData` (the shared
+  domain-package helper, correct for viem's own `signTypedData`) omits an explicit `EIP712Domain`
+  entry in `types` — viem derives it implicitly from the `domain` object. Circle's remote API
+  parses the JSON directly and rejects it without that entry (`error 156026: "extra data provided
+  in the message... Failed during the validation for typed data"`). Fixed at the wire boundary only
+  (`CircleAgentWalletSigner`'s own JSON serialisation adds `EIP712Domain` before sending), not in
+  the shared helper — viem's contract for every other caller stays unchanged.
+- `SOLVER_SIGNER_ADDRESS` for `AuthorizeSolverSigner.s.sol` reuses the existing script/allowlist —
+  the Circle wallet is just another address to grant, not a new authorization mechanism.
 
 ## Cross-reference — reference solver runtime (post-V1)
 

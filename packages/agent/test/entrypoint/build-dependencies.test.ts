@@ -30,12 +30,27 @@ const ARC_CHAIN = {
 
 function config(): SolverEntrypointConfig {
   return {
-    signerPrivateKey: SIGNER_KEY,
+    signerAuthority: { mode: 'local', privateKey: SIGNER_KEY },
     submitterPrivateKey: SUBMITTER_KEY,
     pollIntervalMs: 10_000,
     authorizationTtlSeconds: 45,
     quotePort: 8787,
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
+  };
+}
+
+const CIRCLE_ADDRESS = '0x5555555555555555555555555555555555555555' as const;
+
+function circleConfig(): SolverEntrypointConfig {
+  return {
+    ...config(),
+    signerAuthority: {
+      mode: 'circle',
+      apiKey: 'TEST_API_KEY:abc:def',
+      entitySecret: '11'.repeat(32),
+      walletId: 'wallet-id-1',
+      address: CIRCLE_ADDRESS,
+    },
   };
 }
 
@@ -97,6 +112,15 @@ describe('buildSolverDependencies', () => {
     const clients = buildWriteClients(config().chains, SUBMITTER_KEY);
     expect(clients.has(SEPOLIA_CHAIN.chainId)).toBe(true);
     expect(clients.has(ARC_CHAIN.chainId)).toBe(true);
+  });
+
+  it('WP-09: wires a CircleAgentWalletSigner, keyed to its configured address, when signerAuthority.mode is circle', () => {
+    const { deps, signerAddress } = buildSolverDependencies(circleConfig(), {
+      log: new InMemoryDecisionLog(),
+    });
+    expect(signerAddress).toBe(CIRCLE_ADDRESS);
+    expect(deps.authority.address).toBe(CIRCLE_ADDRESS);
+    expect(deps.authority.constructor.name).toBe('CircleAgentWalletSigner');
   });
 
   it("the source reader refuses an unconfigured chain id synchronously, before any network call", async () => {

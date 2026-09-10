@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   const { deps, signerAddress, submitterAddress } = buildSolverDependencies(config, { log });
 
   console.log('[solver] starting');
-  console.log(`[solver] signer    ${signerAddress}`);
+  console.log(`[solver] signer    ${signerAddress} (${config.signerAuthority.mode})`);
   console.log(`[solver] submitter ${submitterAddress}`);
   console.log(`[solver] decisions -> ${decisionLogPath}`);
   for (const chain of config.chains) {

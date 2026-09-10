@@ -20,8 +20,25 @@ export interface ChainEntrypointConfig {
   readonly subgraphUrl: string;
 }
 
+/**
+ * WP-09: the fill-authorization signer is either a locally held key
+ * (`LocalAgentSigner`) or a Circle Agent Wallet (`CircleAgentWalletSigner`) —
+ * never both, and never silently one when the other was intended. Selected
+ * by which set of env vars is present; a partially set Circle config is a
+ * `ConfigError`, not a silent fall-back to local.
+ */
+export type SignerAuthorityConfig =
+  | { readonly mode: 'local'; readonly privateKey: `0x${string}` }
+  | {
+      readonly mode: 'circle';
+      readonly apiKey: string;
+      readonly entitySecret: string;
+      readonly walletId: string;
+      readonly address: `0x${string}`;
+    };
+
 export interface SolverEntrypointConfig {
-  readonly signerPrivateKey: `0x${string}`;
+  readonly signerAuthority: SignerAuthorityConfig;
   readonly submitterPrivateKey: `0x${string}`;
   readonly pollIntervalMs: number;
   readonly authorizationTtlSeconds: number;
@@ -78,8 +95,39 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
   };
 }
 
+const CIRCLE_KEYS = [
+  'CIRCLE_API_KEY',
+  'CIRCLE_ENTITY_SECRET',
+  'CIRCLE_AGENT_WALLET_ID',
+  'CIRCLE_AGENT_WALLET_ADDRESS',
+] as const;
+
+function loadSignerAuthority(env: Env): SignerAuthorityConfig {
+  const circlePresent = CIRCLE_KEYS.filter((key) => Boolean(env[key]));
+
+  if (circlePresent.length === 0) {
+    return { mode: 'local', privateKey: requireHex(env, 'LOCAL_AGENT_PRIVATE_KEY') };
+  }
+
+  if (circlePresent.length < CIRCLE_KEYS.length) {
+    const missing = CIRCLE_KEYS.filter((key) => !env[key]);
+    throw new ConfigError(
+      `Partial Circle Agent Wallet config: ${circlePresent.join(', ')} set but ${missing.join(', ')} ` +
+        'missing. Set all four (WP-09) or none, to fall back to LOCAL_AGENT_PRIVATE_KEY.',
+    );
+  }
+
+  return {
+    mode: 'circle',
+    apiKey: env.CIRCLE_API_KEY as string,
+    entitySecret: env.CIRCLE_ENTITY_SECRET as string,
+    walletId: env.CIRCLE_AGENT_WALLET_ID as string,
+    address: requireHex(env, 'CIRCLE_AGENT_WALLET_ADDRESS'),
+  };
+}
+
 export function loadSolverConfig(env: Env): SolverEntrypointConfig {
-  const signerPrivateKey = requireHex(env, 'LOCAL_AGENT_PRIVATE_KEY');
+  const signerAuthority = loadSignerAuthority(env);
   const submitterPrivateKey = requireHex(env, 'LOCAL_SUBMITTER_PRIVATE_KEY');
 
   const pollIntervalMs = env.SOLVER_POLL_INTERVAL_MS ? Number(env.SOLVER_POLL_INTERVAL_MS) : 10_000;
@@ -100,7 +148,7 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
   }
 
   return {
-    signerPrivateKey,
+    signerAuthority,
     submitterPrivateKey,
     pollIntervalMs,
     authorizationTtlSeconds,

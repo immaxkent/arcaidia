@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@arcaidia/domain": "workspace:*",
+    "@circle-fin/developer-controlled-wallets": "^10.8.0",
     "viem": "^2.39.4"
   },
   "devDependencies": {
