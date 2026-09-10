@@ -7,6 +7,8 @@
 
 export { evaluateIntent } from './risk/evaluate-intent.js';
 export type { EvaluationContext } from './risk/evaluate-intent.js';
+export { buildQuote, InvalidQuoteRequestError } from './risk/build-quote.js';
+export type { QuoteRequest, QuoteResult, QuoteDependencies } from './risk/build-quote.js';
 export { DEFAULT_RISK_POLICY } from './risk/default-policy.js';
 export {
   utilisationFeeBps,

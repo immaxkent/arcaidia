@@ -34,6 +34,7 @@ describe('loadSolverConfig', () => {
     expect(config.submitterPrivateKey).toBe(SUBMITTER_KEY);
     expect(config.pollIntervalMs).toBe(10_000);
     expect(config.authorizationTtlSeconds).toBe(45);
+    expect(config.quotePort).toBe(8787);
     expect(config.chains).toHaveLength(2);
 
     const sepolia = config.chains.find((c) => c.chainId === 11_155_111);
@@ -115,5 +116,16 @@ describe('loadSolverConfig', () => {
 
   it('refuses a zero or negative authorization TTL', () => {
     expect(() => loadSolverConfig({ ...baseEnv(), SOLVER_AUTHORIZATION_TTL_SECONDS: '0' })).toThrow(ConfigError);
+  });
+
+  it('honours a quote port override', () => {
+    const config = loadSolverConfig({ ...baseEnv(), SOLVER_QUOTE_PORT: '9001' });
+    expect(config.quotePort).toBe(9001);
+  });
+
+  it('refuses an invalid quote port', () => {
+    expect(() => loadSolverConfig({ ...baseEnv(), SOLVER_QUOTE_PORT: '0' })).toThrow(ConfigError);
+    expect(() => loadSolverConfig({ ...baseEnv(), SOLVER_QUOTE_PORT: '70000' })).toThrow(ConfigError);
+    expect(() => loadSolverConfig({ ...baseEnv(), SOLVER_QUOTE_PORT: 'soon' })).toThrow(ConfigError);
   });
 });

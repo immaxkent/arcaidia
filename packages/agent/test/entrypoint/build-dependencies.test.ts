@@ -34,6 +34,7 @@ function config(): SolverEntrypointConfig {
     submitterPrivateKey: SUBMITTER_KEY,
     pollIntervalMs: 10_000,
     authorizationTtlSeconds: 45,
+    quotePort: 8787,
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
   };
 }

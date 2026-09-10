@@ -16,6 +16,7 @@ import { appendFileSync } from 'node:fs';
 import { JsonLinesDecisionLog, startSolverWorker, type SolverPassResult } from '../index.js';
 import { buildSolverDependencies } from './build-dependencies.js';
 import { ConfigError, loadSolverConfig } from './config.js';
+import { startQuoteServer } from './quote-server.js';
 
 function logPass(result: SolverPassResult): void {
   if (result.kind === 'DISCOVERY_FAILED') {
@@ -31,7 +32,7 @@ function logPass(result: SolverPassResult): void {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   let config;
   try {
     config = loadSolverConfig(process.env);
@@ -64,13 +65,25 @@ function main(): void {
     onError: (error) => console.error(`[solver] unexpected error: ${error.message}`, error),
   });
 
+  // WP-14: the live quote endpoint, colocated — same observation provider,
+  // same policy, no second copy of either.
+  const quoteServer = await startQuoteServer(
+    { observation: deps.observation, policy: deps.config.policy, clock: deps.clock },
+    { port: config.quotePort },
+  );
+  console.log(`[solver] quote endpoint -> http://0.0.0.0:${quoteServer.port}/quote`);
+
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       console.log(`[solver] ${signal} received, stopping after the current pass`);
       handle.stop();
+      void quoteServer.close();
       process.exit(0);
     });
   }
 }
 
-main();
+main().catch((error: unknown) => {
+  console.error('[solver] fatal startup error:', error);
+  process.exitCode = 1;
+});

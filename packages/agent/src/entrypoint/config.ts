@@ -25,6 +25,8 @@ export interface SolverEntrypointConfig {
   readonly submitterPrivateKey: `0x${string}`;
   readonly pollIntervalMs: number;
   readonly authorizationTtlSeconds: number;
+  /** POST /quote (WP-14) — colocated in this process; see quote-server.ts. */
+  readonly quotePort: number;
   readonly chains: readonly [ChainEntrypointConfig, ChainEntrypointConfig];
 }
 
@@ -92,11 +94,17 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
     throw new ConfigError('SOLVER_AUTHORIZATION_TTL_SECONDS must be a positive number.');
   }
 
+  const quotePort = env.SOLVER_QUOTE_PORT ? Number(env.SOLVER_QUOTE_PORT) : 8787;
+  if (!Number.isInteger(quotePort) || quotePort <= 0 || quotePort > 65_535) {
+    throw new ConfigError('SOLVER_QUOTE_PORT must be a valid port number.');
+  }
+
   return {
     signerPrivateKey,
     submitterPrivateKey,
     pollIntervalMs,
     authorizationTtlSeconds,
+    quotePort,
     chains: [chainConfig('ethereum-sepolia', env), chainConfig('arc-testnet', env)],
   };
 }
