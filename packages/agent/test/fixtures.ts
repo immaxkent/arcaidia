@@ -44,6 +44,12 @@ export function vault(overrides: Partial<VaultState> = {}): VaultState {
     totalBalance: USDC(100_000),
     totalShares: USDC(100_000),
     reserveFloor: USDC(10_000),
+    // Generous — at least as permissive as DEFAULT_RISK_POLICY's own absolute
+    // ceilings, so existing tests exercising the *policy's* cap keep doing
+    // exactly that. Tests for the vault's cap being the stricter, binding one
+    // (the real 2026-09-10 bug) override these explicitly.
+    maxFillAmount: USDC(25_000),
+    maxOutstandingExposure: USDC(60_000),
     outstandingExposure: 0n,
     accruedProtocolFees: 0n,
     paused: false,

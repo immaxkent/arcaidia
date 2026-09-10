@@ -25,7 +25,7 @@ import {
   type DecisionLog,
   type SolverDependencies,
 } from '../index.js';
-import type { EvmReadClient, EvmWriteClient } from '../adapters/evm-clients.js';
+import type { EvmContractReadClient, EvmReadClient, EvmWriteClient } from '../adapters/evm-clients.js';
 import type { SolverEntrypointConfig } from './config.js';
 
 /** WP-09: local key or Circle Agent Wallet, chosen by `config.signerAuthority.mode`. */
@@ -51,6 +51,27 @@ export function buildReadClients(
   chains: SolverEntrypointConfig['chains'],
 ): ReadonlyMap<number, EvmReadClient> {
   const clients = new Map<number, EvmReadClient>();
+  for (const chain of chains) {
+    clients.set(
+      chain.chainId,
+      createPublicClient({ chain: viemChainFor(chain.chainId), transport: http(chain.rpcUrl) }),
+    );
+  }
+  return clients;
+}
+
+/**
+ * A read-only client per chain for vault *config* — `reserveFloor()`,
+ * `maxFillAmount()`, `maxOutstandingExposure()` — which the subgraph never
+ * indexes (see `GraphObservationOptions.readClients`). A separate map from
+ * `buildReadClients` above: same viem `createPublicClient` call, narrowed to
+ * a different structural interface, so each call site only sees the methods
+ * it actually uses.
+ */
+export function buildContractReadClients(
+  chains: SolverEntrypointConfig['chains'],
+): ReadonlyMap<number, EvmContractReadClient> {
+  const clients = new Map<number, EvmContractReadClient>();
   for (const chain of chains) {
     clients.set(
       chain.chainId,
@@ -101,6 +122,7 @@ export function buildSolverDependencies(
 
   const observation = new GraphObservationProvider({
     client: new FetchGraphQueryClient(),
+    readClients: buildContractReadClients(config.chains),
     sources: config.chains.map((chain) => ({
       chainId: chain.chainId,
       endpoint: chain.subgraphUrl,

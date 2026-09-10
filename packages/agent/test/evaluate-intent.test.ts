@@ -188,6 +188,33 @@ describe('evaluateIntent', () => {
     expect(decision.reason).toBe(DecisionReason.INTENT_SIZE_CAP_BREACH);
   });
 
+  /// The 2026-09-10 bug: the vault's own live, on-chain `maxFillAmount` is a
+  /// separate, independent ceiling from the policy's flat one, sized for
+  /// whatever vault actually exists today — not for the policy's assumed
+  /// scale. The stricter of the two must govern, or the agent can confidently
+  /// quote ACCEPT for a fill the vault itself would revert.
+  it("rejects a fill within the policy's ceiling but above the vault's own, stricter cap", () => {
+    const small = vault({
+      totalBalance: USDC(100),
+      reserveFloor: 0n,
+      maxFillAmount: USDC(50), // far below the policy's USDC(25_000) ceiling
+      maxOutstandingExposure: USDC(80),
+    });
+    const decision = evaluate(intent({ amount: USDC(100) }), small);
+    expect(decision.verdict).toBe(Verdict.REJECT);
+    expect(decision.reason).toBe(DecisionReason.INTENT_SIZE_CAP_BREACH);
+  });
+
+  it("accepts up to the vault's own cap when it is the stricter one", () => {
+    const small = vault({
+      totalBalance: USDC(100),
+      reserveFloor: 0n,
+      maxFillAmount: USDC(50),
+      maxOutstandingExposure: USDC(80),
+    });
+    expect(evaluate(intent({ amount: USDC(50) }), small).verdict).toBe(Verdict.ACCEPT);
+  });
+
   /// A slowing transport shrinks the maximum fill as well as raising the fee.
   it('rejects a large intent when settlement is slowing, that it would otherwise accept', () => {
     const large = intent({ amount: USDC(20_000) });
@@ -225,6 +252,19 @@ describe('evaluateIntent', () => {
   it('rejects when the fill would breach the exposure cap', () => {
     const exposed = vault({ outstandingExposure: USDC(59_500) });
     const decision = evaluate(intent({ amount: USDC(1_000) }), exposed);
+    expect(decision.reason).toBe(DecisionReason.EXPOSURE_CAP_BREACH);
+  });
+
+  it("rejects when the fill would breach the vault's own exposure cap, even under the policy's own ceiling", () => {
+    const small = vault({
+      totalBalance: USDC(1_000),
+      reserveFloor: 0n,
+      maxFillAmount: USDC(1_000),
+      maxOutstandingExposure: USDC(500),
+      outstandingExposure: USDC(480),
+    });
+    const decision = evaluate(intent({ amount: USDC(100) }), small);
+    expect(decision.verdict).toBe(Verdict.REJECT);
     expect(decision.reason).toBe(DecisionReason.EXPOSURE_CAP_BREACH);
   });
 

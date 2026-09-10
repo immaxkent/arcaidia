@@ -5,6 +5,7 @@ import {
   GraphObservationProvider,
   InMemoryObservationProvider,
   evaluateIntent,
+  type EvmContractReadClient,
   type GraphQueryClient,
 } from '../src/index.js';
 import { ARC, NOW, SEPOLIA, USDC, context, health, intent, vault } from './fixtures.js';
@@ -45,6 +46,41 @@ class FakeGraph implements GraphQueryClient {
   }
 }
 
+/**
+ * Vault config as read directly from the chain. Defaults match
+ * `fixtures.vault()`'s own defaults, so tests exercising the subgraph fields
+ * keep getting the ACCEPT they always got; a test can override a chain's
+ * figures to exercise the vault's own caps specifically.
+ */
+class FakeContractReads implements EvmContractReadClient {
+  private readonly overrides = new Map<string, bigint>();
+
+  constructor(
+    private readonly defaults: {
+      reserveFloor: bigint;
+      maxFillAmount: bigint;
+      maxOutstandingExposure: bigint;
+      totalSupply: bigint;
+    } = {
+      reserveFloor: USDC(10_000),
+      maxFillAmount: USDC(25_000),
+      maxOutstandingExposure: USDC(60_000),
+      totalSupply: USDC(100_000),
+    },
+  ) {}
+
+  set(functionName: string, value: bigint): void {
+    this.overrides.set(functionName, value);
+  }
+
+  async readContract(args: { functionName: string }): Promise<unknown> {
+    if (this.overrides.has(args.functionName)) return this.overrides.get(args.functionName);
+    const key = args.functionName as keyof typeof this.defaults;
+    if (key in this.defaults) return this.defaults[key];
+    throw new Error(`unexpected readContract call: ${args.functionName}`);
+  }
+}
+
 const rawIntent = (overrides: Record<string, unknown> = {}) => ({
   id: '0x'.padEnd(66, 'a'),
   sender: '0x1111111111111111111111111111111111111111',
@@ -76,13 +112,21 @@ const rawVault = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-function provider(graph: FakeGraph, clock = () => NOW): GraphObservationProvider {
+function provider(
+  graph: FakeGraph,
+  clock = () => NOW,
+  reads: { sepolia?: FakeContractReads; arc?: FakeContractReads } = {},
+): GraphObservationProvider {
   return new GraphObservationProvider({
     sources: [
       { chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT, vault: SEPOLIA_VAULT },
       { chainId: ARC, endpoint: ARC_ENDPOINT, vault: ARC_VAULT },
     ],
     client: graph,
+    readClients: new Map([
+      [SEPOLIA, reads.sepolia ?? new FakeContractReads()],
+      [ARC, reads.arc ?? new FakeContractReads()],
+    ]),
     clock,
   });
 }
@@ -198,6 +242,52 @@ describe('GraphObservationProvider', () => {
     expect(state.totalBalance).toBe(USDC(90_000));
     expect(state.outstandingExposure).toBe(USDC(10_000));
     expect(state.accruedProtocolFees).toBe(500_000n);
+  });
+
+  /// The 2026-09-10 bug: reserveFloor/maxFillAmount/maxOutstandingExposure are
+  /// vault *config*, never indexed by the subgraph, and were previously
+  /// hardcoded to 0 / never read at all. They must come from the chain.
+  it('reads reserveFloor, maxFillAmount and maxOutstandingExposure directly from the chain', async () => {
+    const graph = new FakeGraph();
+    graph.set(ARC_ENDPOINT, 'vault', rawVault());
+
+    const reads = new FakeContractReads();
+    reads.set('reserveFloor', USDC(5_000));
+    reads.set('maxFillAmount', USDC(12_000));
+    reads.set('maxOutstandingExposure', USDC(30_000));
+
+    const state = await provider(graph, () => NOW, { arc: reads }).vaultState(ARC);
+
+    expect(state.reserveFloor).toBe(USDC(5_000));
+    expect(state.maxFillAmount).toBe(USDC(12_000));
+    expect(state.maxOutstandingExposure).toBe(USDC(30_000));
+  });
+
+  /// The exact bug reported live: a $100 vault quoting ACCEPT for a $100 fill
+  /// because the risk engine checked only the policy's own flat ceiling
+  /// (USDC(25_000) — vastly higher than this vault could ever support) and
+  /// never the vault's real, live, percentage-based cap. The vault's cap must
+  /// govern even when the policy's separate ceiling would allow the fill.
+  it("rejects a fill the vault's real cap would reject, even though the policy's own ceiling allows it", async () => {
+    const graph = new FakeGraph();
+    graph.set(ARC_ENDPOINT, 'vault', rawVault({ liquidBalance: String(USDC(100)) }));
+
+    const reads = new FakeContractReads();
+    reads.set('reserveFloor', 0n);
+    reads.set('maxFillAmount', USDC(50)); // 50% of a $100 vault
+    reads.set('maxOutstandingExposure', USDC(80));
+
+    const state = await provider(graph, () => NOW, { arc: reads }).vaultState(ARC);
+    const decision = evaluateIntent(
+      intent({ amount: USDC(100) }), // well within the policy's own USDC(25_000) ceiling
+      state,
+      health(),
+      DEFAULT_RISK_POLICY,
+      context(),
+    );
+
+    expect(decision.verdict).toBe(Verdict.REJECT);
+    expect(decision.reason).toBe(DecisionReason.INTENT_SIZE_CAP_BREACH);
   });
 
   // -----------------------------------------------------------------------

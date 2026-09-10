@@ -21,6 +21,8 @@ function vault(overrides: Partial<VaultState> = {}): VaultState {
     totalBalance: USDC(100_000),
     totalShares: USDC(100_000),
     reserveFloor: USDC(10_000),
+    maxFillAmount: USDC(25_000),
+    maxOutstandingExposure: USDC(60_000),
     outstandingExposure: 0n,
     accruedProtocolFees: 0n,
     paused: false,

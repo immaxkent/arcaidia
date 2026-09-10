@@ -16,6 +16,8 @@ function vault(partial: Partial<VaultState> = {}): VaultState {
     totalBalance: 100_000_000_000n, // 100,000 USDC
     totalShares: 100_000_000_000n,
     reserveFloor: 10_000_000_000n, // 10,000 USDC
+    maxFillAmount: 50_000_000_000n, // 50,000 USDC — not exercised by these tests
+    maxOutstandingExposure: 80_000_000_000n, // 80,000 USDC — not exercised by these tests
     outstandingExposure: 0n,
     accruedProtocolFees: 0n,
     paused: false,

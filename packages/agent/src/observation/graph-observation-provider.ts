@@ -25,6 +25,7 @@
  */
 
 import {
+  ABIS,
   FastStatus,
   type Bytes32,
   type Intent,
@@ -34,6 +35,9 @@ import {
   type VaultState,
 } from '@arcaidia/domain';
 import type { GraphQueryClient } from './graph-client.js';
+import type { EvmContractReadClient } from '../adapters/evm-clients.js';
+
+const VAULT_ABI = ABIS.ArcaidiaLiquidityVault as readonly unknown[];
 
 export interface GraphChainSource {
   readonly chainId: number;
@@ -45,6 +49,15 @@ export interface GraphChainSource {
 export interface GraphObservationOptions {
   readonly sources: readonly GraphChainSource[];
   readonly client: GraphQueryClient;
+  /**
+   * Vault *config* — `reserveFloor()`, `maxFillAmount()`, `maxOutstandingExposure()`,
+   * `totalSupply()` — is read directly from the chain, keyed by chain id, never
+   * from the subgraph: no handler indexes these fields (they only change on the
+   * rare `ReserveFloorConfigured`/`FillLimitsConfigured` events), so trusting the
+   * subgraph for them would silently serve stale or zeroed values forever. This
+   * is exactly the bug that let the agent quote fills the vault would revert.
+   */
+  readonly readClients: ReadonlyMap<number, EvmContractReadClient>;
   /** How many pending intents to fetch per chain per poll. */
   readonly pageSize?: number;
   /** Local clock, used only for settlement-age arithmetic. */
@@ -121,12 +134,14 @@ interface RawMeta {
 export class GraphObservationProvider implements ObservationProvider {
   private readonly sources: readonly GraphChainSource[];
   private readonly client: GraphQueryClient;
+  private readonly readClients: ReadonlyMap<number, EvmContractReadClient>;
   private readonly pageSize: number;
   private readonly clock: () => UnixSeconds;
 
   constructor(options: GraphObservationOptions) {
     this.sources = options.sources;
     this.client = options.client;
+    this.readClients = options.readClients;
     this.pageSize = options.pageSize ?? 100;
     this.clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
   }
@@ -162,11 +177,12 @@ export class GraphObservationProvider implements ObservationProvider {
   async vaultState(chainId: number): Promise<VaultState> {
     const source = this.sourceFor(chainId);
 
-    const data = await this.client.query<{ vault: RawVault | null; _meta: RawMeta }>(
-      source.endpoint,
-      VAULT_STATE,
-      { id: source.vault.toLowerCase() },
-    );
+    const [data, config] = await Promise.all([
+      this.client.query<{ vault: RawVault | null; _meta: RawMeta }>(source.endpoint, VAULT_STATE, {
+        id: source.vault.toLowerCase(),
+      }),
+      this.readVaultConfig(chainId, source.vault as `0x${string}`),
+    ]);
 
     if (!data.vault) {
       // An unindexed vault is a broken deployment, not an empty one. Reporting
@@ -180,8 +196,10 @@ export class GraphObservationProvider implements ObservationProvider {
       vault: data.vault.id as `0x${string}`,
       asset: data.vault.asset as `0x${string}`,
       totalBalance: BigInt(data.vault.liquidBalance),
-      totalShares: 0n,
-      reserveFloor: 0n,
+      totalShares: config.totalShares,
+      reserveFloor: config.reserveFloor,
+      maxFillAmount: config.maxFillAmount,
+      maxOutstandingExposure: config.maxOutstandingExposure,
       outstandingExposure: BigInt(data.vault.outstandingExposure),
       accruedProtocolFees: BigInt(data.vault.accruedProtocolFees),
       paused: data.vault.paused,
@@ -192,6 +210,36 @@ export class GraphObservationProvider implements ObservationProvider {
       // reject as stale the moment nothing had touched the vault recently.
       observedAt: Number(data._meta.block.timestamp),
     };
+  }
+
+  /**
+   * Vault config read directly from the chain — see the doc comment on
+   * `GraphObservationOptions.readClients` for why the subgraph cannot be
+   * trusted for these fields.
+   */
+  private async readVaultConfig(
+    chainId: number,
+    vault: `0x${string}`,
+  ): Promise<{
+    reserveFloor: bigint;
+    maxFillAmount: bigint;
+    maxOutstandingExposure: bigint;
+    totalShares: bigint;
+  }> {
+    const client = this.readClients.get(chainId);
+    if (!client) throw new Error(`No contract read client configured for chain ${chainId}.`);
+
+    const call = (functionName: string) =>
+      client.readContract({ address: vault, abi: VAULT_ABI, functionName }) as Promise<bigint>;
+
+    const [reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares] = await Promise.all([
+      call('reserveFloor'),
+      call('maxFillAmount'),
+      call('maxOutstandingExposure'),
+      call('totalSupply'),
+    ]);
+
+    return { reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares };
   }
 
   /** Aggregate settlement health across both chains. */

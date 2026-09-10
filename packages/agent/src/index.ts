@@ -72,6 +72,7 @@ export { ViemFillSubmitter } from './adapters/viem-fill-submitter.js';
 export type {
   EvmReadClient,
   EvmWriteClient,
+  EvmContractReadClient,
   EvmLog,
   EvmReceipt,
 } from './adapters/evm-clients.js';

@@ -107,7 +107,15 @@ export function evaluateIntent(
 
   // --- Size ----------------------------------------------------------------
 
-  if (intent.amount > effectiveMaxFillAmount(policy, settlement)) {
+  // The policy's own ceiling is the solver's separate risk appetite, sized
+  // independently of any one vault. The vault's `maxFillAmount` is what the
+  // contract will actually enforce on chain, live and percentage-based. They
+  // are never the same number by design, so the stricter one always governs —
+  // taking the policy's alone let the agent confidently quote fills the vault
+  // itself would revert.
+  const policyMaxFill = effectiveMaxFillAmount(policy, settlement);
+  const maxFill = vault.maxFillAmount < policyMaxFill ? vault.maxFillAmount : policyMaxFill;
+  if (intent.amount > maxFill) {
     return refuse(Verdict.REJECT, DecisionReason.INTENT_SIZE_CAP_BREACH);
   }
 
@@ -138,7 +146,14 @@ export function evaluateIntent(
   if (outputAmount > available) {
     return refuse(Verdict.REJECT, DecisionReason.INSUFFICIENT_LIQUIDITY);
   }
-  if (vault.outstandingExposure + outputAmount > policy.maxOutstandingExposure) {
+  // Same reasoning as the fill cap above: the vault's own live exposure cap is
+  // the one the contract enforces, and it is never assumed to match the
+  // policy's separate ceiling.
+  const maxExposure =
+    vault.maxOutstandingExposure < policy.maxOutstandingExposure
+      ? vault.maxOutstandingExposure
+      : policy.maxOutstandingExposure;
+  if (vault.outstandingExposure + outputAmount > maxExposure) {
     return refuse(Verdict.REJECT, DecisionReason.EXPOSURE_CAP_BREACH);
   }
 

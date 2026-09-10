@@ -42,3 +42,19 @@ export interface EvmWriteClient {
     args: readonly unknown[];
   }): Promise<TxHash>;
 }
+
+/**
+ * Read-only contract calls — separate from `EvmReadClient` above, which is
+ * scoped to source-transaction verification specifically. Vault *config*
+ * (reserveFloor, maxFillAmount, maxOutstandingExposure) is a different
+ * concern: it must come from the chain directly, never a subgraph, because
+ * nothing indexes it — see GraphObservationProvider's own docs for why.
+ */
+export interface EvmContractReadClient {
+  readContract(args: {
+    address: Address;
+    abi: readonly unknown[];
+    functionName: string;
+    args?: readonly unknown[];
+  }): Promise<unknown>;
+}

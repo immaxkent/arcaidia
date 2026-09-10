@@ -411,15 +411,25 @@ async function readVaultState(
       args: [] as never,
     });
 
-  const [totalBalance, totalShares, reserveFloor, outstandingExposure, accruedProtocolFees, paused] =
-    (await Promise.all([
-      read('liquidBalance'),
-      read('totalSupply'),
-      read('reserveFloor'),
-      read('outstandingExposure'),
-      read('accruedProtocolFees'),
-      read('paused'),
-    ])) as [bigint, bigint, bigint, bigint, bigint, boolean];
+  const [
+    totalBalance,
+    totalShares,
+    reserveFloor,
+    maxFillAmount,
+    maxOutstandingExposure,
+    outstandingExposure,
+    accruedProtocolFees,
+    paused,
+  ] = (await Promise.all([
+    read('liquidBalance'),
+    read('totalSupply'),
+    read('reserveFloor'),
+    read('maxFillAmount'),
+    read('maxOutstandingExposure'),
+    read('outstandingExposure'),
+    read('accruedProtocolFees'),
+    read('paused'),
+  ])) as [bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean];
 
   return {
     chainId: chain.chainId,
@@ -428,6 +438,8 @@ async function readVaultState(
     totalBalance,
     totalShares,
     reserveFloor,
+    maxFillAmount,
+    maxOutstandingExposure,
     outstandingExposure,
     accruedProtocolFees,
     paused,

@@ -114,6 +114,18 @@ export interface VaultState {
   readonly totalShares: bigint;
   /** Capital that must remain; not deployable for fills. */
   readonly reserveFloor: bigint;
+  /**
+   * The vault's own live, onchain cap on a single fill —
+   * `ArcaidiaLiquidityVault.maxFillAmount()`, a percentage of totalAssets(),
+   * not a fixed number. The risk policy's own `maxFillAmount` is a *separate*,
+   * independent ceiling (the solver's own appetite, sized for a much larger
+   * vault than exists today) — evaluateIntent takes the stricter of the two,
+   * never just the policy's, or it can confidently quote a fill the vault
+   * will actually revert.
+   */
+  readonly maxFillAmount: bigint;
+  /** Same relationship as `maxFillAmount`, for `maxOutstandingExposure()`. */
+  readonly maxOutstandingExposure: bigint;
   /** Principal advanced and awaiting canonical reimbursement. */
   readonly outstandingExposure: bigint;
   /**
