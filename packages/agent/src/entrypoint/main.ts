@@ -26,6 +26,8 @@ function logPass(result: SolverPassResult): void {
   for (const [intentId, outcome] of result.outcomes) {
     if (outcome.kind === 'ERROR') {
       console.error(`[solver] ${intentId}: ERROR ${outcome.error.message}`);
+    } else if (outcome.kind === 'SUBMISSION_FAILED') {
+      console.error(`[solver] ${intentId}: SUBMISSION_FAILED ${outcome.error.message}`);
     } else {
       console.log(`[solver] ${intentId}: ${outcome.kind}`);
     }
