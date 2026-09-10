@@ -54,6 +54,29 @@ export const ROUTER_START_BLOCKS: Record<ChainKey, number> = {
   'arc-testnet': 61_236_176,
 };
 
+/**
+ * The settlement receiver retired by the 2026-09-10 redeploy (WP-12), kept as
+ * a second, permanent `SettlementReceiver` data source — not swapped out the
+ * way the pre-WP-10 router was.
+ *
+ * Found live: an intent created before the redeploy had its real
+ * `RecipientPaidByFallback` land on *this* address, which the redeploy's own
+ * `START_BLOCKS`/address bump made permanently invisible — the intent itself
+ * stayed indexed (the router never moved), but its settlement vanished from
+ * the subgraph's view even though it settled correctly onchain. One retired
+ * data source, indexed from its own original 2026-09-08 deploy block, closes
+ * that for every intent that ever existed against it — not just this one.
+ */
+export const RETIRED_SETTLEMENT_RECEIVERS: Record<ChainKey, string> = {
+  'ethereum-sepolia': '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
+  'arc-testnet': '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
+};
+
+export const RETIRED_SETTLEMENT_RECEIVER_START_BLOCKS: Record<ChainKey, number> = {
+  'ethereum-sepolia': 11_660_148,
+  'arc-testnet': 61_052_876,
+};
+
 export function manifest(chain: ChainConfig): string {
   const contracts = deploymentFor(chain.key);
   const router = contracts.intentRouter ?? PLACEHOLDER;
@@ -61,6 +84,8 @@ export function manifest(chain: ChainConfig): string {
   const vault = contracts.liquidityVault ?? PLACEHOLDER;
   const receiver = contracts.settlementReceiver ?? PLACEHOLDER;
   const startBlock = START_BLOCKS[chain.key];
+  const retiredReceiver = RETIRED_SETTLEMENT_RECEIVERS[chain.key];
+  const retiredReceiverStartBlock = RETIRED_SETTLEMENT_RECEIVER_START_BLOCKS[chain.key];
 
   return `# GENERATED — do not edit. Run \`pnpm subgraph:generate\`.
 #
@@ -132,6 +157,32 @@ dataSources:
       address: "${receiver}"
       abi: SettlementReceiver
       startBlock: ${startBlock}
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/settlement.ts
+      entities: [Intent, Settlement, ProtocolState]
+      abis:
+        - name: SettlementReceiver
+          file: ./abis/SettlementReceiver.json
+      eventHandlers:
+        - event: LpReimbursed(indexed bytes32,uint256)
+          handler: handleLpReimbursed
+        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
+          handler: handleRecipientPaidByFallback
+
+  # Retired 2026-09-10 (WP-12) — kept indexed, permanently, so intents settled
+  # before the redeploy don't lose their real settlement history. Same
+  # mapping file and handlers; a settlement is a settlement regardless of
+  # which SettlementReceiver instance processed it.
+  - kind: ethereum
+    name: SettlementReceiverRetired
+    network: ${chain.graphNetwork}
+    source:
+      address: "${retiredReceiver}"
+      abi: SettlementReceiver
+      startBlock: ${retiredReceiverStartBlock}
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7

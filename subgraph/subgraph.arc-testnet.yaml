@@ -82,3 +82,29 @@ dataSources:
           handler: handleLpReimbursed
         - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
           handler: handleRecipientPaidByFallback
+
+  # Retired 2026-09-10 (WP-12) — kept indexed, permanently, so intents settled
+  # before the redeploy don't lose their real settlement history. Same
+  # mapping file and handlers; a settlement is a settlement regardless of
+  # which SettlementReceiver instance processed it.
+  - kind: ethereum
+    name: SettlementReceiverRetired
+    network: arc-testnet
+    source:
+      address: "0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC"
+      abi: SettlementReceiver
+      startBlock: 61052876
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/settlement.ts
+      entities: [Intent, Settlement, ProtocolState]
+      abis:
+        - name: SettlementReceiver
+          file: ./abis/SettlementReceiver.json
+      eventHandlers:
+        - event: LpReimbursed(indexed bytes32,uint256)
+          handler: handleLpReimbursed
+        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
+          handler: handleRecipientPaidByFallback

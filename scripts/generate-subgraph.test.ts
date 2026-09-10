@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CHAINS, registerDeployment, resetDeployments } from '../packages/domain/src/index.js';
-import { PLACEHOLDER, ROUTER_START_BLOCKS, START_BLOCKS, manifest } from './generate-subgraph.js';
+import {
+  PLACEHOLDER,
+  RETIRED_SETTLEMENT_RECEIVER_START_BLOCKS,
+  RETIRED_SETTLEMENT_RECEIVERS,
+  ROUTER_START_BLOCKS,
+  START_BLOCKS,
+  manifest,
+} from './generate-subgraph.js';
 
 /**
  * `manifest()` is pure (no file I/O), so these exercise it directly against
@@ -21,6 +28,10 @@ describe('manifest', () => {
     expect(yaml).toContain('address: "0x58868465d14e0694d033bD511588AE90482b21CC"');
     expect(yaml).toContain('address: "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1"');
     expect(yaml).toContain('address: "0x9a47a161ea8328b96Ad976264d42790881570E71"');
+    // The receiver WP-12 retired stays indexed too — intents settled before
+    // that redeploy must not lose their real settlement history.
+    expect(yaml).toContain('name: SettlementReceiverRetired');
+    expect(yaml).toContain(`address: "${RETIRED_SETTLEMENT_RECEIVERS['ethereum-sepolia']}"`);
     expect(yaml).not.toContain(PLACEHOLDER);
   });
 
@@ -52,24 +63,24 @@ describe('manifest', () => {
     expect(placeholderCount).toBe(2);
   });
 
-  /// The router and the vault/receiver each have their own start block because
-  /// they were redeployed on different days (router: WP-10, 2026-09-09;
-  /// vault+receiver: WP-12, 2026-09-10) — indexing either from the other's
-  /// block would just replay history at an address that did not exist yet
-  /// there. Which one is later has flipped between WP-10 and WP-12; the
-  /// invariant that matters is that they're independently tracked and each
-  /// manifest carries exactly one value for the vault+receiver pair.
-  it('the router and the vault/receiver track independent start blocks', () => {
+  /// Four data sources, four independent start blocks: the router (WP-10,
+  /// 2026-09-09), the live vault + receiver pair (WP-12, 2026-09-10, always
+  /// identical to each other), and the retired receiver (original
+  /// 2026-09-08 deploy, kept indexed permanently). Indexing any of them from
+  /// another's block would replay history at an address that did not exist
+  /// there yet.
+  it('the router, the live vault/receiver pair, and the retired receiver each track their own start block', () => {
     for (const chain of Object.values(CHAINS)) {
       const yaml = manifest(chain);
       const blocks = [...yaml.matchAll(/startBlock: (\d+)/g)].map((m) => Number(m[1]));
-      expect(blocks).toHaveLength(3);
+      expect(blocks).toHaveLength(4);
 
-      const [routerBlock, ...rest] = blocks;
+      const [routerBlock, vaultBlock, receiverBlock, retiredReceiverBlock] = blocks;
       expect(routerBlock).toBe(ROUTER_START_BLOCKS[chain.key]);
-      expect(new Set(rest).size).toBe(1);
-      expect(rest[0]).toBe(START_BLOCKS[chain.key]);
-      expect(routerBlock).not.toBe(rest[0]);
+      expect(vaultBlock).toBe(START_BLOCKS[chain.key]);
+      expect(receiverBlock).toBe(START_BLOCKS[chain.key]);
+      expect(retiredReceiverBlock).toBe(RETIRED_SETTLEMENT_RECEIVER_START_BLOCKS[chain.key]);
+      expect(new Set(blocks).size).toBe(3); // router, live pair, retired — three distinct values
     }
   });
 });
