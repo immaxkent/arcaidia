@@ -49,18 +49,24 @@ needs only WP-00 types).
 | [05](WP-05-fill-authorization.md) ✅ | M5 | Fill authorization path | 02, 04 | Local fast-fill works both directions; tamper/replay fail safely. |
 | [06](WP-06-mock-settlement.md) ✅ | M6 | Mock canonical settlement | 05 | Fast path + fallback settle correctly; settlement idempotent. |
 | [07](WP-07-golden-local-e2e.md) ✅ | M7 | Golden local E2E | 06 | One command runs the full economic lifecycle deterministically. |
-| [08](WP-08-the-graph.md) ◐ | M8 | The Graph integration | 07 | Disabling Graph stops automation; live data changes decisions. |
-| [09](WP-09-circle-agent-wallet.md) | M9 | Circle Agent Wallet | 07 (08 preferred) | Real Agent Wallet authority signs a bounded fill; core logic unchanged. |
-| [10](WP-10-cctp-real-usdc.md) | M10 | Real CCTP & USDC config | 09 | Real canonical transfer reimburses the opposite-chain vault. |
-| [11](WP-11-full-sponsor-e2e.md) | M11 | Full sponsor E2E | 08, 09, 10 | One repeatable demo proves every sponsor integration is load-bearing. |
-| [12](WP-12-submission-hardening.md) | M12 | Submission hardening | 11 | Arc/Circle, Graph and Privy checklists fully evidenced. |
-| [13](WP-13-freeze-v1.md) | M13 | Freeze V1 | 12 | V1 tagged; all tests and the qualifying demo green. |
+| [08](WP-08-the-graph.md) ✅ | M8 | The Graph integration | 07 | Disabling Graph stops automation; live data changes decisions. |
+| [09](WP-09-circle-agent-wallet.md) ✅ | M9 | Circle Agent Wallet | 07 (08 preferred) | Real Agent Wallet authority signs a bounded fill; core logic unchanged. |
+| [10](WP-10-cctp-real-usdc.md) ✅ | M10 | Real CCTP & USDC config | 09 | Real canonical transfer reimburses the opposite-chain vault. |
+| [11](WP-11-full-sponsor-e2e.md) ✅ | M11 | Full sponsor E2E | 08, 09, 10 | One repeatable demo proves every sponsor integration is load-bearing. |
+| [12](WP-12-submission-hardening.md) ⏸ | M12 | Submission hardening | 11 | Arc/Circle, Graph and Privy checklists fully evidenced. |
+| [13](WP-13-freeze-v1.md) ✅ | M13 | Freeze V1 | 12 | V1 tagged; all tests and the qualifying demo green. |
 
-## Status as of 2026-09-04
+## Status as of 2026-09-10
 
-WP-00 through WP-02 and WP-04 through WP-07 are complete, and WP-08 is built but not yet deployed, each with a report beside its
-work package. WP-03 is paused rather than skipped: its gate needs a Privy app id
-and a browser to evidence honestly, and it does not block anything.
+**V1 is frozen, tagged `v1.0.0`.** WP-00 through WP-11 and WP-13 are complete and live-verified —
+Circle Agent Wallet and real CCTP both landed 2026-09-10, closing what the 2026-09-04 snapshot
+above still called open. WP-03 (Privy) shipped live, not paused, once a Privy app id arrived.
+**WP-12 (submission hardening — architecture diagram, demo video, README bounty-mapping section,
+LICENSE) is deliberately deferred, not blocked** — the user's call, to avoid redoing it once
+`intent-market` branch work and the Substreams contribution land; it will be picked up close to
+the 2026-09-13 submission deadline. Post-freeze work (the intent market, see
+`WP-INTENT-MARKET.md` and its own WP-15+ sub-packages) develops on the `intent-market` branch and
+does not touch this tagged state.
 
 ```
 pnpm test:global      everything below, in order
@@ -96,6 +102,10 @@ Tracked in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md). Resolve each one *at or befor
 that first depends on it — none of them should be discovered late.
 
 ## Priority order from 2026-09-06
+
+**Historical — superseded by the 2026-09-10 status above; every credential blocker below has
+since landed.** Left as-is rather than rewritten, as a record of the actual sequencing under
+uncertainty.
 
 WP-07 is done, so the critical path is no longer the work-package numbering.
 Re-ordered around what unlocks prize coverage and what is blocked on credentials:

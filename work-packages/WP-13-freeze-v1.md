@@ -7,21 +7,29 @@
 
 ## Sub-tasks
 
-- [ ] **13.1 Full regression.** Every suite: contracts, unit, golden local E2E, sponsor E2E.
-      Plus one final live qualifying run.
-- [ ] **13.2 Tag `v1.0.0`** and protect the branch.
-- [ ] **13.3 Freeze the addresses.** Deployed contract addresses recorded and immutable in the
-      README; the demo environment left funded and working.
-- [ ] **13.4 Post-freeze rule.** V2 (Uniswap) and V3 (Hedera/x402) develop on branches. Any change
-      that turns a V1 test red is rejected, not fixed forward.
+- [x] **13.1 Full regression.** Every suite: contracts (both directions), domain, agent,
+      settlement, mcp, e2e — `pnpm test:global`, 2026-09-10, clean run, 0 failures (found and
+      fixed a stale generated ABI and a leftover absolute-amount call in the e2e deploy harness
+      along the way). Plus the live qualifying run — the user's own second live transfer, judged
+      sufficient by the user 2026-09-10.
+- [x] **13.2 Tag `v1.0.0`** and protect the branch.
+- [x] **13.3 Freeze the addresses.** Recorded in the README's "Deployed addresses (frozen, WP-13)"
+      section, 2026-09-10.
+- [x] **13.4 Post-freeze rule.** Solver-network/intent-market work (see `WP-INTENT-MARKET.md`)
+      develops on the `intent-market` branch, per this rule — first post-freeze phase, before V2
+      (Uniswap) and V3 (Hedera/x402). Any change that turns a V1 test red is rejected, not fixed
+      forward.
 - [ ] **13.5 Extension notes.** Record the V2 entry points — `desiredToken` + `minimumOutput` on
       the generalised intent, and an `ExecutionAdapter` with a Uniswap implementation, reusing V1
       routers/vaults/agent interfaces rather than forking. And V3's `SolverCommerceAdapter`, kept
-      isolated from V1 contracts so V1 runs unchanged without Hedera/x402.
+      isolated from V1 contracts so V1 runs unchanged without Hedera/x402. Deferred: not needed
+      until V2 itself starts, and the intent market ships first regardless.
 
 ## Acceptance gate
 
 All V1 tests and the qualifying demo remain green. Tag exists. V2/V3 work is branch-isolated.
+
+**Gate met 2026-09-10.**
 
 ## After the freeze
 
