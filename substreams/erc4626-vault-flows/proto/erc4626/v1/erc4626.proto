@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+// Generic ERC-4626 tokenized-vault flows — Deposit and Withdraw events, and a
+// derived per-block vault-state snapshot, decoded from any address emitting
+// the standard EIP-4626 event signatures.
+//
+// Deliberately carries no Arcaidia-specific field: no `outstandingExposure`,
+// `reserveFloor`, `maxFillBps`. Those are Arcaidia extensions layered on top
+// of the standard — see ArcaidiaLiquidityVault.sol — and do not belong in a
+// module meant to work against any conforming vault, not just this project's.
+package erc4626.v1;
+
+// A raw ERC-20 amount, kept as a big-endian byte string rather than a native
+// integer type: EVM uint256 does not fit in any protobuf scalar without a
+// lossy cast, and a byte string round-trips exactly through any consumer's
+// own bignum library.
+message BigInt {
+  bytes bytes = 1;
+}
+
+// Emitted by `deposit()` and `mint()` — EIP-4626's
+// `event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)`.
+message Deposit {
+  // The vault contract that emitted this event. Present on every message
+  // because this module watches every conforming vault, not one.
+  string vault = 1;
+  string sender = 2;
+  string owner = 3;
+  BigInt assets = 4;
+  BigInt shares = 5;
+
+  string tx_hash = 6;
+  uint64 block_number = 7;
+  uint64 block_timestamp = 8;
+  uint32 log_index = 9;
+}
+
+// Emitted by `withdraw()` and `redeem()` — EIP-4626's
+// `event Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares)`.
+message Withdraw {
+  string vault = 1;
+  string sender = 2;
+  string receiver = 3;
+  string owner = 4;
+  BigInt assets = 5;
+  BigInt shares = 6;
+
+  string tx_hash = 7;
+  uint64 block_number = 8;
+  uint64 block_timestamp = 9;
+  uint32 log_index = 10;
+}
+
+// All ERC-4626 flow events observed in one block, across every vault that
+// emitted one. The unit a Substreams `map` module actually returns per block.
+message VaultFlows {
+  repeated Deposit deposits = 1;
+  repeated Withdraw withdraws = 2;
+}

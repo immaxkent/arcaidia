@@ -1,0 +1,34 @@
+specVersion: v0.1.0
+package:
+  name: erc4626_vault_flows
+  version: v0.1.0
+  url: https://github.com/immaxkent/arcaidia
+  description: >-
+    Generic ERC-4626 tokenized-vault Deposit/Withdraw flow indexing — decodes
+    the standard EIP-4626 event signatures from any conforming vault, not one
+    project's contracts. See README.md.
+
+network: sepolia
+
+protobuf:
+  files:
+    - erc4626/v1/erc4626.proto
+  importPaths:
+    - ./proto
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/erc4626_vault_flows.wasm
+
+modules:
+  - name: map_vault_flows
+    kind: map
+    initialBlock: 0
+    inputs:
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:erc4626.v1.VaultFlows
+    doc: |
+      Every EIP-4626 Deposit/Withdraw event emitted by any address in this
+      block, decoded by event signature — not by an allowlisted address list.

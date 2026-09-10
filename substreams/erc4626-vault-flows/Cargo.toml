@@ -1,0 +1,29 @@
+[package]
+name = "erc4626_vault_flows"
+version = "0.1.0"
+edition = "2021"
+description = "Generic ERC-4626 tokenized-vault Deposit/Withdraw flow indexing for Substreams — works against any conforming vault, not one project's contracts."
+license = "MIT"
+repository = "https://github.com/immaxkent/arcaidia"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+substreams = "0.7.6"
+substreams-ethereum = "0.11.1"
+# Pinned to match substreams 0.7.6's own prost version — a mismatched prost
+# here compiles fine on its own but produces a `Message` trait implemented
+# against the wrong version, which substreams::output() then rejects.
+prost = "0.13"
+hex = "0.4"
+hex-literal = "0.4"
+
+[dev-dependencies]
+# Fixture-driven tests decode raw log bytes/topics captured from real chain
+# activity — no live network access needed to run `cargo test`.
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = "debuginfo"
