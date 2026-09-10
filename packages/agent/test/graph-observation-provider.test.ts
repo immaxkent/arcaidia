@@ -32,10 +32,13 @@ class FakeGraph implements GraphQueryClient {
     if (this.failWith) throw this.failWith;
 
     const forEndpoint = this.responses[endpoint] ?? {};
+    const _meta = forEndpoint.meta ?? { block: { timestamp: String(NOW) } };
     if (document.includes('PendingIntents')) return { intents: forEndpoint.intents ?? [] } as T;
-    if (document.includes('VaultState')) return { vault: forEndpoint.vault ?? null } as T;
+    if (document.includes('VaultState')) {
+      return { vault: forEndpoint.vault ?? null, _meta } as T;
+    }
     if (document.includes('ProtocolState')) {
-      return { protocolState: forEndpoint.protocolState ?? null } as T;
+      return { protocolState: forEndpoint.protocolState ?? null, _meta } as T;
     }
     if (document.includes('FillForIntent')) return { fills: forEndpoint.fills ?? [] } as T;
     throw new Error(`unexpected query: ${document.slice(0, 40)}`);
@@ -146,9 +149,10 @@ describe('GraphObservationProvider', () => {
   /// A subgraph is a cache that lags. Stamping observations with the local
   /// clock would make one an hour behind look perfectly fresh, and the risk
   /// engine's staleness guard would never fire.
-  it("takes observedAt from the subgraph, not from the local clock", async () => {
+  it("takes observedAt from the subgraph's own indexing head, not from the local clock", async () => {
     const graph = new FakeGraph();
-    graph.set(ARC_ENDPOINT, 'vault', rawVault({ updatedAtTimestamp: String(NOW - 3_600) }));
+    graph.set(ARC_ENDPOINT, 'vault', rawVault());
+    graph.set(ARC_ENDPOINT, 'meta', { block: { timestamp: String(NOW - 3_600) } });
 
     const state = await provider(graph, () => NOW).vaultState(ARC);
     expect(state.observedAt).toBe(NOW - 3_600);
@@ -156,13 +160,30 @@ describe('GraphObservationProvider', () => {
 
   it('lets a lagging subgraph be rejected as stale by the risk engine', async () => {
     const graph = new FakeGraph();
-    graph.set(ARC_ENDPOINT, 'vault', rawVault({ updatedAtTimestamp: String(NOW - 600) }));
+    graph.set(ARC_ENDPOINT, 'vault', rawVault());
+    graph.set(ARC_ENDPOINT, 'meta', { block: { timestamp: String(NOW - 600) } });
 
     const state = await provider(graph).vaultState(ARC);
     const decision = evaluateIntent(intent(), state, health(), DEFAULT_RISK_POLICY, context());
 
     expect(decision.verdict).toBe(Verdict.REJECT);
     expect(decision.reason).toBe(DecisionReason.OBSERVATION_STALE);
+  });
+
+  /// The bug this fixed: a vault entity's own `updatedAtTimestamp` only tracks
+  /// indexer lag when the vault is mutated at least as often as the staleness
+  /// window. A vault with no deposits/fills for an hour is not a lagging
+  /// indexer — it's a quiet vault — and must not be rejected as stale for it.
+  it('does not reject a quiet-but-current vault as stale', async () => {
+    const graph = new FakeGraph();
+    graph.set(ARC_ENDPOINT, 'vault', rawVault({ updatedAtTimestamp: String(NOW - 3_600) }));
+    graph.set(ARC_ENDPOINT, 'meta', { block: { timestamp: String(NOW) } });
+
+    const state = await provider(graph, () => NOW).vaultState(ARC);
+    const decision = evaluateIntent(intent(), state, health(), DEFAULT_RISK_POLICY, context());
+
+    expect(state.observedAt).toBe(NOW);
+    expect(decision.reason).not.toBe(DecisionReason.OBSERVATION_STALE);
   });
 
   it('carries vault figures through unchanged', async () => {

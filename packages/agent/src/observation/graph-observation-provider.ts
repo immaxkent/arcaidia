@@ -71,15 +71,16 @@ const VAULT_STATE = `
       id chainId asset liquidBalance outstandingExposure accruedProtocolFees
       paused updatedAtBlock updatedAtTimestamp
     }
-    protocolState(id: "arcaidia") { updatedAtTimestamp }
+    _meta { block { timestamp } }
   }`;
 
 const PROTOCOL_STATE = `
   query ProtocolState {
     protocolState(id: "arcaidia") {
       pendingSettlementValue oldestUnsettledTimestamp
-      intentsFilled intentsSettled updatedAtTimestamp
+      intentsFilled intentsSettled
     }
+    _meta { block { timestamp } }
   }`;
 
 const FILL_FOR_INTENT = `
@@ -102,7 +103,19 @@ interface RawVault {
 
 interface RawProtocolState {
   pendingSettlementValue: string; oldestUnsettledTimestamp: string;
-  intentsFilled: string; intentsSettled: string; updatedAtTimestamp: string;
+  intentsFilled: string; intentsSettled: string;
+}
+
+/**
+ * A subgraph's own indexing head — how current its data actually is, right
+ * now, independent of any one entity's own activity. This is the correct
+ * staleness signal (see `vaultState`/`settlementHealth` below); a specific
+ * entity's `updatedAtTimestamp` only tracks indexer lag when that entity is
+ * mutated at least as often as the staleness window, which a quiet vault or
+ * a quiet settlement queue is not.
+ */
+interface RawMeta {
+  block: { timestamp: string };
 }
 
 export class GraphObservationProvider implements ObservationProvider {
@@ -149,7 +162,7 @@ export class GraphObservationProvider implements ObservationProvider {
   async vaultState(chainId: number): Promise<VaultState> {
     const source = this.sourceFor(chainId);
 
-    const data = await this.client.query<{ vault: RawVault | null }>(
+    const data = await this.client.query<{ vault: RawVault | null; _meta: RawMeta }>(
       source.endpoint,
       VAULT_STATE,
       { id: source.vault.toLowerCase() },
@@ -173,22 +186,32 @@ export class GraphObservationProvider implements ObservationProvider {
       accruedProtocolFees: BigInt(data.vault.accruedProtocolFees),
       paused: data.vault.paused,
       blockNumber: BigInt(data.vault.updatedAtBlock),
-      // The subgraph's own timestamp, so its lag is visible to the risk engine.
-      observedAt: Number(data.vault.updatedAtTimestamp),
+      // The subgraph's own indexing head, not this vault's last-mutation
+      // timestamp — a quiet vault (no deposits/fills for a while) is not the
+      // same thing as a lagging indexer, and conflating them made every quote
+      // reject as stale the moment nothing had touched the vault recently.
+      observedAt: Number(data._meta.block.timestamp),
     };
   }
 
   /** Aggregate settlement health across both chains. */
   async settlementHealth(): Promise<SettlementHealth> {
-    const states = await Promise.all(
+    const responses = await Promise.all(
       this.sources.map((source) =>
-        this.client
-          .query<{ protocolState: RawProtocolState | null }>(source.endpoint, PROTOCOL_STATE)
-          .then((data) => data.protocolState),
+        this.client.query<{ protocolState: RawProtocolState | null; _meta: RawMeta }>(
+          source.endpoint,
+          PROTOCOL_STATE,
+        ),
       ),
     );
 
-    const present = states.filter((state): state is RawProtocolState => state !== null);
+    const present = responses
+      .map((data) => data.protocolState)
+      .filter((state): state is RawProtocolState => state !== null);
+    // The indexing head, independent of whether protocolState has ever been
+    // written — same conflation this provider used to make for vault state
+    // (see vaultState's comment above).
+    const metaTimestamps = responses.map((data) => Number(data._meta.block.timestamp));
     const now = this.clock();
 
     const pendingValue = present.reduce(
@@ -210,9 +233,7 @@ export class GraphObservationProvider implements ObservationProvider {
       pendingValue,
       averageSettlementLatencySeconds: null,
       latencySampleSize: 0,
-      observedAt: present.length === 0
-        ? now
-        : Math.min(...present.map((state) => Number(state.updatedAtTimestamp))),
+      observedAt: Math.min(...metaTimestamps),
     };
   }
 
