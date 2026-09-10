@@ -127,8 +127,16 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         assertEq(valueAfter, valueBefore, "an advance must not change what an LP is owed");
     }
 
-    /// A receivable is an asset but not a payable one.
+    /// A receivable is an asset but not a payable one. Isolated from the
+    /// reserve floor and exposure cap (both permissive here) — those are
+    /// tested on their own terms elsewhere (test_reserveFloorIsAShareOfTotalAssets,
+    /// test_availableLiquidityIsZeroAtTheFloor, VaultInvariants.t.sol).
     function test_withdrawIsCappedByLiquidBalance() public {
+        vm.startPrank(vaultOwner);
+        vault.setReserveFloorBps(0);
+        vault.setFillLimits(10_000, 10_000, vault.maxFeeBps());
+        vm.stopPrank();
+
         _deposit(lpAlice, 100_000e6);
         _advance(3, 85_000e6);
 
@@ -139,6 +147,47 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
             abi.encodeWithSelector(ArcaidiaLiquidityVault.ExceedsMaxWithdraw.selector, 16_000e6, 15_000e6)
         );
         vault.withdraw(16_000e6, lpAlice, lpAlice);
+    }
+
+    /// Found live, 2026-09-10, by VaultInvariants.t.sol's fuzzer: a redemption
+    /// was never bounded by utilisation, so it could push the *remaining*
+    /// exposure past a cap that is now a live percentage of totalAssets().
+    /// Deposit 100k, advance 40k (40% of it, comfortably under the vault's
+    /// default 80% exposure cap) — a withdrawal must stop leaving exactly
+    /// enough behind that exposure/totalAssets never exceeds 80%.
+    function test_withdrawIsCappedToPreserveTheExposureCap() public {
+        _deposit(lpAlice, 100_000e6);
+        _advance(3, 40_000e6);
+
+        // liquid=60,000; retaining 10,000 keeps 40,000/(40,000+10,000)=80% exactly.
+        assertEq(vault.maxWithdraw(lpAlice), 50_000e6, "capped to hold the exposure cap at its boundary");
+
+        vm.prank(lpAlice);
+        vault.withdraw(50_000e6, lpAlice, lpAlice);
+        assertEq(vault.outstandingExposure(), 40_000e6, "unchanged by a withdrawal");
+        assertEq(vault.utilisationBps(), 8_000, "sits exactly at the cap, not above it");
+        assertEq(vault.maxWithdraw(lpAlice), 0, "no further withdrawal without breaching the cap");
+    }
+
+    /// Same fix, isolated to the reserve floor: a generous 100% exposure cap
+    /// (so it cannot be the binding constraint) still leaves the floor itself
+    /// enforced through a withdrawal. The boundary is solved self-referentially
+    /// against the *post-withdrawal* totalAssets — see
+    /// ArcaidiaLiquidityVault._minLiquidRetained — not a flat 10% of today's.
+    function test_withdrawIsCappedToPreserveTheReserveFloor() public {
+        uint16 feeBps = vault.maxFeeBps();
+        vm.prank(vaultOwner);
+        vault.setFillLimits(10_000, 10_000, feeBps);
+
+        _deposit(lpAlice, 100_000e6);
+        _advance(3, 5_000e6);
+
+        // exposure=5,000; solving liquid_after = 5,000 * 1000/9000, Ceil-rounded.
+        assertEq(vault.maxWithdraw(lpAlice), 94_444_444_444, "capped to preserve the reserve floor");
+
+        vm.prank(lpAlice);
+        vault.withdraw(94_444_444_444, lpAlice, lpAlice);
+        assertGe(vault.lpLiquidBalance(), vault.reserveFloor(), "floor holds after the withdrawal");
     }
 
     /// Reimbursement restores liquidity and clears the receivable; the fee is

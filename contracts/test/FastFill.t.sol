@@ -252,7 +252,8 @@ contract FastFillTest is FastFillFixture {
 
     function test_rejectsAFillBreachingTheReserveFloor() public {
         vm.prank(vaultOwner);
-        vault.setFillLimits(100_000e6, 200_000e6, MAX_FEE_BPS);
+        // 100%/100% so only the reserve floor can bind here, not the fill/exposure caps.
+        vault.setFillLimits(10_000, 10_000, MAX_FEE_BPS);
 
         // Available is 90,000; ask for more.
         FillAuthorization memory auth = _authorization(25, 95_000e6, 50e6);

@@ -78,7 +78,7 @@ contract FastFillSettlementCheckTest is FastFillFixture {
         fresh.initialize(vaultOwner, address(asset), RESERVE_FLOOR_BPS);
 
         vm.startPrank(vaultOwner);
-        fresh.setFillLimits(MAX_FILL, MAX_EXPOSURE, MAX_FEE_BPS);
+        fresh.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
         fresh.setAuthorisedSigner(agent, true);
         vm.stopPrank();
 

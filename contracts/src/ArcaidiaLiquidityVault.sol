@@ -61,11 +61,19 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     /// @notice Share of total assets that may never be advanced, in basis points.
     uint16 public reserveFloorBps;
 
-    /// @notice Largest single fill, regardless of available liquidity.
-    uint256 public maxFillAmount;
+    /// @notice Largest single fill, as a share of total vault depth (`totalAssets`).
+    /// @dev A live percentage, not a snapshot — same pattern as `reserveFloorBps`.
+    ///      A flat absolute here is exactly the footgun this replaced: it must be
+    ///      re-configured by hand as the vault grows or shrinks, or it silently
+    ///      drifts into either uselessness (too small to matter) or meaninglessness
+    ///      (too large to bind) — and a brand-new permissionless vault with no
+    ///      owner action taken yet defaults to 0, which blocks every fill rather
+    ///      than allowing an unbounded one.
+    uint16 public maxFillBps;
 
-    /// @notice Largest aggregate advanced-and-unreimbursed principal.
-    uint256 public maxOutstandingExposure;
+    /// @notice Largest aggregate advanced-and-unreimbursed principal, as a share
+    ///         of total vault depth (`totalAssets`). Same rationale as `maxFillBps`.
+    uint16 public maxExposureBps;
 
     /// @notice Protocol fee ceiling. The user's own ceiling may be lower and is
     ///         enforced by the agent before it ever signs.
@@ -118,6 +126,17 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///      price far enough to steal a later deposit through a direct transfer.
     uint8 internal constant DECIMALS_OFFSET = 6;
 
+    /// @dev Defaults set at `initialize()` so a freshly deployed vault — the
+    ///      House Vault or, later, a permissionless LP-created one — is safe
+    ///      AND functional immediately: no separate `setFillLimits` call is
+    ///      required before it can fill anything. Leaving these at their
+    ///      Solidity zero-value default was exactly the gap that made the
+    ///      House Vault's own first live fill revert unconditionally. The
+    ///      owner may still tighten or loosen via `setFillLimits`.
+    uint16 internal constant DEFAULT_MAX_FILL_BPS = 5_000; // 50% of vault depth
+    uint16 internal constant DEFAULT_MAX_EXPOSURE_BPS = 8_000; // 80% of vault depth
+    uint16 internal constant DEFAULT_MAX_FEE_BPS = 150; // 1.5%
+
     // -----------------------------------------------------------------------
     // Events
     // -----------------------------------------------------------------------
@@ -135,7 +154,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     event SettlementReceiverConfigured(address settlementReceiver);
     event FillRecorded(bytes32 indexed intentId, address indexed recipient, uint256 outputAmount);
     event ReimbursementRecorded(bytes32 indexed intentId, uint256 amountReceived, uint256 exposureCleared);
-    event FillLimitsConfigured(uint256 maxFillAmount, uint256 maxOutstandingExposure, uint16 maxFeeBps);
+    event FillLimitsConfigured(uint16 maxFillBps, uint16 maxExposureBps, uint16 maxFeeBps);
     event TreasuryConfigured(address treasury);
     event ProtocolFeeShareConfigured(uint16 protocolFeeShareBps);
     event FeesAccrued(bytes32 indexed intentId, uint256 toProtocol, uint256 toLps);
@@ -182,6 +201,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     error TreasuryNotSet();
     error NoFeesAccrued();
     error ShareAboveDenominator(uint16 bps);
+    error BpsAboveDenominator(uint16 bps);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -202,8 +222,12 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         asset = IERC20(asset_);
         _assetDecimals = IERC20Metadata(asset_).decimals();
         reserveFloorBps = reserveFloorBps_;
+        maxFillBps = DEFAULT_MAX_FILL_BPS;
+        maxExposureBps = DEFAULT_MAX_EXPOSURE_BPS;
+        maxFeeBps = DEFAULT_MAX_FEE_BPS;
 
         emit VaultInitialized(owner_, asset_, reserveFloorBps_);
+        emit FillLimitsConfigured(DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, DEFAULT_MAX_FEE_BPS);
     }
 
     // -----------------------------------------------------------------------
@@ -222,15 +246,14 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         emit SettlementReceiverConfigured(receiver);
     }
 
-    function setFillLimits(uint256 maxFillAmount_, uint256 maxOutstandingExposure_, uint16 maxFeeBps_)
-        external
-        onlyOwner
-    {
-        if (maxFeeBps_ > BPS_DENOMINATOR) revert ReserveFloorTooHigh(maxFeeBps_);
-        maxFillAmount = maxFillAmount_;
-        maxOutstandingExposure = maxOutstandingExposure_;
+    function setFillLimits(uint16 maxFillBps_, uint16 maxExposureBps_, uint16 maxFeeBps_) external onlyOwner {
+        if (maxFillBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxFillBps_);
+        if (maxExposureBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxExposureBps_);
+        if (maxFeeBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxFeeBps_);
+        maxFillBps = maxFillBps_;
+        maxExposureBps = maxExposureBps_;
         maxFeeBps = maxFeeBps_;
-        emit FillLimitsConfigured(maxFillAmount_, maxOutstandingExposure_, maxFeeBps_);
+        emit FillLimitsConfigured(maxFillBps_, maxExposureBps_, maxFeeBps_);
     }
 
     function setAuthorisedSigner(address signer, bool allowed) external onlyOwner {
@@ -319,6 +342,55 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         return liquid > floor ? liquid - floor : 0;
     }
 
+    /// @notice The liquid balance a withdrawal must leave behind so the
+    ///         reserve floor and the exposure cap both still hold against the
+    ///         outstanding receivable, which a withdrawal cannot reduce.
+    /// @dev Solved from `reserveFloor()`/`maxOutstandingExposure()`'s own
+    ///      formulas, applied to the *post-withdrawal* balance rather than the
+    ///      current one (both are self-referential in `liquid_after`, since
+    ///      `totalAssets` itself falls as liquid falls). Rounds in the vault's
+    ///      favour throughout, same as everywhere else in this contract.
+    function _minLiquidRetained() internal view returns (uint256) {
+        uint256 exposure = outstandingExposure;
+        if (exposure == 0) return 0;
+
+        // liquid_after >= exposure * floorBps / (BPS - floorBps), from
+        // liquid_after >= (liquid_after + exposure) * floorBps / BPS.
+        uint256 forFloor = reserveFloorBps >= BPS_DENOMINATOR
+            ? type(uint256).max
+            : exposure.mulDiv(reserveFloorBps, BPS_DENOMINATOR - reserveFloorBps, Math.Rounding.Ceil);
+
+        // liquid_after >= exposure * (BPS - exposureBps) / exposureBps, from
+        // exposure <= (liquid_after + exposure) * exposureBps / BPS.
+        uint256 forExposureCap = maxExposureBps == 0
+            ? type(uint256).max
+            : exposure.mulDiv(BPS_DENOMINATOR - maxExposureBps, maxExposureBps, Math.Rounding.Ceil);
+
+        return forFloor > forExposureCap ? forFloor : forExposureCap;
+    }
+
+    /// @notice The most liquid balance withdrawable right now without
+    ///         breaching the reserve floor or the exposure cap. Equal to
+    ///         `lpLiquidBalance()` whenever nothing is outstanding — this only
+    ///         binds while a receivable exists.
+    function withdrawableLiquidity() public view returns (uint256) {
+        uint256 liquid = lpLiquidBalance();
+        uint256 minRetained = _minLiquidRetained();
+        return liquid > minRetained ? liquid - minRetained : 0;
+    }
+
+    /// @notice Largest single fill permitted right now — `maxFillBps` of total
+    ///         vault depth, live, same computation shape as `reserveFloor()`.
+    function maxFillAmount() public view returns (uint256) {
+        return totalAssets().mulDiv(maxFillBps, BPS_DENOMINATOR, Math.Rounding.Floor);
+    }
+
+    /// @notice Largest aggregate outstanding exposure permitted right now —
+    ///         `maxExposureBps` of total vault depth, live.
+    function maxOutstandingExposure() public view returns (uint256) {
+        return totalAssets().mulDiv(maxExposureBps, BPS_DENOMINATOR, Math.Rounding.Floor);
+    }
+
     /// @notice Advanced principal as a share of total capital, in basis points.
     function utilisationBps() public view returns (uint256) {
         uint256 total = totalAssets();
@@ -374,10 +446,16 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     }
 
     /// @notice What an owner can withdraw now: what they are owed, capped by
-    ///         what the vault actually holds.
+    ///         what the vault can pay out without breaching the reserve floor
+    ///         or the exposure cap for the outstanding receivable.
+    /// @dev Found live, 2026-09-10: this used to be bounded only by raw liquid
+    ///      balance, letting a large redemption push the *remaining* LPs'
+    ///      exposure past a cap that was never checked here. Zero outstanding
+    ///      exposure means `withdrawableLiquidity() == lpLiquidBalance()`, so
+    ///      an unutilised vault behaves exactly as before.
     function maxWithdraw(address shareOwner) public view returns (uint256) {
         uint256 owed = _convertToAssets(balanceOf(shareOwner), Math.Rounding.Floor);
-        uint256 liquid = lpLiquidBalance();
+        uint256 liquid = withdrawableLiquidity();
         return owed < liquid ? owed : liquid;
     }
 
@@ -389,7 +467,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     function maxRedeem(address shareOwner) public view returns (uint256) {
         uint256 shares = balanceOf(shareOwner);
         uint256 owed = _convertToAssets(shares, Math.Rounding.Floor);
-        uint256 liquid = lpLiquidBalance();
+        uint256 liquid = withdrawableLiquidity();
 
         if (owed <= liquid) return shares;
         return _convertToShares(liquid, Math.Rounding.Floor);
@@ -503,13 +581,15 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         if (authorization.feeAmount > feeCeiling) {
             revert FeeAboveProtocolCeiling(authorization.feeAmount, feeCeiling);
         }
-        if (authorization.outputAmount > maxFillAmount) {
-            revert FillAboveCap(authorization.outputAmount, maxFillAmount);
+        uint256 fillCap = maxFillAmount();
+        if (authorization.outputAmount > fillCap) {
+            revert FillAboveCap(authorization.outputAmount, fillCap);
         }
 
         uint256 newExposure = outstandingExposure + authorization.outputAmount;
-        if (newExposure > maxOutstandingExposure) {
-            revert ExposureCapExceeded(newExposure, maxOutstandingExposure);
+        uint256 exposureCap = maxOutstandingExposure();
+        if (newExposure > exposureCap) {
+            revert ExposureCapExceeded(newExposure, exposureCap);
         }
 
         // Mirrors the check `SettlementReceiver.settle()` already makes in the

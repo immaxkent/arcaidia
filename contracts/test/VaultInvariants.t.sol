@@ -21,8 +21,11 @@ contract VaultInvariantsTest is ChainFixture {
     address internal vaultOwner = makeAddr("invVaultOwner");
 
     uint16 internal constant RESERVE_FLOOR_BPS = 1_000; // 10%
-    uint256 internal constant MAX_FILL = 25_000e6;
-    uint256 internal constant MAX_EXPOSURE = 150_000e6;
+    // Fill/exposure caps are a live percentage of totalAssets() — see
+    // ArcaidiaLiquidityVault.maxFillAmount/maxOutstandingExposure — generous
+    // enough that many random actions succeed, tight enough to bind sometimes.
+    uint16 internal constant MAX_FILL_BPS = 5_000; // 50%
+    uint16 internal constant MAX_EXPOSURE_BPS = 9_000; // 90%
     uint16 internal constant MAX_FEE_BPS = 100; // 1%
     uint16 internal constant PROTOCOL_SHARE_BPS = 5_000; // half the fee
 
@@ -38,7 +41,7 @@ contract VaultInvariantsTest is ChainFixture {
         handler = new VaultInvariantHandler(vault, asset, agentKey);
 
         vm.startPrank(vaultOwner);
-        vault.setFillLimits(MAX_FILL, MAX_EXPOSURE, MAX_FEE_BPS);
+        vault.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
         vault.setAuthorisedSigner(handler.agent(), true);
         vault.setSettlementReceiver(address(handler));
         vault.setTreasury(makeAddr("invTreasury"));
@@ -119,10 +122,24 @@ contract VaultInvariantsTest is ChainFixture {
         assertEq(vault.outstandingExposure(), handler.ghostOutstanding());
     }
 
-    /// The exposure cap is checked before a fill, so it can never be exceeded
-    /// afterwards — including across interleaved fills and reimbursements.
+    /// The exposure cap is checked before a fill, so a fill can never exceed
+    /// it. Found live by this suite: that alone was not enough, because the
+    /// cap is now a live percentage of totalAssets() and `maxWithdraw` never
+    /// bounded redemptions by utilisation — so a large redemption after a fill
+    /// could shrink totalAssets() until the same, unchanged exposure exceeded
+    /// the now-smaller cap, with no fill having done anything wrong.
+    /// `withdrawableLiquidity()` now closes that: a withdrawal cannot itself
+    /// push exposure over the cap (or liquid below the reserve floor), so this
+    /// holds continuously, not just at fill time.
     function invariant_exposureNeverExceedsItsCap() public view {
-        assertLe(vault.outstandingExposure(), MAX_EXPOSURE);
+        assertLe(vault.outstandingExposure(), vault.maxOutstandingExposure());
+    }
+
+    /// The reserve floor is meant to be capital that never leaves — a
+    /// redemption respecting it is the other half of the same fix as the
+    /// exposure-cap invariant above.
+    function invariant_liquidBalanceNeverBelowReserveFloor() public view {
+        assertGe(vault.lpLiquidBalance(), vault.reserveFloor());
     }
 
     /// Advanced capital has actually left the vault, so the receivable can never

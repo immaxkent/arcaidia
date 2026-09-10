@@ -32,7 +32,7 @@ contract VaultReentrancyTest is ChainFixture {
 
         (agent, agentKey) = makeAddrAndKey("agent");
         vm.startPrank(vaultOwner);
-        vault.setFillLimits(25_000e6, 100_000e6, 100);
+        vault.setFillLimits(2_500, 10_000, 100); // 25% fill cap, 100% exposure cap, 1% fee
         vault.setAuthorisedSigner(agent, true);
         vault.setSettlementReceiver(address(this));
         vm.stopPrank();

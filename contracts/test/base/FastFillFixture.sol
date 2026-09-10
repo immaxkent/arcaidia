@@ -15,8 +15,16 @@ abstract contract FastFillFixture is VaultFixture {
     uint256 internal rogueKey;
     address internal rogue;
 
+    // Fill/exposure caps are now a live percentage of totalAssets() (see
+    // ArcaidiaLiquidityVault.maxFillAmount/maxOutstandingExposure). These two
+    // absolute constants are what that percentage resolves to at this
+    // fixture's fixed 100,000e6 baseline deposit below, kept so every existing
+    // assertion downstream stays unchanged; MAX_FILL_BPS/MAX_EXPOSURE_BPS are
+    // what's actually passed to setFillLimits.
     uint256 internal constant MAX_FILL = 25_000e6;
     uint256 internal constant MAX_EXPOSURE = 60_000e6;
+    uint16 internal constant MAX_FILL_BPS = 2_500; // 25% of 100,000e6 == MAX_FILL
+    uint16 internal constant MAX_EXPOSURE_BPS = 6_000; // 60% of 100,000e6 == MAX_EXPOSURE
     uint16 internal constant MAX_FEE_BPS = 100; // 1%
 
     function _deployWithAgent() internal {
@@ -26,7 +34,7 @@ abstract contract FastFillFixture is VaultFixture {
         (rogue, rogueKey) = makeAddrAndKey("rogue");
 
         vm.startPrank(vaultOwner);
-        vault.setFillLimits(MAX_FILL, MAX_EXPOSURE, MAX_FEE_BPS);
+        vault.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
         vault.setAuthorisedSigner(agent, true);
         vm.stopPrank();
 
