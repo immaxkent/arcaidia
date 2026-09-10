@@ -9,25 +9,61 @@
  * one boolean.
  */
 import { ETHEREUM_SEPOLIA, ARC_TESTNET, type Address } from "@/lib/arcaidia/types";
-import { formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
+import { formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
 import { StateSection } from "@/components/data/state-views";
 import { ChainBadge } from "@/components/vaults/vault-bits";
 import { TimeValue } from "@/components/site/time-value";
-import { useIntentHistory } from "@/hooks/arcaidia/use-intent-history";
+import { useIntentHistory, type IntentHistoryRow } from "@/hooks/arcaidia/use-intent-history";
 import { cn } from "@/lib/utils";
 
-function FastStatusChip({ status }: { status: "PENDING" | "FAST_FILLED" }) {
-  const filled = status === "FAST_FILLED";
+/**
+ * How the recipient actually got paid, and how long it took — one derived
+ * read of the two independent facts (fastStatus, canonicalStatus) the rest
+ * of the app holds apart. Not a third status field: "direct" is just what
+ * `fastStatus: PENDING` + `canonicalStatus: SETTLED` *means* — the solver
+ * never fast-filled it, canonical CCTP paid the recipient on its own. Calling
+ * that "pending fill" reads as stuck when it's actually finished, just via
+ * the slower, always-guaranteed path.
+ */
+type Resolution =
+  | { kind: "FAST"; seconds: number | null }
+  | { kind: "DIRECT"; seconds: number | null }
+  | { kind: "PENDING" };
+
+function resolutionFor(row: IntentHistoryRow): Resolution {
+  const { settlement, intent } = row;
+  if (settlement.fastStatus === "FAST_FILLED") {
+    const seconds =
+      settlement.fastFilledAt !== undefined ? settlement.fastFilledAt - intent.createdAt : null;
+    return { kind: "FAST", seconds };
+  }
+  if (settlement.canonicalStatus === "SETTLED") {
+    const seconds = settlement.settledAt !== undefined ? settlement.settledAt - intent.createdAt : null;
+    return { kind: "DIRECT", seconds };
+  }
+  return { kind: "PENDING" };
+}
+
+function FillChip({ resolution }: { resolution: Resolution }) {
+  if (resolution.kind === "PENDING") {
+    return (
+      <span className="num rounded-sm border border-text-dim/40 bg-text-dim/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+        Pending fill
+      </span>
+    );
+  }
+  const isFast = resolution.kind === "FAST";
   return (
     <span
       className={cn(
         "num rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-        filled
+        isFast
           ? "border-acid/50 bg-acid/10 text-acid"
-          : "border-text-dim/40 bg-text-dim/5 text-text-dim",
+          : "border-gold/50 bg-gold/10 text-gold-glow",
       )}
+      title={isFast ? "Paid by the solver ahead of CCTP" : "No fast fill — paid directly once CCTP completed"}
     >
-      {filled ? "Fast filled" : "Pending fill"}
+      {isFast ? "Fast filled" : "Direct fill"}
     </span>
   );
 }
@@ -71,39 +107,48 @@ export function IntentHistoryPanel({ owner }: { owner: Address | null }) {
                   <th className="pb-2 font-medium">Route</th>
                   <th className="pb-2 font-medium">Amount</th>
                   <th className="pb-2 font-medium">Fee</th>
-                  <th className="pb-2 font-medium">Fast fill</th>
+                  <th className="pb-2 font-medium">Fill</th>
+                  <th className="pb-2 font-medium">Fill time</th>
                   <th className="pb-2 font-medium">Canonical</th>
                   <th className="pb-2 font-medium">Created</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.intent.intentId} className="border-t border-border/60">
-                    <td className="num py-2.5 text-text-dim">
-                      {truncateAddress(row.intent.intentId, 8, 4)}
-                    </td>
-                    <td className="py-2.5">
-                      <span className="flex items-center gap-1.5">
-                        <ChainBadge chainId={row.intent.sourceChainId} />
-                        <span className="text-text-dim">→</span>
-                        <ChainBadge chainId={row.intent.destinationChainId} />
-                      </span>
-                    </td>
-                    <td className="num py-2.5 text-text">{formatUsdc(row.intent.amount)} USDC</td>
-                    <td className="num py-2.5 text-text-dim">
-                      {row.feeCharged === null ? "—" : `${formatUsdc(row.feeCharged)} USDC`}
-                    </td>
-                    <td className="py-2.5">
-                      <FastStatusChip status={row.settlement.fastStatus} />
-                    </td>
-                    <td className="py-2.5">
-                      <CanonicalStatusChip status={row.settlement.canonicalStatus} />
-                    </td>
-                    <td className="py-2.5 text-text-dim">
-                      <TimeValue at={row.intent.createdAt} />
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((row) => {
+                  const resolution = resolutionFor(row);
+                  return (
+                    <tr key={row.intent.intentId} className="border-t border-border/60">
+                      <td className="num py-2.5 text-text-dim">
+                        {truncateAddress(row.intent.intentId, 8, 4)}
+                      </td>
+                      <td className="py-2.5">
+                        <span className="flex items-center gap-1.5">
+                          <ChainBadge chainId={row.intent.sourceChainId} />
+                          <span className="text-text-dim">→</span>
+                          <ChainBadge chainId={row.intent.destinationChainId} />
+                        </span>
+                      </td>
+                      <td className="num py-2.5 text-text">{formatUsdc(row.intent.amount)} USDC</td>
+                      <td className="num py-2.5 text-text-dim">
+                        {row.feeCharged === null ? "—" : `${formatUsdc(row.feeCharged)} USDC`}
+                      </td>
+                      <td className="py-2.5">
+                        <FillChip resolution={resolution} />
+                      </td>
+                      <td className="num py-2.5 text-text-dim">
+                        {resolution.kind !== "PENDING" && resolution.seconds !== null
+                          ? formatDuration(resolution.seconds)
+                          : "—"}
+                      </td>
+                      <td className="py-2.5">
+                        <CanonicalStatusChip status={row.settlement.canonicalStatus} />
+                      </td>
+                      <td className="py-2.5 text-text-dim">
+                        <TimeValue at={row.intent.createdAt} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
