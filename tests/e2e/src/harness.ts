@@ -80,8 +80,11 @@ export const POLICY = {
   protocolFeeShareBps: 5_000,
   maxIntentAmount: USDC(25_000),
   maxInFlightValue: USDC(200_000),
-  maxFillAmount: USDC(25_000),
-  maxOutstandingExposure: USDC(60_000),
+  // Same defaults ArcaidiaLiquidityVault.initialize() sets on its own — spelled
+  // out here so the deploy is explicit and a test can override them the same
+  // way it does every other field.
+  maxFillBps: 5_000,
+  maxExposureBps: 8_000,
   maxFeeBps: 100,
   lpDeposit: USDC(100_000),
   userBalance: USDC(50_000),
@@ -157,8 +160,8 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
     protocolFeeShareBps: POLICY.protocolFeeShareBps,
     maxIntentAmount: POLICY.maxIntentAmount,
     maxInFlightValue: POLICY.maxInFlightValue,
-    maxFillAmount: POLICY.maxFillAmount,
-    maxOutstandingExposure: POLICY.maxOutstandingExposure,
+    maxFillBps: POLICY.maxFillBps,
+    maxExposureBps: POLICY.maxExposureBps,
     maxFeeBps: POLICY.maxFeeBps,
   };
 

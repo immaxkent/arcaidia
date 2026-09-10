@@ -44,8 +44,9 @@ export interface DeployOptions {
   readonly protocolFeeShareBps: number;
   readonly maxIntentAmount: bigint;
   readonly maxInFlightValue: bigint;
-  readonly maxFillAmount: bigint;
-  readonly maxOutstandingExposure: bigint;
+  /** Vault's own live cap, as a percentage of `totalAssets()` — see `ArcaidiaLiquidityVault.setFillLimits`. */
+  readonly maxFillBps: number;
+  readonly maxExposureBps: number;
   readonly maxFeeBps: number;
 }
 
@@ -114,11 +115,7 @@ export async function deployProtocol(
     send.call(vault, ARTIFACTS.ArcaidiaLiquidityVault.abi, functionName, args);
 
   await vaultCall('setSettlementReceiver', [settlementReceiver]);
-  await vaultCall('setFillLimits', [
-    options.maxFillAmount,
-    options.maxOutstandingExposure,
-    options.maxFeeBps,
-  ]);
+  await vaultCall('setFillLimits', [options.maxFillBps, options.maxExposureBps, options.maxFeeBps]);
   await vaultCall('setAuthorisedSigner', [options.agentSigner, true]);
   await vaultCall('setTreasury', [options.treasury]);
   await vaultCall('setProtocolFeeShareBps', [options.protocolFeeShareBps]);
