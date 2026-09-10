@@ -13,6 +13,7 @@ network: sepolia
 protobuf:
   files:
     - erc4626/v1/erc4626.proto
+    - sf/substreams/sink/entity/v1/entity.proto
   importPaths:
     - ./proto
 
@@ -34,7 +35,15 @@ modules:
       block, decoded by event signature — not by an allowlisted address list.
       The generic, reusable artifact — everything downstream is optional.
 
-  # graph_out (VaultFlows -> EntityChanges, for the substreams-powered
-  # subgraph in ../vault-flows-subgraph) is staged in src/graph_out.rs but
-  # not wired in yet — see that file's header and lib.rs for why. Add back
-  # here once it builds for wasm32-unknown-unknown.
+  - name: graph_out
+    kind: map
+    initialBlock: 0
+    inputs:
+      - map: map_vault_flows
+    output:
+      type: proto:sf.substreams.sink.entity.v1.EntityChanges
+    doc: |
+      VaultFlows rendered as EntityChanges — the shape a
+      `substreams/graph-entities` subgraph data source consumes directly.
+      One specific consumer of map_vault_flows's output, not part of the
+      module's own generic contract.

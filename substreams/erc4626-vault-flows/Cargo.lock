@@ -178,6 +178,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
+ "num-bigint",
  "prost 0.13.5",
  "substreams",
  "substreams-ethereum",
