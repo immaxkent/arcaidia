@@ -1,15 +1,29 @@
-# The intent market — permissionless solver network (post-V1, parked)
+# The intent market — permissionless solver network (post-V1, in progress)
 
-**Status:** designed, not built — no code, no frontend. **Depends on:** nothing in V1 — see §5.
-**Blocks:** nothing. **Roadmap position, fixed:** ships strictly after WP-13 (freeze), as its own
-phase — *"solver network production and integration"* — **before** V2 (Uniswap) and V3
-(Hedera/x402). Its frontend (the Solver Console, pairing UI) ships as part of this phase, not
-before: there is nothing to wire against until the contracts and runtime exist.
+**Status:** in progress, on branch `intent-market`, off frozen `v1.0.0`. **Depends on:** nothing
+in V1 — see §5. **Blocks:** nothing on V1. **Roadmap position, fixed:** ships strictly after
+WP-13 (freeze, done 2026-09-10), as its own phase — *"solver network production and
+integration"* — **before** V2 (Uniswap) and V3 (Hedera/x402).
+
+**No longer accurate as of 2026-09-10:** this doc originally said "no frontend." The frontend
+*shell* already existed before this phase started — `/earn` and `/console` routes, `SolverOrb`,
+`use-solver-telemetry.ts`/`use-solver-metrics.ts` — built ahead of their backend and deliberately
+unlinked from the nav (see `top-bar.tsx`'s own comment). What's actually missing is the backend
+behind those hooks, not the pages themselves. WP-19 below wires them up; it does not rebuild them.
 
 Covers the intent market mechanism (§1–6) and the reference solver runtime that makes a
 permissionless vault operable — Docker Compose packaging, telemetry, and the operator-pairing
 flow (§7). Both are the same phase of work and depend on each other's context, so they live in
 one document rather than being split.
+
+**Executable as six gated work packages**, mirroring V1's WP-00…WP-13 convention:
+[WP-15](WP-15-intent-market-contract.md) (the `IntentMarket` contract + `IArcaidiaSolverVault`) →
+[WP-16](WP-16-vault-market-integration.md) (vault integration) →
+[WP-17](WP-17-reference-solver-runtime.md) (`arcaidia-solver` + telemetry sidecar) →
+[WP-18](WP-18-telemetry-relay.md) (the Relay) →
+[WP-19](WP-19-solver-console-frontend.md) (frontend wiring) →
+[WP-20](WP-20-house-vault-migration.md) (House Vault migration, phase-closing gate). Each has its
+own sub-tasks and acceptance gate; this document remains the design reference they implement.
 
 ## 1. The idea
 
