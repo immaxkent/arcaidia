@@ -23,6 +23,7 @@
  *   VITE_SUBGRAPH_URL_ETHEREUM_SEPOLIA   (The Graph — fills / intent history)
  *   VITE_SUBGRAPH_URL_ARC_TESTNET
  *   VITE_SOLVER_TELEMETRY_URL            (optional solver telemetry WS/SSE)
+ *   VITE_SOLVER_QUOTE_URL                (POST /quote — WP-14 live estimate endpoint)
  *   VITE_MARKET_INTELLIGENCE_URL         (x402 market intelligence base URL)
  *   VITE_PRIVY_APP_ID                    (human owner login)
  */
@@ -84,6 +85,8 @@ export function chainConfig(chainId: number): ChainConfig | null {
 export const SERVICES = {
   privyAppId: str("VITE_PRIVY_APP_ID"),
   solverTelemetryUrl: str("VITE_SOLVER_TELEMETRY_URL"),
+  /** POST /quote (WP-14) — one solver process, one endpoint, not per-chain: sourceChainId/destinationChainId are request fields. */
+  solverQuoteUrl: str("VITE_SOLVER_QUOTE_URL"),
   marketIntelligenceUrl: str("VITE_MARKET_INTELLIGENCE_URL"),
 };
 

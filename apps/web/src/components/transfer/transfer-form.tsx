@@ -21,6 +21,12 @@ const DEADLINES = [
   { label: "6 hours", value: 21600 },
 ];
 
+/** The risk engine's own reason codes (e.g. "FEE_CEILING_EXCEEDED"), title-cased for display. */
+function humaniseQuoteReason(reason: string): string {
+  const words = reason.toLowerCase().split("_");
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
 /**
  * HANDOFF — the form itself is complete. The values it needs come from:
  *   USDC address       -> chainConfig(chainId).usdc
@@ -85,7 +91,8 @@ export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
           : "Confirm transfer";
 
   const disabled =
-    status === "CONNECTED" && (!amount || !!amountError || !recipientValid || submitting || !routerConfigured);
+    status === "CONNECTED" &&
+    (!amount || !!amountError || !recipientValid || submitting || !routerConfigured);
 
   function handlePrimary() {
     if (status !== "CONNECTED") return connect();
@@ -112,7 +119,9 @@ export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
       >
         {[source, destination].map((id, index) => (
           <div key={`${id}-${index}`} className="panel-raised flex-1 px-3 py-3">
-            <p className="text-xs tracking-wide text-text-dim uppercase">{index === 0 ? "From" : "To"}</p>
+            <p className="text-xs tracking-wide text-text-dim uppercase">
+              {index === 0 ? "From" : "To"}
+            </p>
             <p className="mt-1 font-display text-base text-text">{CHAINS[id]?.short}</p>
             <p className="num mt-0.5 text-xs text-text-dim">{CHAINS[id]?.name}</p>
           </div>
@@ -138,7 +147,9 @@ export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
           <button
             type="button"
             disabled={balance === null}
-            onClick={() => balance !== null && setAmountInput(formatUsdc(balance).replace(/,/g, ""))}
+            onClick={() =>
+              balance !== null && setAmountInput(formatUsdc(balance).replace(/,/g, ""))
+            }
             className="num rounded border border-electric/35 px-1.5 py-0.5 text-[0.7rem] text-electric-glow disabled:opacity-40"
           >
             MAX
@@ -156,8 +167,7 @@ export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
           <span className="num text-sm text-text-dim">USDC</span>
         </div>
         <p className="num mt-1 text-xs text-text-dim">
-          Balance{" "}
-          <StateValue state={balanceState} format={(b) => `${formatUsdc(b)} USDC`} />
+          Balance <StateValue state={balanceState} format={(b) => `${formatUsdc(b)} USDC`} />
         </p>
       </div>
 
@@ -242,15 +252,22 @@ export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
         </div>
       ) : null}
 
-      {/* Quote preview — only ever shows a real solver quote. */}
+      {/* Quote preview — only ever shows a real solver quote (WP-14). */}
       <div className="mt-4 border-t border-border pt-4">
         {!amount ? (
           <p className="text-sm text-text-dim">Enter an amount to request a quote.</p>
         ) : amountError ? (
           <p className="text-sm text-danger">{amountError}</p>
+        ) : quote.status === "ready" && quote.data.verdict !== "ACCEPT" ? (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/5 px-3 py-2">
+            <p className="text-sm text-warning">{humaniseQuoteReason(quote.data.reason)}</p>
+            <span className="num shrink-0 text-[10px] uppercase tracking-wide text-text-dim/70">
+              Estimated
+            </span>
+          </div>
         ) : (
           <dl className="space-y-1.5 text-sm">
-            <div className="flex justify-between">
+            <div className="flex items-center justify-between">
               <dt className="text-text-dim">You send</dt>
               <dd className="num text-text">{formatUsdc(amount)} USDC</dd>
             </div>
@@ -275,11 +292,21 @@ export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
                 <StateValue state={quote} format={() => "—"} />
               </dd>
             </div>
+            {quote.status === "ready" ? (
+              <p className="num pt-1 text-right text-[10px] uppercase tracking-wide text-text-dim/70">
+                Estimated · final terms set when your transfer confirms
+              </p>
+            ) : null}
           </dl>
         )}
         {quote.status === "unavailable" && amount && !amountError ? (
           <p className="num mt-2 text-[11px] uppercase tracking-wide text-text-dim/70">
             Quote source not connected yet — no fee is estimated
+          </p>
+        ) : null}
+        {quote.status === "error" && amount && !amountError ? (
+          <p className="num mt-2 text-[11px] uppercase tracking-wide text-danger/80">
+            Quote request failed — no fee is estimated
           </p>
         ) : null}
       </div>

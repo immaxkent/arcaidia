@@ -2,7 +2,11 @@
  * Intent creation, quoting and settlement tracking for a single transfer.
  *
  * SOURCE:
- *   quote      -> solver quote / protocol fee configuration (no invented fee) — not yet wired
+ *   quote      -> POST SERVICES.solverQuoteUrl + "/quote" (WP-14) — the live
+ *                 solver's own risk engine, run against real vault state, under
+ *                 a stated best-case confirmation assumption since nothing has
+ *                 been submitted yet. An *estimate*, not a binding quote — see
+ *                 use-intent-quote's own docs.
  *   create     -> wallet-signed IntentRouter.createIntent, then the real receipt
  *                 and the IntentCreated event for the real intentId + tx hash
  *   settlement -> fast-fill event + canonical CCTP settlement state — not yet wired
@@ -20,15 +24,22 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { decodeEventLog, encodeEventTopics } from "viem";
 import { erc20Abi, intentRouterAbi } from "@/lib/arcaidia/abis";
 import { useWallet } from "@/components/wallet/wallet-context";
-import { chainConfig } from "@/lib/arcaidia/config";
-import { readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
+import { chainConfig, SERVICES } from "@/lib/arcaidia/config";
+import {
+  errorState,
+  readyState,
+  unavailableState,
+  type DataState,
+} from "@/lib/arcaidia/data-state";
 import type { Address, AgentDecision, Intent, IntentSettlementState } from "@/lib/arcaidia/types";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 import { viemChainFor } from "@/lib/arcaidia/viem-chains";
@@ -42,11 +53,111 @@ export interface IntentRequest {
   deadlineSeconds: number;
 }
 
-/** Solver quote for a pending (unsubmitted) transfer. */
+/** WP-14's `estimatedUnderAssumption` marker, kept off the shared `AgentDecision` shape. */
+export interface IntentEstimate extends AgentDecision {
+  readonly estimatedUnderAssumption: true;
+}
+
+const QUOTE_DEBOUNCE_MS = 400;
+
+/** Bigint fields cross the wire as JSON strings; everything else passes through. */
+function parseQuote(raw: Record<string, unknown>): IntentEstimate {
+  const inputsUsed = raw["inputsUsed"] as Record<string, unknown>;
+  const settlementHealth = inputsUsed["settlementHealth"] as Record<string, unknown>;
+
+  return {
+    intentId: raw["intentId"] as Intent["intentId"],
+    verdict: raw["verdict"] as AgentDecision["verdict"],
+    reason: raw["reason"] as string,
+    feeBps: raw["feeBps"] as number,
+    feeAmount: BigInt(raw["feeAmount"] as string),
+    outputAmount: BigInt(raw["outputAmount"] as string),
+    policyVersion: raw["policyVersion"] as string,
+    decidedAt: raw["decidedAt"] as number,
+    inputsUsed: {
+      requestedAmount: BigInt(inputsUsed["requestedAmount"] as string),
+      availableLiquidity: BigInt(inputsUsed["availableLiquidity"] as string),
+      reserveFloor: BigInt(inputsUsed["reserveFloor"] as string),
+      outstandingExposure: BigInt(inputsUsed["outstandingExposure"] as string),
+      utilisationBps: inputsUsed["utilisationBps"] as number,
+      userMaxFeeBps: inputsUsed["userMaxFeeBps"] as number,
+      sourceConfirmations: inputsUsed["sourceConfirmations"] as number,
+      requiredConfirmations: inputsUsed["requiredConfirmations"] as number,
+      observationAgeSeconds: inputsUsed["observationAgeSeconds"] as number,
+      settlementHealth: {
+        transport: settlementHealth["transport"] as "HEALTHY" | "DEGRADED" | "UNAVAILABLE",
+        oldestUnsettledAgeSeconds: settlementHealth["oldestUnsettledAgeSeconds"] as number | null,
+        pendingValue: BigInt(settlementHealth["pendingValue"] as string),
+        averageSettlementLatencySeconds: settlementHealth["averageSettlementLatencySeconds"] as
+          number | null,
+      },
+    },
+    estimatedUnderAssumption: true,
+  };
+}
+
+async function fetchQuote(baseUrl: string, request: IntentRequest): Promise<IntentEstimate> {
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/quote`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      amount: request.amount.toString(),
+      maxFeeBps: request.maxFeeBps,
+      sourceChainId: request.sourceChainId,
+      destinationChainId: request.destinationChainId,
+    }),
+  });
+
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!response.ok) {
+    throw new Error(
+      (body?.["error"] as string | undefined) ?? `Quote request failed: ${response.status}`,
+    );
+  }
+  if (!body) throw new Error("Quote endpoint returned no data.");
+  return parseQuote(body);
+}
+
+/** The same `request`, held back until it has stopped changing for a moment — no request storm while typing. */
+function useDebouncedRequest(request: IntentRequest | null): IntentRequest | null {
+  const [debounced, setDebounced] = useState(request);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(request), QUOTE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [request]);
+
+  return debounced;
+}
+
+/** Solver quote for a pending (unsubmitted) transfer. An estimate — see this file's docs. */
 export function useIntentQuote(request: IntentRequest | null): DataState<AgentDecision> {
+  const debounced = useDebouncedRequest(request);
+  const quoteUrl = SERVICES.solverQuoteUrl;
+  const enabled = Boolean(debounced && quoteUrl && debounced.amount > 0n);
+
+  const query = useQuery({
+    queryKey: [
+      "intent-quote",
+      quoteUrl,
+      debounced?.sourceChainId,
+      debounced?.destinationChainId,
+      debounced?.amount.toString(),
+      debounced?.maxFeeBps,
+    ],
+    queryFn: () => fetchQuote(quoteUrl as string, debounced as IntentRequest),
+    enabled,
+    staleTime: 5_000,
+    retry: false,
+  });
+
   if (!request) return unavailableState("Enter an amount");
-  // TODO(integration): POST to the solver quote endpoint / read protocol fee config.
-  return unavailableState("Quote service not connected");
+  if (!quoteUrl) return unavailableState("Quote service not connected");
+  if (query.isError) {
+    return errorState(query.error instanceof Error ? query.error.message : "Quote request failed");
+  }
+  if (!query.data) return unavailableState("Quote service not connected");
+  return readyState(query.data);
 }
 
 function randomNonce(): bigint {
@@ -141,9 +252,14 @@ export function IntentProvider({ children }: { children: ReactNode }) {
         // decodeEventLog does not check that a log's topic0 actually matches the
         // requested eventName — filter by the real topic hash first, or a log from
         // an unrelated event on the same tx can be silently misread as IntentCreated.
-        const [intentCreatedTopic] = encodeEventTopics({ abi: intentRouterAbi, eventName: "IntentCreated" });
+        const [intentCreatedTopic] = encodeEventTopics({
+          abi: intentRouterAbi,
+          eventName: "IntentCreated",
+        });
         const log = receipt.logs.find(
-          (l) => l.address.toLowerCase() === intentRouter.toLowerCase() && l.topics[0] === intentCreatedTopic,
+          (l) =>
+            l.address.toLowerCase() === intentRouter.toLowerCase() &&
+            l.topics[0] === intentCreatedTopic,
         );
         if (!log) {
           setSubmitError("Transaction confirmed but no IntentCreated event was found.");
