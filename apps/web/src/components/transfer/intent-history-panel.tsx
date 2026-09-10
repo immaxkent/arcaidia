@@ -23,7 +23,10 @@ import { cn } from "@/lib/utils";
  * `fastStatus: PENDING` + `canonicalStatus: SETTLED` *means* — the solver
  * never fast-filled it, canonical CCTP paid the recipient on its own. Calling
  * that "pending fill" reads as stuck when it's actually finished, just via
- * the slower, always-guaranteed path.
+ * the slower, always-guaranteed path. Given its own light-blue styling,
+ * distinct from both "Fast filled" (acid) and "Settled" (gold) — sharing
+ * gold with the canonical chip read as one repeated tag instead of two
+ * separate facts about the same row.
  */
 type Resolution =
   | { kind: "FAST"; seconds: number | null }
@@ -59,7 +62,7 @@ function FillChip({ resolution }: { resolution: Resolution }) {
         "num rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
         isFast
           ? "border-acid/50 bg-acid/10 text-acid"
-          : "border-gold/50 bg-gold/10 text-gold-glow",
+          : "border-electric-glow/50 bg-electric-glow/10 text-electric-glow",
       )}
       title={isFast ? "Paid by the solver ahead of CCTP" : "No fast fill — paid directly once CCTP completed"}
     >
