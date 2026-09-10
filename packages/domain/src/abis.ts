@@ -1248,6 +1248,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "maxExposureBps",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "maxFeeBps",
       "inputs": [],
       "outputs": [
@@ -1268,6 +1281,19 @@ export const ABIS = {
           "name": "",
           "type": "uint256",
           "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "maxFillBps",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint16",
+          "internalType": "uint16"
         }
       ],
       "stateMutability": "view"
@@ -1603,14 +1629,14 @@ export const ABIS = {
       "name": "setFillLimits",
       "inputs": [
         {
-          "name": "maxFillAmount_",
-          "type": "uint256",
-          "internalType": "uint256"
+          "name": "maxFillBps_",
+          "type": "uint16",
+          "internalType": "uint16"
         },
         {
-          "name": "maxOutstandingExposure_",
-          "type": "uint256",
-          "internalType": "uint256"
+          "name": "maxExposureBps_",
+          "type": "uint16",
+          "internalType": "uint16"
         },
         {
           "name": "maxFeeBps_",
@@ -1873,6 +1899,19 @@ export const ABIS = {
       "stateMutability": "nonpayable"
     },
     {
+      "type": "function",
+      "name": "withdrawableLiquidity",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
       "type": "event",
       "name": "Approval",
       "inputs": [
@@ -2039,16 +2078,16 @@ export const ABIS = {
       "name": "FillLimitsConfigured",
       "inputs": [
         {
-          "name": "maxFillAmount",
-          "type": "uint256",
+          "name": "maxFillBps",
+          "type": "uint16",
           "indexed": false,
-          "internalType": "uint256"
+          "internalType": "uint16"
         },
         {
-          "name": "maxOutstandingExposure",
-          "type": "uint256",
+          "name": "maxExposureBps",
+          "type": "uint16",
           "indexed": false,
-          "internalType": "uint256"
+          "internalType": "uint16"
         },
         {
           "name": "maxFeeBps",
@@ -2330,6 +2369,17 @@ export const ABIS = {
           "name": "nowTimestamp",
           "type": "uint256",
           "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "BpsAboveDenominator",
+      "inputs": [
+        {
+          "name": "bps",
+          "type": "uint16",
+          "internalType": "uint16"
         }
       ]
     },
