@@ -126,6 +126,7 @@ export function DecisionPanel({ decision }: { decision: AgentDecision | null }) 
       >
         <h3 className="text-sm font-semibold tracking-wide text-text uppercase">Agent decision</h3>
         <VerdictBadge verdict={decision.verdict} />
+        <span className="num text-[10px] uppercase tracking-wide text-text-dim/70">Estimated</span>
         <span className="num ml-auto text-xs text-text-dim">{open ? "hide inputs −" : "show inputs +"}</span>
       </button>
       {open ? (

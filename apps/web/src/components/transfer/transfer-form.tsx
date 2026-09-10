@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useWallet, useWalletBalance } from "@/components/wallet/wallet-context";
-import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
+import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address, type AgentDecision } from "@/lib/arcaidia/types";
 import {
   feeFromBps,
   formatBps,
@@ -37,7 +37,14 @@ function humaniseQuoteReason(reason: string): string {
  *   intent id / tx     -> real receipt + IntentCreated event
  * Nothing below invents a quote, cap, ETA, intent id or transaction hash.
  */
-export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
+export function TransferForm({
+  onSubmitted,
+  onQuoteChange,
+}: {
+  onSubmitted?: () => void;
+  /** The live pre-submission quote (WP-14), for a sibling panel — e.g. the page's Agent Decision readout. */
+  onQuoteChange?: (decision: AgentDecision | null) => void;
+}) {
   const { status, address, connect } = useWallet();
   const [source, setSource] = useState(ETHEREUM_SEPOLIA);
   const [swapping, setSwapping] = useState(false);
@@ -69,6 +76,10 @@ export function TransferForm({ onSubmitted }: { onSubmitted?: () => void }) {
 
   const quote = useIntentQuote(request);
   const { submitting, submitError, createIntent } = useIntent();
+
+  useEffect(() => {
+    onQuoteChange?.(quote.status === "ready" ? quote.data : null);
+  }, [quote, onQuoteChange]);
 
   const amountError = useMemo(() => {
     if (!amount) return null;

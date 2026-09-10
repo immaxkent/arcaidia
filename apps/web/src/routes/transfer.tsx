@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { TransferForm } from "@/components/transfer/transfer-form";
 import { SettlementTimeline } from "@/components/transfer/settlement-timeline";
@@ -5,6 +6,7 @@ import { DecisionPanel } from "@/components/transfer/decision-panel";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { EmptyPanel, StateSection } from "@/components/data/state-views";
 import { IntentProvider, useIntent, useIntentSettlement } from "@/hooks/arcaidia/use-intent";
+import type { AgentDecision } from "@/lib/arcaidia/types";
 
 export const Route = createFileRoute("/transfer")({
   head: () => ({
@@ -46,6 +48,10 @@ function TransferPageContent() {
   const { state: intentState } = useIntent();
   const intent = intentState.status === "ready" ? intentState.data : null;
   const settlement = useIntentSettlement(intent?.intentId ?? null);
+  // The live pre-submission quote (WP-14) — lifted out of TransferForm so this
+  // sibling panel can show it too. Never the post-submission recorded decision
+  // SettlementTimeline wants (that stays null until real telemetry exists).
+  const [liveQuote, setLiveQuote] = useState<AgentDecision | null>(null);
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
@@ -57,7 +63,7 @@ function TransferPageContent() {
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(360px,420px)_1fr] lg:gap-8">
         <div>
-          <TransferForm />
+          <TransferForm onQuoteChange={setLiveQuote} />
         </div>
         <div className="space-y-6">
           {status !== "CONNECTED" ? (
@@ -95,7 +101,7 @@ function TransferPageContent() {
             </StateSection>
           </div>
 
-          <DecisionPanel decision={null} />
+          <DecisionPanel decision={liveQuote} />
         </div>
       </div>
     </div>
