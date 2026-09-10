@@ -37,16 +37,18 @@ export const DEFAULT_RISK_POLICY: RiskPolicy = {
   /**
    * Confirmation thresholds (Q9).
    *
-   * Ethereum Sepolia produces blocks roughly every 12 seconds, and Circle's
-   * Standard Transfer waits for finality regardless — so these thresholds cost
-   * the user seconds while the canonical leg costs minutes. They are low enough
-   * to demo and high enough to be a real reorg defence at these sizes; the
-   * README states them explicitly rather than leaving the number implied.
+   * Deliberately flattened to 1 confirmation at every tier, 2026-09-10, for
+   * demo speed — a real reorg-defence trade-off, made knowingly, not a
+   * technical limitation: at Sepolia's ~12s block time, "1 confirmation" is
+   * itself close to the floor on how fast a fill can be discovered as
+   * confirmed at all. The tier *structure* (three amount bands) is kept
+   * rather than collapsed to a single flat value, so restoring the original
+   * 1/3/6 escalation for larger amounts is a one-line revert, not a redesign.
    */
   confirmationTiers: [
     { upToAmount: USDC(1_000), confirmations: 1 },
-    { upToAmount: USDC(10_000), confirmations: 3 },
-    { upToAmount: USDC(25_000), confirmations: 6 },
+    { upToAmount: USDC(10_000), confirmations: 1 },
+    { upToAmount: USDC(25_000), confirmations: 1 },
   ],
 
   settlement: {

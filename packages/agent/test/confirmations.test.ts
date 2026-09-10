@@ -5,13 +5,19 @@ import { USDC } from './fixtures.js';
 const policy = DEFAULT_RISK_POLICY;
 
 describe('requiredConfirmations', () => {
+  /// DEFAULT_RISK_POLICY's tiers were deliberately flattened to 1 confirmation
+  /// across every amount band, 2026-09-10, for demo speed (see
+  /// default-policy.ts's own comment) — this exercises the *real* live
+  /// policy, so it follows that value rather than asserting the pre-flatten
+  /// 1/3/6 escalation, which the "sorts tiers" test below still covers on a
+  /// policy it constructs for itself.
   it.each([
     [USDC(1), 1],
     [USDC(1_000), 1],
-    [USDC(1_001), 3],
-    [USDC(10_000), 3],
-    [USDC(10_001), 6],
-    [USDC(25_000), 6],
+    [USDC(1_001), 1],
+    [USDC(10_000), 1],
+    [USDC(10_001), 1],
+    [USDC(25_000), 1],
   ])('requires the tier confirmations at %s', (amount, expected) => {
     expect(requiredConfirmations(policy, amount)).toBe(expected);
   });
@@ -19,7 +25,7 @@ describe('requiredConfirmations', () => {
   /// Above every tier, the strictest requirement applies. Falling through to
   /// zero would mean the largest intents needed the least evidence.
   it('applies the highest requirement above the top tier', () => {
-    expect(requiredConfirmations(policy, USDC(10_000_000))).toBe(6);
+    expect(requiredConfirmations(policy, USDC(10_000_000))).toBe(1);
   });
 
   it('never decreases as the amount grows', () => {

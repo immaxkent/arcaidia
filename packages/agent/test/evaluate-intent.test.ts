@@ -142,12 +142,26 @@ describe('evaluateIntent', () => {
     expect(decision.reason).toBe(DecisionReason.DEADLINE_PASSED);
   });
 
+  /// DEFAULT_RISK_POLICY's own tiers were flattened to 1 confirmation
+  /// everywhere, 2026-09-10, for demo speed — this test is about the
+  /// INSUFFICIENT_CONFIRMATIONS branch itself, so it supplies a policy with a
+  /// real >1 tier rather than relying on today's live default having one.
+  const strictConfirmationsPolicy = {
+    ...policy,
+    confirmationTiers: [
+      { upToAmount: USDC(1_000), confirmations: 1 },
+      { upToAmount: USDC(10_000), confirmations: 3 },
+      { upToAmount: USDC(25_000), confirmations: 6 },
+    ],
+  };
+
   it('rejects insufficient confirmations', () => {
     const decision = evaluate(
       intent({ amount: USDC(5_000) }),
       vault(),
       health(),
       context({ sourceConfirmations: 2 }),
+      strictConfirmationsPolicy,
     );
     expect(decision.reason).toBe(DecisionReason.INSUFFICIENT_CONFIRMATIONS);
     expect(decision.inputsUsed.requiredConfirmations).toBe(3);
@@ -160,6 +174,7 @@ describe('evaluateIntent', () => {
         vault(),
         health(),
         context({ sourceConfirmations: 3 }),
+        strictConfirmationsPolicy,
       ).verdict,
     ).toBe(Verdict.ACCEPT);
   });
