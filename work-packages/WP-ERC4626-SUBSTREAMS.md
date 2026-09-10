@@ -17,13 +17,22 @@ confirmed no shared surface, see §1.
       than working around it.
 - [ ] §5.4 publish to the Substreams Registry — same account blocker as above (`substreams
       publish` needs the same auth). Blocked until the user provisions a key.
-- [~] §5.5 wire into a Studio subgraph — `graph_out` (VaultFlows -> EntityChanges) is written and
-      unit-tested but not yet wasm-linkable: `substreams-entity-change` pins a `substreams` version
-      that collides with ours at wasm-link time. Reverted to keep the tree green; the fix is to
-      hand-build `EntityChanges` against our own dependency versions instead of pulling that crate
-      in. `vault-flows-subgraph/` is scaffolded and schema-complete, staged on this.
-- [ ] §5.6 docs on what became easier — not started; natural to write once §5.5 actually deploys,
-      so it can say something true rather than speculative.
+- [~] §5.5 wire into a Studio subgraph — **code side done and verified**. Fixed the wasm-link
+      blocker by vendoring the canonical `sf.substreams.sink.entity.v1` schema directly (fetched
+      from streamingfast/substreams-sink-entity-changes, not reverse-engineered) instead of
+      depending on `substreams-entity-change`. 14/14 tests pass, wasm32 build succeeds, `substreams
+      pack` produces a clean two-module .spkg, `substreams info` confirms the module graph is wired
+      correctly. `graph build` compiles `vault-flows-subgraph/` against it with no errors, and
+      `graph deploy` gets all the way through building and uploading to IPFS successfully. **One
+      remaining blocker, dashboard-only:** Subgraph Studio requires a subgraph name to be created
+      through the Studio UI before a deploy key can push to it — `Subgraph not found` is the exact,
+      expected error. Needs the user to create a subgraph named `vault-flows-subgraph` (or their
+      preferred name) in Studio; `npm run deploy` from `vault-flows-subgraph/` finishes it the
+      moment that exists. See that directory's own README for the exact remaining step.
+- [x] §5.6 docs on what became easier — written into `erc4626-vault-flows/README.md`, grounded in
+      what actually happened building this (no per-vault mapping code, the same decoder proven
+      generic by a dedicated test, the whole integration reducing to vendoring one canonical
+      schema) rather than the live deployed subgraph, which isn't blocking this being true.
 
 ## 1. Why this doesn't collide with the intent market work
 

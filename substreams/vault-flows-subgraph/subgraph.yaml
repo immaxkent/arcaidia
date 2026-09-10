@@ -12,5 +12,5 @@ dataSources:
         moduleName: graph_out
         file: ./substreams.spkg
     mapping:
-      apiVersion: 0.0.5
+      apiVersion: 0.0.6
       kind: substreams/graph-entities
