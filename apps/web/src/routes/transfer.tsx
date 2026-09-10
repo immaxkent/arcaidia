@@ -1,12 +1,10 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { TransferForm } from "@/components/transfer/transfer-form";
-import { SettlementTimeline } from "@/components/transfer/settlement-timeline";
 import { DecisionPanel } from "@/components/transfer/decision-panel";
 import { IntentHistoryPanel } from "@/components/transfer/intent-history-panel";
 import { useWallet } from "@/components/wallet/wallet-context";
-import { EmptyPanel, StateSection } from "@/components/data/state-views";
-import { IntentProvider, useIntent, useIntentSettlement } from "@/hooks/arcaidia/use-intent";
+import { IntentProvider } from "@/hooks/arcaidia/use-intent";
 import type { AgentDecision } from "@/lib/arcaidia/types";
 
 export const Route = createFileRoute("/transfer")({
@@ -29,12 +27,15 @@ export const Route = createFileRoute("/transfer")({
 });
 
 /**
- * HANDOFF — no example intent, tx hash, fee or timeline is rendered here.
- * The timeline appears only once useIntent() reports a real created intent and
- * useIntentSettlement() reports real fast-fill / canonical settlement facts.
+ * HANDOFF — no example intent, tx hash or fee is rendered here.
  *
- * IntentProvider is mounted here, once, above both the form and the settlement
- * panel below — they are siblings that must share one created-intent instance.
+ * IntentProvider is mounted here so TransferForm can call useIntent().createIntent
+ * for the actual submit action. Live and historical settlement status both come
+ * from IntentHistoryPanel (real subgraph data, both fast and canonical facts,
+ * tracked separately) rather than a separate just-submitted-this-session view —
+ * that used to exist here as its own panel, but it was never wired past a
+ * permanent "unavailable" stub, and IntentHistoryPanel already covers the need
+ * live, so it was removed rather than left as dead placeholder UI.
  */
 function TransferPage() {
   return (
@@ -46,12 +47,8 @@ function TransferPage() {
 
 function TransferPageContent() {
   const { status, address, connect } = useWallet();
-  const { state: intentState } = useIntent();
-  const intent = intentState.status === "ready" ? intentState.data : null;
-  const settlement = useIntentSettlement(intent?.intentId ?? null);
   // The live pre-submission quote (WP-14) — lifted out of TransferForm so this
-  // sibling panel can show it too. Never the post-submission recorded decision
-  // SettlementTimeline wants (that stays null until real telemetry exists).
+  // sibling panel can show it too.
   const [liveQuote, setLiveQuote] = useState<AgentDecision | null>(null);
 
   return (
@@ -81,26 +78,6 @@ function TransferPageContent() {
               </button>
             </div>
           ) : null}
-
-          <div className="panel">
-            <StateSection
-              state={settlement}
-              emptyTitle="No intents yet"
-              emptyNote="Your settlement tracks appear here the moment an intent is created onchain."
-              unavailableTitle="No intents yet"
-              unavailableNote="Nothing is shown until a real intent exists — no example transfer is displayed."
-            >
-              {(data) =>
-                intent ? (
-                  <div className="p-4">
-                    <SettlementTimeline intent={intent} settlement={data} decision={null} />
-                  </div>
-                ) : (
-                  <EmptyPanel title="No intents yet" />
-                )
-              }
-            </StateSection>
-          </div>
 
           <DecisionPanel decision={liveQuote} />
 

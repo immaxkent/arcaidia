@@ -1,24 +1,30 @@
 /**
- * Intent creation, quoting and settlement tracking for a single transfer.
+ * Intent creation and quoting for a single transfer.
  *
  * SOURCE:
- *   quote      -> POST SERVICES.solverQuoteUrl + "/quote" (WP-14) — the live
- *                 solver's own risk engine, run against real vault state, under
- *                 a stated best-case confirmation assumption since nothing has
- *                 been submitted yet. An *estimate*, not a binding quote — see
- *                 use-intent-quote's own docs.
- *   create     -> wallet-signed IntentRouter.createIntent, then the real receipt
- *                 and the IntentCreated event for the real intentId + tx hash
- *   settlement -> fast-fill event + canonical CCTP settlement state — not yet wired
+ *   quote  -> POST SERVICES.solverQuoteUrl + "/quote" (WP-14) — the live
+ *             solver's own risk engine, run against real vault state, under
+ *             a stated best-case confirmation assumption since nothing has
+ *             been submitted yet. An *estimate*, not a binding quote — see
+ *             use-intent-quote's own docs.
+ *   create -> wallet-signed IntentRouter.createIntent, then the real receipt
+ *             and the IntentCreated event for the real intentId + tx hash
+ *
+ * Settlement tracking (fast-fill + canonical CCTP) for a wallet's transfers,
+ * live and historical alike, is useIntentHistory (use-intent-history.ts) —
+ * a real subgraph join, rendered by IntentHistoryPanel. This file used to
+ * also export a per-session useIntentSettlement for "the one intent I just
+ * created," but it never got past a permanent unavailable stub and
+ * useIntentHistory already covers the need, so it was removed rather than
+ * left as dead placeholder wiring.
  *
  * Never synthesise an intent id, tx hash or timestamp. Before an intent exists
  * these stay `unavailable`.
  *
  * `useIntent()` is context-backed (`IntentProvider`) rather than a plain hook:
- * the transfer form that submits and the settlement panel that displays the
- * result are sibling components, and a plain `useState`-backed hook would give
- * each its own independent instance — the created intent would never reach the
- * panel. `IntentProvider` is mounted once, above both, in routes/transfer.tsx.
+ * the transfer form that submits it and any sibling that wants the result
+ * would otherwise each get their own independent instance. `IntentProvider`
+ * is mounted once, above both, in routes/transfer.tsx.
  */
 import {
   createContext,
@@ -40,7 +46,7 @@ import {
   unavailableState,
   type DataState,
 } from "@/lib/arcaidia/data-state";
-import type { Address, AgentDecision, Intent, IntentSettlementState } from "@/lib/arcaidia/types";
+import type { Address, AgentDecision, Intent } from "@/lib/arcaidia/types";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 import { viemChainFor } from "@/lib/arcaidia/viem-chains";
 
@@ -314,9 +320,3 @@ export function useIntent(): IntentValue {
   return ctx;
 }
 
-/** Both settlement facts for an intent, tracked separately. */
-export function useIntentSettlement(intentId: string | null): DataState<IntentSettlementState> {
-  if (!intentId) return unavailableState("No intent yet");
-  // TODO(integration): fast-fill event + canonical settlement from chain/The Graph.
-  return unavailableState("Settlement source not connected");
-}

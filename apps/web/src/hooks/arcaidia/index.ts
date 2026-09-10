@@ -23,7 +23,7 @@
  */
 export { useWalletState } from "./use-wallet-state";
 export { useUsdcBalance, useUsdcAllowance } from "./use-usdc-balance";
-export { useIntent, useIntentSettlement, useIntentQuote } from "./use-intent";
+export { useIntent, useIntentQuote } from "./use-intent";
 export { useIntentHistory } from "./use-intent-history";
 export { useVault, useVaults, useVaultAnalytics } from "./use-vaults";
 export { useVaultFills, useVaultActivity } from "./use-vault-fills";
