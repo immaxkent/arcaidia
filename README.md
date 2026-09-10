@@ -120,6 +120,13 @@ already-pending intents onchain, but no new deposits or fills should target them
   subgraph deployment. None of this is a testnet gap; it is simply unbuilt because Arc mainnet
   does not exist yet (launches 2026-09-16). Adding it is small, mechanical, and identical in shape
   across all three copies, but it is real code, not only configuration.
+- **Circle Paymaster is not integrated.** Checked directly against Circle's own docs: supported
+  networks are Arbitrum, Base, Avalanche, Ethereum, Optimism, Polygon and Unichain — Arc is not
+  listed, and Sepolia's status isn't confirmed either. More fundamentally, Paymaster requires an
+  ERC-4337 smart contract account; every wallet in this stack (the user's Privy wallet, the
+  agent's Circle Agent Wallet) is a plain EOA, so integrating it would mean adding account
+  abstraction to the user-wallet path, not wiring up an existing one. Left out deliberately rather
+  than attempted under time pressure for a product it may not even run on yet.
 
 ## Trust assumption (state this plainly in the demo)
 
