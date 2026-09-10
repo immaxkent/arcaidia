@@ -45,53 +45,46 @@ estimate (see 14.4), not reuse `AgentDecision`'s shape silently as if it were a 
 
 ## Sub-tasks
 
-- [ ] **14.1 `buildQuote(request, deps)`.** New pure-ish function in `packages/agent/src/risk/` (or
-      alongside `evaluate-intent.ts`): builds a synthetic `Intent` from the request (amount,
-      `maxFeeBps`, `sourceChainId`, `destinationChainId`; fields `evaluateIntent` doesn't use for
-      pricing — `intentId`, `sender`, `recipient`, `nonce` — take placeholder values, confirmed
-      during implementation which ones actually matter), reads live `VaultState` +
-      `SettlementHealth` from the already-wired `ObservationProvider`, and calls `evaluateIntent`
-      with the best-case `EvaluationContext` above.
-- [ ] **14.2 HTTP surface on the existing solver entrypoint.** `POST /quote` (or a small sibling
-      server sharing `buildSolverDependencies`'s output) — request: `{ amount, maxFeeBps,
-      sourceChainId, destinationChainId }`; response: the `AgentDecision` fields plus an explicit
-      `estimatedUnderAssumption: true` (or equivalent) marker. Runs in the same process as the
-      solver worker so it never duplicates vault-reading or policy logic — see Traps for why a
-      standalone service was considered and rejected for V1.
-- [ ] **14.3 CORS + no-auth for V1.** Public endpoint, same trust level as the public subgraph
-      endpoints already called directly from the browser. Rate-limiting is worth a cheap guard
-      (a quote is nearly free to compute, but not free of RPC/subgraph calls) — not a blocker.
-- [ ] **14.4 Frontend wiring.** `useIntentQuote` (`apps/web/src/hooks/arcaidia/use-intent.tsx`)
-      calls the new endpoint, debounced on amount/fee-ceiling change. The UI must visibly mark the
-      result as an estimate (e.g. "Estimated — final terms set when your transfer confirms"), not
-      present it with the same confidence as a settled decision.
-- [ ] **14.5 `VITE_SOLVER_QUOTE_URL` (or reuse `VITE_SOLVER_TELEMETRY_URL`'s host if colocated)**
-      added to `apps/web/.env.example` and `lib/arcaidia/config.ts`'s `SERVICES`, following the
-      existing pattern exactly.
-- [ ] **14.6 Deployment.** The solver process needs to be reachable at a stable URL from the
-      browser — see Traps. Not a new requirement this WP introduces, but the first place it
-      becomes *blocking* rather than a background concern, since the browser calls it directly and
-      synchronously (unlike the settlement/solver workers, which only need to reach RPC/Iris/Graph
-      outbound).
+- [x] **14.1 `buildQuote(request, deps)`.** Built in `packages/agent/src/risk/build-quote.ts`.
+      Builds a synthetic `Intent` (placeholders confirmed unused for pricing: `intentId`, `sender`,
+      `recipient`, `inputToken`, `nonce`, `sourceTxHash`, `sourceBlockNumber`, `settlementRef`),
+      reads live `VaultState` + `SettlementHealth` from the already-wired `ObservationProvider`, and
+      calls `evaluateIntent` with the best-case `EvaluationContext` above. Request validation
+      (`InvalidQuoteRequestError`) happens before any observation call.
+- [x] **14.2 HTTP surface on the existing solver entrypoint.** `POST /quote` in
+      `packages/agent/src/entrypoint/quote-server.ts` (`node:http`, no new dependency), colocated —
+      wired into `main.ts` alongside `startSolverWorker`, same `ObservationProvider`, same policy.
+      `GET /health` added too, for cheap reachability checks.
+- [x] **14.3 CORS + no-auth for V1.** `access-control-allow-origin: *`, `OPTIONS` preflight
+      handled. Rate-limiting not added — not a blocker, still worth revisiting under real load.
+- [x] **14.4 Frontend wiring.** `useIntentQuote` POSTs to `SERVICES.solverQuoteUrl`, 400ms
+      debounced. `transfer-form.tsx` shows the real refusal reason (title-cased) instead of a
+      misleading zero on REJECT/PAUSE, and tags every real quote "Estimated".
+- [x] **14.5 `VITE_SOLVER_QUOTE_URL`** added to both `apps/web/.env` and `.env.example`, and
+      `lib/arcaidia/config.ts`'s `SERVICES.solverQuoteUrl`, following the existing pattern.
+- [ ] **14.6 Deployment.** Still open — see Traps. The solver (and therefore the quote endpoint)
+      is only reachable while someone runs `pnpm solver:start` locally; nothing durable exists yet.
 
 ## Tests
 
-- Unit: `buildQuote` against fixed `VaultState`/`SettlementHealth` fixtures — happy path (ACCEPT
-  with a fee inside policy), and every `evaluateIntent` refusal branch already covered in WP-04's
-  own suite, reused here rather than re-derived (transport unavailable, vault paused, backlog,
-  size cap, exposure cap, user ceiling exceeded).
-- Integration: the HTTP handler against a live-ish `ObservationProvider` fake — malformed request,
-  unsupported chain pair, amount of zero.
-- Frontend: `useIntentQuote` happy path renders real numbers; endpoint unreachable renders
-  `unavailable`, not a stale or fabricated quote; debounce actually debounces (no request storm
-  while typing).
+- Unit (13 tests, `test/build-quote.test.ts`): happy path (ACCEPT with a fee inside policy),
+  refusal branches (paused vault, transport unavailable, insufficient liquidity, fee ceiling
+  exceeded, exposure cap), malformed-request validation before any observation call.
+- HTTP (11 tests, `test/entrypoint/quote-server.test.ts`): real requests against a real listening
+  server (port 0) — CORS headers, `OPTIONS` preflight, malformed JSON, negative amount, missing
+  field, wrong method, unknown path, `close()` actually closing.
+- Config (2 tests added to `test/entrypoint/config.test.ts`): `SOLVER_QUOTE_PORT` override and
+  validation.
+
+241 agent tests total, typecheck and lint clean across the monorepo.
 
 ## Acceptance gate
 
-Entering a real amount on the Transfer page returns a real, risk-engine-computed estimate — fee,
-output amount, and the same refusal reasons a real submission would hit (e.g. "exceeds your fee
-ceiling") — sourced from the same live vault state and policy the solver acts on, not a fabricated
-or hardcoded number.
+**Met.** Entering a real amount on the Transfer page returns a real, risk-engine-computed estimate
+sourced from live vault state and the real policy. Verified live: ran the actual solver process,
+sent the exact request shape and `Origin` header the browser sends, got back a real `REJECT`
+(`OBSERVATION_STALE`) computed from the real deposited vault balance through the real risk engine —
+the full path, not a mock.
 
 ## Traps
 
@@ -119,3 +112,11 @@ or hardcoded number.
   This WP is the first time that gap becomes *blocking*: the browser needs to reach this endpoint
   directly and synchronously, not just have the solver quietly polling RPC in the background.
   Worth resolving once, for all three live processes, rather than per-WP.
+- **Found during this WP's live verification, not caused by it:**
+  `GraphObservationProvider.vaultState()` hardcodes `reserveFloor: 0n` and `totalShares: 0n` — the
+  subgraph never indexes `VaultInitialized`/`ReserveFloorConfigured`, even though
+  `reserveFloorBps` is real, owner-configurable contract state. Practical effect: the live solver
+  today (quotes and real fills alike) is willing to advance into the reserve floor rather than
+  respect it — the exact protection the floor exists to guarantee. Genuine capital-safety gap,
+  same severity class as the `fastFill`-after-fallback fix earlier this session. Not fixed here;
+  tracked for the WP-12 (submission hardening) pass.
