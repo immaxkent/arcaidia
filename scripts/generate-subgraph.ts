@@ -29,13 +29,15 @@ export const PLACEHOLDER = '0x0000000000000000000000000000000000000000';
  * Where the vault and settlement receiver's indexing begins.
  *
  * Zero would replay the entire chain — wasteful and, on Studio's free tier,
- * slow enough to matter. These are the real block the 2026-09-08 deployment
- * landed in on each chain (contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json).
- * Neither contract has been redeployed since, so this has not changed.
+ * slow enough to matter. These are the real block the 2026-09-10 redeploy
+ * (WP-12, DeployVaultV2.s.sol — live percentage-based fill/exposure caps)
+ * landed in on each chain (contracts/broadcast/DeployVaultV2.s.sol/<chainId>/run-latest.json).
+ * The original vault/receiver deployed 2026-09-08 are retired; indexing from
+ * their block would replay history under an address that never existed there.
  */
 export const START_BLOCKS: Record<ChainKey, number> = {
-  'ethereum-sepolia': 11_660_148,
-  'arc-testnet': 61_052_876,
+  'ethereum-sepolia': 11_675_651,
+  'arc-testnet': 61_414_683,
 };
 
 /**

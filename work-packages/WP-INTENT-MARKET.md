@@ -281,6 +281,36 @@ X402_ENABLED, x402 client config                    # optional
 RISK_POLICY_CONFIG, LOG_LEVEL
 ```
 
+**Open question, raised 2026-09-10, decide before this section leaves "parked":** should a
+Circle Agent Wallet stop being optional here and become the *only* accepted `AgentAuthority`
+for a permissionless solver, once V1 has shipped? The case for it: every fill Circle signs is
+sanctions-screened before submission (Q5), which today is a control this permissionless design
+otherwise lacks entirely — anyone can point a solver at the market with a bare private key, no
+screening, no accountability beyond the vault's own onchain allowlist. Mandating Circle Wallets
+would be a real, second layer of protection specifically at the point this market intentionally
+opens up to strangers.
+
+The honest complications:
+- **Not enforceable onchain.** `isAuthorisedSigner` only ever sees a recovered ECDSA address —
+  the contract cannot tell a Circle-custodied key from a raw one; Circle wallets are ordinary
+  EOAs from the chain's perspective. "Require Circle" would have to be an admission-time policy
+  wherever the permissionless registry actually grants a new operator's signer, not a rule the
+  protocol itself can check.
+- **Real tension with "permissionless."** This section's own thesis is open participation; a
+  mandatory third-party custody/compliance product is, in effect, "permissioned via Circle" —
+  worth naming plainly rather than let the wording carry a contradiction.
+- **A vendor-uptime and vendor-policy dependency** the rest of the architecture deliberately
+  avoids — the vault's own onchain caps are enforced independent of any one custody provider;
+  this would add one back, specifically for the actor set (independent solvers) least equipped
+  to absorb a screening false-positive or an API outage.
+
+On the mainnet-access worry that prompted this: checked Circle's docs — Wallets/Agent Wallets
+production (`LIVE_API_KEY`) access reads as self-service (generate the key from the same
+console page once ready), distinct from **Circle Mint**, the fiat-rail product that does require
+KYB. Worth confirming directly against the console once Arc mainnet is live (2026-09-16) rather
+than assuming either way — but nothing found suggests Agent Wallets specifically is unreachable
+for this hackathon's timeline.
+
 ### Sub-tasks (none started — this entire section is post-V1)
 
 - [ ] The `IntentMarket` contract and `IArcaidiaSolverVault` interface (§3–4) — prerequisite to

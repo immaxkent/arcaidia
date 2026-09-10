@@ -5,14 +5,23 @@
  * the settlement worker all read one source rather than each carrying its own
  * copy of an address.
  *
- * `liquidityVault` and `settlementReceiver` are live since 2026-09-08
- * (contracts/script/Deploy.s.sol). `intentRouter` was replaced 2026-09-09
- * (contracts/script/DeployCctpRouter.s.sol) to wire in the real CCTP transport —
- * the original router at 0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357 still exists
- * onchain but is retired; nothing should reference it going forward. The vault
- * and settlement receiver were untouched by that redeploy (neither stores or
- * checks a router address). Broadcast tx hashes under
- * contracts/broadcast/{Deploy,DeployCctpRouter}.s.sol/<chainId>/run-latest.json.
+ * `intentRouter` has been live since 2026-09-09 (contracts/script/DeployCctpRouter.s.sol,
+ * wiring in the real CCTP transport) and is unchanged by the redeploy below —
+ * neither the vault nor the settlement receiver was ever router-aware.
+ *
+ * `liquidityVault` and `settlementReceiver` were replaced 2026-09-10
+ * (contracts/script/DeployVaultV2.s.sol, WP-12): the vault's fill/exposure caps
+ * became a live percentage of vault depth rather than flat absolutes an owner
+ * had to remember to set (see ArcaidiaLiquidityVault's DEFAULT_MAX_*_BPS) — a
+ * storage-layout change with no upgrade path, so both moved to new addresses.
+ * The originals (vault `0x9F5813cD0Ea34403f78769076043436E67736da3`, receiver
+ * `0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC`) still exist onchain, still
+ * settle their own pending intents via canonical CCTP, but are retired —
+ * nothing should reference them going forward, and no new LP deposits or
+ * fills should target them. The router at `0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357`
+ * is separately retired since 2026-09-09, for the same "no upgrade path"
+ * reason, one redeploy earlier. Broadcast tx hashes under
+ * contracts/broadcast/{Deploy,DeployCctpRouter,DeployVaultV2}.s.sol/<chainId>/run-latest.json.
  */
 
 import type { Address } from '../types/primitives.js';
@@ -21,14 +30,14 @@ import type { ChainKey, ProtocolContracts, TokenConfig } from './chains.js';
 export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
   'ethereum-sepolia': {
     intentRouter: '0x58868465d14e0694d033bD511588AE90482b21CC',
-    liquidityVault: '0x9F5813cD0Ea34403f78769076043436E67736da3',
-    settlementReceiver: '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
+    liquidityVault: '0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1',
+    settlementReceiver: '0x9a47a161ea8328b96Ad976264d42790881570E71',
     settlementInitiator: '0x7C84CB7bb7fB261F579eD5Fc3956c504C640F5Ba',
   },
   'arc-testnet': {
     intentRouter: '0x58868465d14e0694d033bD511588AE90482b21CC',
-    liquidityVault: '0x9F5813cD0Ea34403f78769076043436E67736da3',
-    settlementReceiver: '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
+    liquidityVault: '0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1',
+    settlementReceiver: '0x9a47a161ea8328b96Ad976264d42790881570E71',
     settlementInitiator: '0x0caE5879B7d6f8FB02e7a9D932Ee2CcF267C6ca0',
   },
 } as const;

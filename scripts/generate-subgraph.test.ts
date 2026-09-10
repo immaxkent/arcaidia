@@ -16,10 +16,11 @@ describe('manifest', () => {
     expect(yaml).toContain('network: sepolia');
     expect(yaml).toContain(`startBlock: ${ROUTER_START_BLOCKS['ethereum-sepolia']}`);
     expect(yaml).toContain(`startBlock: ${START_BLOCKS['ethereum-sepolia']}`);
-    // WP-10: the router was redeployed 2026-09-09; vault/receiver were not.
+    // WP-10 redeployed the router (2026-09-09); WP-12 redeployed the vault and
+    // receiver a day later (2026-09-10) — different contracts, different times.
     expect(yaml).toContain('address: "0x58868465d14e0694d033bD511588AE90482b21CC"');
-    expect(yaml).toContain('address: "0x9F5813cD0Ea34403f78769076043436E67736da3"');
-    expect(yaml).toContain('address: "0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC"');
+    expect(yaml).toContain('address: "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1"');
+    expect(yaml).toContain('address: "0x9a47a161ea8328b96Ad976264d42790881570E71"');
     expect(yaml).not.toContain(PLACEHOLDER);
   });
 
@@ -51,11 +52,14 @@ describe('manifest', () => {
     expect(placeholderCount).toBe(2);
   });
 
-  /// WP-10: the router moved to a later block than the vault/receiver, since
-  /// it was redeployed a day after them. Indexing it from their (earlier)
-  /// block would just replay history at an address that did not exist yet —
-  /// harmless, but it costs real sync time on every deploy to find that out.
-  it('the router has its own start block, later than the vault and receiver share', () => {
+  /// The router and the vault/receiver each have their own start block because
+  /// they were redeployed on different days (router: WP-10, 2026-09-09;
+  /// vault+receiver: WP-12, 2026-09-10) — indexing either from the other's
+  /// block would just replay history at an address that did not exist yet
+  /// there. Which one is later has flipped between WP-10 and WP-12; the
+  /// invariant that matters is that they're independently tracked and each
+  /// manifest carries exactly one value for the vault+receiver pair.
+  it('the router and the vault/receiver track independent start blocks', () => {
     for (const chain of Object.values(CHAINS)) {
       const yaml = manifest(chain);
       const blocks = [...yaml.matchAll(/startBlock: (\d+)/g)].map((m) => Number(m[1]));
@@ -65,7 +69,7 @@ describe('manifest', () => {
       expect(routerBlock).toBe(ROUTER_START_BLOCKS[chain.key]);
       expect(new Set(rest).size).toBe(1);
       expect(rest[0]).toBe(START_BLOCKS[chain.key]);
-      expect(routerBlock).toBeGreaterThan(rest[0]!);
+      expect(routerBlock).not.toBe(rest[0]);
     }
   });
 });

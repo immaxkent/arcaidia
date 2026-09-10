@@ -35,9 +35,9 @@ dataSources:
     name: ArcaidiaLiquidityVault
     network: sepolia
     source:
-      address: "0x9F5813cD0Ea34403f78769076043436E67736da3"
+      address: "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1"
       abi: ArcaidiaLiquidityVault
-      startBlock: 11660148
+      startBlock: 11675651
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -65,9 +65,9 @@ dataSources:
     name: SettlementReceiver
     network: sepolia
     source:
-      address: "0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC"
+      address: "0x9a47a161ea8328b96Ad976264d42790881570E71"
       abi: SettlementReceiver
-      startBlock: 11660148
+      startBlock: 11675651
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
