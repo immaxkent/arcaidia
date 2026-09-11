@@ -54,6 +54,7 @@ export const ARTIFACTS = {
     abi: ABIS.MockMessageTransmitterV2,
     bytecode: bytecodeOf('MockMessageTransmitterV2'),
   },
+  MockSwapAdapter: { abi: ABIS.MockSwapAdapter, bytecode: bytecodeOf('MockSwapAdapter') },
 } as const;
 
 /**

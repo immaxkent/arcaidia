@@ -146,6 +146,15 @@ describe('processIntent', () => {
 
   /// The same function, the same assertions, chains swapped. If this needed a
   /// second code path the design would have failed.
+  /// WP-29: an operator's own vault must be where the fill goes, not just what it observed.
+  it('submits to the vault this solver was configured with, not the committed House Vault', async () => {
+    const own = '0x7777777777777777777777777777777777777777' as const;
+    const outcome = await processIntent(baseIntent, { ...deps, vaults: new Map([[ARC, own]]) });
+    expect(outcome.kind).toBe('FILLED');
+    expect(submitter.submissions[0]!.vault).toBe(own);
+    expect(authority.signed[0]!.domain.verifyingContract).toBe(own);
+  });
+
   it('handles the mirrored direction identically', async () => {
     // Mirroring swaps the settlement asset too: funds now originate on Arc, so
     // the intent is denominated in Arc's USDC. Verification checks the asset

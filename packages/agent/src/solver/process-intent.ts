@@ -82,6 +82,14 @@ export interface SolverDependencies {
    * (working agreement rule 4); a provider that fails or lies changes nothing.
    */
   readonly intelligence?: IntelligenceProvider;
+  /**
+   * This solver's own vault per destination chain (WP-29). Found while standing up two
+   * solvers: the `{PREFIX}_LIQUIDITY_VAULT` override only reached the observation provider —
+   * fills were still *submitted* to the House Vault from the global deployment table. An
+   * independent operator's solver must sign against, and submit to, its own vault.
+   * Absent = the committed deployment's vault for that chain (the House solver).
+   */
+  readonly vaults?: ReadonlyMap<number, `0x${string}`>;
 }
 
 export type ProcessOutcome =
@@ -106,7 +114,11 @@ export async function processIntent(
 
   // Direction is data: these two fields decide every endpoint below.
   const route = resolveRoute(intent.sourceChainId, intent.destinationChainId);
-  const endpoints = resolveEndpoints(route);
+  const shared = resolveEndpoints(route);
+  const endpoints = {
+    ...shared,
+    destinationVault: deps.vaults?.get(route.destination.chainId) ?? shared.destinationVault,
+  };
 
   // Pre-chain and purely informational — see the `telemetry` field's own doc comment. Skipped
   // (not merely no-op'd) for the two short-circuit returns just below: an intent this pass

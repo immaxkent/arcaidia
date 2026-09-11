@@ -93,6 +93,9 @@ directions come from configuration, never from duplicated test files.
 - The settlement worker is idempotent across retries and restarts.
 - Graph/database downtime can halt automation but can never grant authority over funds.
 - The UI never labels canonical settlement complete before onchain confirmation.
+- (v2) No fill charges above the user's `maxFeeBps` — enforced by the vault, not trusted to the solver.
+- (v2) No fill charges above the vault's own posted fee tier — the vault is the source of truth for price.
+- (v2) A trade intent never strands USDC: unfillable ⇒ canonical settlement delivers USDC to the recipient.
 
 Keep these as a literal checklist in `tests/invariants/` and re-run it at every gate.
 

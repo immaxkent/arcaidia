@@ -20,6 +20,7 @@ import {
   getCreate2Address,
   http,
   keccak256,
+  toHex,
   type Address,
   type Hex,
   type WalletClient,
@@ -30,6 +31,7 @@ import {
   registerChainOverride,
   registerDeployment,
   resetDeployments,
+  type FeePolicy,
   type Intent,
   type UnixSeconds,
   type VaultState,
@@ -55,7 +57,7 @@ import {
 import { NoopTelemetryClient, type TelemetryClient } from '@arcaidia/telemetry';
 
 import { startAnvil, type AnvilChain } from './anvil.js';
-import { deployProtocol, type ChainDeployment } from './deploy.js';
+import { createVault, depositInto, deployProtocol, mintTo, type ChainDeployment } from './deploy.js';
 import { ARTIFACTS, SALTS } from './artifacts.js';
 
 export const SEPOLIA = CHAINS['ethereum-sepolia'].chainId;
@@ -72,6 +74,11 @@ export const KEYS = {
   agent: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d', // #1
   user: '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a', // #2
   reporter: '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6', // #3
+  // WP-29: independent vault operators — their own owner/LP key and their own solver signer.
+  ownerB: '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a', // #4
+  agentB: '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba', // #5
+  ownerC: '0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e', // #6
+  agentC: '0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356', // #7
 } as const;
 
 const USDC = (whole: number): bigint => BigInt(whole) * 1_000_000n;
@@ -106,6 +113,33 @@ export const POLICY = {
   attestationDelaySeconds: 120,
 } as const;
 
+/** WP-29: an additional, independently owned vault with its own solver identity. */
+export interface VaultSpec {
+  readonly chainId: number;
+  readonly ownerKey: Hex;
+  readonly signerKey: Hex;
+  readonly label: string;
+  readonly capital: bigint;
+  readonly feePolicy: FeePolicy;
+  readonly reserveFloorBps?: number;
+  readonly maxFillBps?: number;
+  readonly maxExposureBps?: number;
+}
+
+export interface WorldVault {
+  readonly chainId: number;
+  readonly address: Address;
+  readonly ownerKey: Hex;
+  readonly signer: LocalAgentSigner;
+  /** This vault's own observation — what *its* solver sees, nobody else's. */
+  readonly observation: InMemoryObservationProvider;
+  /** Solver dependencies for this vault's operator: own signer, own journal, own vault. */
+  solverDeps(): SolverDependencies;
+  refresh(intent: Intent): Promise<void>;
+  state(): Promise<VaultState>;
+  setSwapAdapter(adapter: Address): Promise<void>;
+}
+
 export interface World {
   readonly chains: Record<number, AnvilChain>;
   readonly deployments: Record<number, ChainDeployment>;
@@ -122,8 +156,31 @@ export interface World {
   settlementDeps(): SettlementDependencies;
   vaultState(chainId: number): Promise<VaultState>;
   balanceOf(chainId: number, who: Address): Promise<bigint>;
+  erc20BalanceOf(chainId: number, token: Address, who: Address): Promise<bigint>;
   refreshObservation(intent: Intent): Promise<void>;
+  /** WP-29: stand up another vault/solver pair through the factory. */
+  addVault(spec: VaultSpec): Promise<WorldVault>;
+  /** A freely mintable ERC-20 standing in for a destination `tokenOut`. */
+  deployMockToken(chainId: number): Promise<Address>;
+  /** The Line 1 stand-in: a fixed-rate adapter from USDC into `tokenOut`. */
+  deployMockSwapAdapter(chainId: number, tokenOut: Address, rate1e18: bigint): Promise<Address>;
+  /** Set the House Vault's adapter (the deployer owns it). */
+  setHouseSwapAdapter(chainId: number, adapter: Address): Promise<void>;
+  /** Build a byte-exact CCTP V2 message through the mock transmitter and the attestation it accepts. */
+  cctpMessage(chainId: number, spec: CctpMessageSpec): Promise<{ message: Hex; attestation: Hex }>;
+  /** D8: submit an attested message to the receiver, exactly as the settlement worker does. */
+  settleWithProof(chainId: number, message: Hex, attestation: Hex): Promise<{ txHash: Hex; outcome: string }>;
+  isSettled(chainId: number, intentId: Hex): Promise<boolean>;
   stop(): void;
+}
+
+export interface CctpMessageSpec {
+  readonly nonce: Hex;
+  readonly amount: bigint;
+  readonly feeExecuted?: bigint;
+  readonly hookData: Hex;
+  /** Defaults to the chain's receiver; override to model a message minted elsewhere. */
+  readonly mintRecipient?: Address;
 }
 
 export interface WorldOptions {
@@ -356,6 +413,156 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
 
     vaultState: (chainId) => readVaultState(chains[chainId]!, deployments[chainId]!, now()),
 
+    erc20BalanceOf: async (chainId, token, who) =>
+      (await chains[chainId]!.client.readContract({
+        address: token,
+        abi: ARTIFACTS.MockUSDC.abi,
+        functionName: 'balanceOf',
+        args: [who],
+      })) as bigint,
+
+    addVault: async (spec) => {
+      const chain = chains[spec.chainId]!;
+      const deployment = deployments[spec.chainId]!;
+      const ownerAddress = privateKeyToAccount(spec.ownerKey).address;
+      const signer = new LocalAgentSigner(spec.signerKey);
+
+      const address = await createVault(chain, deployment, {
+        ownerKey: spec.ownerKey,
+        salt: keccak256(toHex(`${spec.label}:${spec.chainId}`)),
+        label: spec.label,
+        reserveFloorBps: spec.reserveFloorBps ?? 0,
+        maxFillBps: spec.maxFillBps ?? 10_000,
+        maxExposureBps: spec.maxExposureBps ?? 10_000,
+        feePolicy: spec.feePolicy,
+      });
+
+      // The owner authorises their own solver and funds their own vault — no Arcaidia key.
+      const ownerWallet = walletFor(chain, spec.ownerKey) as unknown as WalletClient;
+      const authorise = await ownerWallet.writeContract({
+        address,
+        abi: ARTIFACTS.ArcaidiaLiquidityVault.abi as never,
+        functionName: 'setAuthorisedSigner',
+        args: [signer.address, true] as never,
+      } as never);
+      await chain.client.waitForTransactionReceipt({ hash: authorise });
+      await mintTo(chain, deployment, ownerAddress, spec.capital);
+      await depositInto(chain, deployment, address, spec.ownerKey, spec.capital);
+
+      const ownObservation = new InMemoryObservationProvider();
+      const vaultRecord: WorldVault = {
+        chainId: spec.chainId,
+        address,
+        ownerKey: spec.ownerKey,
+        signer,
+        observation: ownObservation,
+        solverDeps: () => ({
+          observation: ownObservation,
+          sourceReader,
+          authority: signer,
+          submitter,
+          log: decisions,
+          clock: now,
+          nonces: new SequentialNonceSource(BigInt(Date.now()) * 1_000n),
+          journal: new InMemorySubmissionJournal(),
+          config: { policy: DEFAULT_RISK_POLICY, authorizationTtlSeconds: 45 },
+          telemetry: options.telemetry ?? new NoopTelemetryClient(),
+          vaults: new Map([[spec.chainId, address]]),
+        }),
+        refresh: async (intent) => {
+          ownObservation.recordIntent(intent);
+          ownObservation.recordVaultState(await readVaultState(chain, deployment, now(), address));
+          ownObservation.recordSettlementHealth(
+            deriveSettlementHealth(settlementJournal, (await settlementAdapter.health()).transport, now()),
+          );
+        },
+        state: () => readVaultState(chain, deployment, now(), address),
+        setSwapAdapter: async (adapter) => {
+          const hash = await ownerWallet.writeContract({
+            address,
+            abi: ARTIFACTS.ArcaidiaLiquidityVault.abi as never,
+            functionName: 'setSwapAdapter',
+            args: [adapter] as never,
+          } as never);
+          await chain.client.waitForTransactionReceipt({ hash });
+        },
+      };
+      return vaultRecord;
+    },
+
+    deployMockToken: async (chainId) => {
+      const deployment = deployments[chainId]!;
+      const hash = await deployment.wallet.deployContract({
+        abi: ARTIFACTS.MockUSDC.abi as never,
+        bytecode: ARTIFACTS.MockUSDC.bytecode,
+      } as never);
+      const receipt = await chains[chainId]!.client.waitForTransactionReceipt({ hash });
+      if (!receipt.contractAddress) throw new Error('mock token deployment produced no address');
+      return receipt.contractAddress;
+    },
+
+    deployMockSwapAdapter: async (chainId, tokenOut, rate1e18) => {
+      const chain = chains[chainId]!;
+      const deployment = deployments[chainId]!;
+      const hash = await deployment.wallet.deployContract({
+        abi: ARTIFACTS.MockSwapAdapter.abi as never,
+        bytecode: ARTIFACTS.MockSwapAdapter.bytecode,
+      } as never);
+      const receipt = await chain.client.waitForTransactionReceipt({ hash });
+      if (!receipt.contractAddress) throw new Error('adapter deployment produced no address');
+      const setRate = await deployment.wallet.writeContract({
+        address: receipt.contractAddress,
+        abi: ARTIFACTS.MockSwapAdapter.abi as never,
+        functionName: 'setRate',
+        args: [deployment.usdc, tokenOut, rate1e18] as never,
+      } as never);
+      await chain.client.waitForTransactionReceipt({ hash: setRate });
+      return receipt.contractAddress;
+    },
+
+    setHouseSwapAdapter: async (chainId, adapter) => {
+      const chain = chains[chainId]!;
+      const deployment = deployments[chainId]!;
+      const hash = await deployment.wallet.writeContract({
+        address: deployment.vault,
+        abi: ARTIFACTS.ArcaidiaLiquidityVault.abi as never,
+        functionName: 'setSwapAdapter',
+        args: [adapter] as never,
+      } as never);
+      await chain.client.waitForTransactionReceipt({ hash });
+    },
+
+    cctpMessage: async (chainId, spec) => {
+      const chain = chains[chainId]!;
+      const deployment = deployments[chainId]!;
+      const message = (await chain.client.readContract({
+        address: deployment.messageTransmitter,
+        abi: ARTIFACTS.MockMessageTransmitterV2.abi,
+        functionName: 'encodeMessage',
+        args: [
+          {
+            sourceDomain: chainId === SEPOLIA ? 26 : 0,
+            destinationDomain: chainId === SEPOLIA ? 0 : 26,
+            nonce: spec.nonce,
+            recipient: deployment.settlementReceiver,
+            destinationCaller: deployment.settlementReceiver,
+            burnToken: '0x000000000000000000000000000000000000bEEF',
+            mintRecipient: spec.mintRecipient ?? deployment.settlementReceiver,
+            amount: spec.amount,
+            feeExecuted: spec.feeExecuted ?? 0n,
+            hookData: spec.hookData,
+          },
+        ],
+      })) as Hex;
+      return { message, attestation: keccak256(message) };
+    },
+
+    settleWithProof: async (chainId, message, attestation) =>
+      receiverClient.settleWithProof(chainId, deployments[chainId]!.settlementReceiver, message, attestation),
+
+    isSettled: (chainId, intentId) =>
+      receiverClient.isSettled(chainId, deployments[chainId]!.settlementReceiver, intentId),
+
     balanceOf: async (chainId, who) =>
       (await chains[chainId]!.client.readContract({
         address: deployments[chainId]!.usdc,
@@ -434,10 +641,11 @@ async function readVaultState(
   chain: AnvilChain,
   deployment: ChainDeployment,
   observedAt: UnixSeconds,
+  vaultAddress: Address = deployment.vault,
 ): Promise<VaultState> {
   const read = (functionName: string) =>
     chain.client.readContract({
-      address: deployment.vault,
+      address: vaultAddress,
       abi: ARTIFACTS.ArcaidiaLiquidityVault.abi as never,
       functionName: functionName as never,
       args: [] as never,
@@ -471,7 +679,7 @@ async function readVaultState(
 
   return {
     chainId: chain.chainId,
-    vault: deployment.vault,
+    vault: vaultAddress,
     asset: deployment.usdc,
     totalBalance,
     totalShares,

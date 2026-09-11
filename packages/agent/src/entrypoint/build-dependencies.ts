@@ -207,6 +207,8 @@ export function buildSolverDependencies(
       authorizationTtlSeconds: config.authorizationTtlSeconds,
     },
     telemetry: buildTelemetryClient(config.telemetry),
+    // WP-17.1's per-instance vault, now applied where fills are *submitted* too (WP-29).
+    vaults: new Map(config.chains.map((chain) => [chain.chainId, chain.liquidityVault])),
   };
 
   return { deps, signerAddress: authority.address, submitterAddress: submitterAccount.address };

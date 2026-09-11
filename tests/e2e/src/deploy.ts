@@ -278,3 +278,81 @@ function sender(client: PublicClient, wallet: WalletClient) {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// WP-29: more vaults, the permissionless way — through the factory, by any key
+// ---------------------------------------------------------------------------
+
+export interface CreateVaultParams {
+  /** Pays gas, becomes the vault's owner. Anyone; no Arcaidia key involved. */
+  readonly ownerKey: Hex;
+  readonly salt: Hex;
+  readonly label: string;
+  readonly reserveFloorBps: number;
+  readonly maxFillBps: number;
+  readonly maxExposureBps: number;
+  readonly feePolicy: FeePolicy;
+}
+
+/** Create a standard vault through the factory and return its (predicted == actual) address. */
+export async function createVault(
+  chain: AnvilChain,
+  deployment: ChainDeployment,
+  params: CreateVaultParams,
+): Promise<Address> {
+  const account = privateKeyToAccount(params.ownerKey);
+  const wallet = createWalletClient({ account, chain: chain.chain, transport: http(chain.rpcUrl) });
+
+  const predicted = (await chain.client.readContract({
+    address: deployment.factory,
+    abi: ARTIFACTS.ArcaidiaVaultFactory.abi,
+    functionName: 'predictVault',
+    args: [account.address, params.salt],
+  })) as Address;
+
+  const hash = await wallet.writeContract({
+    address: deployment.factory,
+    abi: ARTIFACTS.ArcaidiaVaultFactory.abi as never,
+    functionName: 'createVault',
+    args: [
+      params.salt,
+      params.reserveFloorBps,
+      params.maxFillBps,
+      params.maxExposureBps,
+      params.feePolicy,
+      params.label,
+    ] as never,
+  } as never);
+  const receipt = await chain.client.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') throw new Error('createVault reverted.');
+
+  const code = await chain.client.getCode({ address: predicted });
+  if (!code || code === '0x') throw new Error(`Vault did not land at ${predicted}.`);
+  return predicted;
+}
+
+/** MockUSDC is freely mintable — the harness's stand-in for a faucet. */
+export async function mintTo(chain: AnvilChain, deployment: ChainDeployment, to: Address, amount: bigint): Promise<void> {
+  const hash = await deployment.wallet.writeContract({
+    address: deployment.usdc,
+    abi: ARTIFACTS.MockUSDC.abi as never,
+    functionName: 'mint',
+    args: [to, amount] as never,
+  } as never);
+  await chain.client.waitForTransactionReceipt({ hash });
+}
+
+/** An LP deposits into a vault with their own key. */
+export async function depositInto(
+  chain: AnvilChain,
+  deployment: ChainDeployment,
+  vault: Address,
+  lpKey: Hex,
+  amount: bigint,
+): Promise<void> {
+  const account = privateKeyToAccount(lpKey);
+  const wallet = createWalletClient({ account, chain: chain.chain, transport: http(chain.rpcUrl) });
+  const send = sender(chain.client, wallet);
+  await send.call(deployment.usdc, ARTIFACTS.MockUSDC.abi, 'approve', [vault, amount]);
+  await send.call(vault, ARTIFACTS.ArcaidiaLiquidityVault.abi, 'deposit', [amount, account.address]);
+}

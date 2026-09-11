@@ -228,4 +228,60 @@ describe('global invariants', () => {
       expect([Verdict.ACCEPT, Verdict.REJECT, Verdict.PAUSE]).toContain(record.verdict);
     }
   });
+
+  // -----------------------------------------------------------------------
+  // WP-29 additions (v2)
+  // -----------------------------------------------------------------------
+
+  it("11. no fill charges above the user's maxFeeBps", async () => {
+    const { intent } = await newIntent(SEPOLIA, USDC(1_000), 100);
+    const outcome = await processIntent(intent, world.solverDeps());
+    expect(outcome.kind).toBe('FILLED');
+    if (outcome.kind === 'FILLED') {
+      expect(outcome.decision.feeBps).toBeLessThanOrEqual(intent.maxFeeBps);
+      world.observation.markFilled(intent.intentId);
+    }
+  });
+
+  it("12. no fill charges above the vault's posted tier — the price is the vault's", async () => {
+    const { intent, destinationChainId } = await newIntent(ARC, USDC(1_000), 150);
+    const posted = (await world.vaultState(destinationChainId)).currentFeeBps;
+    const outcome = await processIntent(intent, world.solverDeps());
+    expect(outcome.kind).toBe('FILLED');
+    if (outcome.kind === 'FILLED') {
+      expect(outcome.decision.feeBps).toBe(posted);
+      world.observation.markFilled(intent.intentId);
+    }
+  });
+
+  it('13. a trade intent never strands USDC: declined without an adapter, delivered canonically', async () => {
+    const destinationChainId = ARC;
+    const trade = await createIntent(world.chains[SEPOLIA]!, world.deployments[SEPOLIA]!, {
+      userKey: KEYS.user,
+      recipient: RECIPIENT,
+      amount: USDC(250),
+      destinationChainId,
+      maxFeeBps: 100,
+      deadline: world.now() + 3_600,
+      nonce: nonce++,
+      tokenOut: '0x3333333333333333333333333333333333333333',
+      targetMinOut: 1n,
+    });
+    const tradeRecord = settlementRecordFor(trade, DOMAINS[SEPOLIA]!, DOMAINS[destinationChainId]!);
+    world.settlementAdapter.register(tradeRecord.reference, tradeRecord.amount);
+    world.settlementJournal.add(tradeRecord);
+    await world.refreshObservation(trade);
+
+    const outcome = await processIntent(trade, world.solverDeps());
+    expect(outcome.kind).toBe('DECLINED');
+    if (outcome.kind === 'DECLINED') expect(outcome.decision.reason).toBe('TRADE_NOT_SUPPORTED');
+
+    const before = await world.balanceOf(destinationChainId, RECIPIENT);
+    await world.advance(POLICY.attestationDelaySeconds);
+    expect(await processSettlement(tradeRecord, world.settlementDeps())).toMatchObject({
+      kind: 'SETTLED',
+      outcome: 'RECIPIENT_FALLBACK',
+    });
+    expect(await world.balanceOf(destinationChainId, RECIPIENT)).toBe(before + USDC(250));
+  });
 });
