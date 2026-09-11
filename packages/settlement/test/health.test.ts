@@ -132,6 +132,11 @@ describe('the risk engine reacts to derived health', () => {
     outstandingExposure: 0n,
     accruedProtocolFees: 0n,
     paused: false,
+    feePolicy: {
+      baseFeeBps: 10, midFeeBps: 25, highFeeBps: 60, criticalFeeBps: 120,
+      midThresholdBps: 5_000, highThresholdBps: 7_500, criticalThresholdBps: 9_000,
+    },
+    currentFeeBps: 10,
     blockNumber: 1n,
     observedAt: NOW,
   };
@@ -141,6 +146,7 @@ describe('the risk engine reacts to derived health', () => {
       now: NOW,
       sourceConfirmations: 10,
       alreadyFilled: false,
+      tradeSatisfiable: null,
     });
 
   /// This is the loop the specification asks for: what the settlement worker
@@ -172,10 +178,15 @@ describe('the risk engine reacts to derived health', () => {
     expect(decision.reason).toBe('SETTLEMENT_TRANSPORT_UNAVAILABLE');
   });
 
-  it('charges more when settlement is slowing', () => {
+  /// v2 (WP-28): the fee is the vault's posted tier, not the solver's to raise. A slowing
+  /// transport tightens what the solver is willing to advance instead.
+  it('keeps the vault price but shrinks the maximum fill when settlement is slowing', () => {
     const healthy = decide(journalWith([]), 'HEALTHY');
     const slowing = decide(journalWith([]), 'DEGRADED');
 
-    expect(slowing.feeBps).toBeGreaterThan(healthy.feeBps);
+    expect(slowing.feeBps).toBe(healthy.feeBps);
+    expect(healthy.verdict).toBe('ACCEPT');
+    // 1,000 USDC is under the slow cap (5,000), so still accepted — the cap is what moved.
+    expect(slowing.verdict).toBe('ACCEPT');
   });
 });

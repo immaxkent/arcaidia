@@ -2,18 +2,16 @@
  * RiskPolicy — every threshold the agent uses, in one configurable object.
  *
  * No magic numbers in the risk engine. Each field here corresponds to a tested
- * branch in `evaluateIntent` (WP-04) and to a row in the specification's
- * deterministic risk table (§7) and CCTP-health policy (§18).
+ * branch in `evaluateIntent` and to a row in the specification's deterministic
+ * risk table (§7) and CCTP-health policy (§18).
+ *
+ * v2 (WP-28, D7): this policy no longer prices. The fee a solver charges is its
+ * vault's own posted tier (`VaultState.currentFeeBps`), enforced on chain; what
+ * remains here is purely the operator's risk appetite — how much, how confirmed,
+ * how backed-up the canonical leg may be before this solver stops advancing.
  */
 
 import type { Bps } from './primitives.js';
-
-/** One step of the utilisation-based fee curve. */
-export interface FeeCurvePoint {
-  /** Apply this fee at or above this utilisation. */
-  readonly atUtilisationBps: Bps;
-  readonly feeBps: Bps;
-}
 
 /** Confirmation requirements scaled by intent size. */
 export interface ConfirmationTier {
@@ -27,15 +25,13 @@ export interface ConfirmationTier {
  * (specification §18):
  *
  *   healthy      -> accept normally
- *   slowing      -> raise the fee and/or reduce the maximum fill
+ *   slowing      -> reduce the maximum fill (the fee is the vault's, not ours to raise)
  *   large backlog-> reject new fills
  *   unavailable  -> pause new fast fills
  */
 export interface SettlementRiskPolicy {
   /** Above this observed mean latency, the transport counts as slowing. */
   readonly slowLatencySeconds: number;
-  /** Surcharge applied while slowing. */
-  readonly slowFeeSurchargeBps: Bps;
   /** Maximum single fill while slowing. */
   readonly slowMaxFillAmount: bigint;
   /** Aggregate advanced-and-unreimbursed principal above which fills are rejected. */
@@ -53,12 +49,6 @@ export interface RiskPolicy {
   readonly maxFillAmount: bigint;
   /** Largest aggregate advanced-and-unreimbursed principal. */
   readonly maxOutstandingExposure: bigint;
-  /** Fee floor before any utilisation or settlement adjustment. */
-  readonly baseFeeBps: Bps;
-  /** Protocol fee ceiling. The user's `maxFeeBps` may be lower and always wins. */
-  readonly maxFeeBps: Bps;
-  /** Ascending by `atUtilisationBps`. */
-  readonly utilisationFeeCurve: readonly FeeCurvePoint[];
   /** Ascending by `upToAmount`. */
   readonly confirmationTiers: readonly ConfirmationTier[];
   readonly settlement: SettlementRiskPolicy;

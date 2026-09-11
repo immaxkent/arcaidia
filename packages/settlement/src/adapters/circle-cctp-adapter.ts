@@ -25,8 +25,9 @@
  *    the ordinary idempotent-completion path instead of a caught revert.
  */
 
-import { toHex } from 'viem';
+import { toEventSelector, toHex } from 'viem';
 import {
+  ABIS,
   SettlementStatus,
   ACTIVE_SETTLEMENT_STATUSES,
   type Bytes32,
@@ -38,6 +39,14 @@ import {
   type UnixSeconds,
   type Address,
 } from '@arcaidia/domain';
+
+/** `SettlementReceiver.settleWithProof` + the outcome events it emits (D8). */
+const RECEIVER_ABI = ABIS.SettlementReceiver as readonly unknown[];
+const OUTCOME_TOPICS: ReadonlyArray<readonly [`0x${string}`, NonNullable<SettlementState['outcome']>]> = [
+  [toEventSelector('LpReimbursed(bytes32,address,uint256)'), 'LP_REIMBURSED'],
+  [toEventSelector('RecipientPaidByFallback(bytes32,address,uint256)'), 'RECIPIENT_FALLBACK'],
+  [toEventSelector('HeldForVault(bytes32,address,uint256)'), 'HELD_FOR_VAULT'],
+];
 
 /** The subset of `MessageTransmitterV2` this adapter calls. Not one of Arcaidia's own contracts, so declared here rather than generated. */
 const MESSAGE_TRANSMITTER_V2_ABI = [
@@ -67,7 +76,10 @@ export interface CctpReadClient {
     functionName: string;
     args: readonly unknown[];
   }): Promise<unknown>;
-  waitForTransactionReceipt(args: { hash: TxHash }): Promise<{ status: 'success' | 'reverted' }>;
+  waitForTransactionReceipt(args: { hash: TxHash }): Promise<{
+    status: 'success' | 'reverted';
+    logs?: readonly { address: Address; topics: readonly `0x${string}`[]; data: `0x${string}` }[];
+  }>;
 }
 
 export interface CctpWriteClient {
@@ -84,6 +96,13 @@ export interface CircleCCTPAdapterOptions {
   readonly irisBaseUrl: string;
   /** `MessageTransmitterV2` address, keyed by the destination chain id. */
   readonly messageTransmitter: ReadonlyMap<number, Address>;
+  /**
+   * v2 (D8): `SettlementReceiver` per destination chain. A commitment carrying an intent hook
+   * names the receiver as its `destinationCaller`, so only the receiver may `receiveMessage`
+   * — completion goes through `settleWithProof` there, which mints and routes in one step.
+   * Optional so a v1-only deployment (no hooks in flight) needs no change.
+   */
+  readonly settlementReceivers?: ReadonlyMap<number, Address>;
   readonly readers: ReadonlyMap<number, CctpReadClient>;
   readonly writers: ReadonlyMap<number, CctpWriteClient>;
   readonly fetchFn?: typeof fetch;
@@ -111,6 +130,7 @@ interface Tracked {
   attestation?: `0x${string}`;
   nonce?: Bytes32;
   destinationTxHash?: TxHash;
+  outcome?: SettlementState['outcome'];
   failureReason?: string;
   updatedAt: UnixSeconds;
   completedAt?: UnixSeconds;
@@ -204,14 +224,28 @@ export class CircleCCTPAdapter implements SettlementAdapter {
       throw new Error(`No cached message/attestation for ${reference.intentId}.`);
     }
 
+    // v2 commitments carry the intent hook and name the receiver as `destinationCaller`:
+    // only `settleWithProof` can receive them, and it routes in the same transaction.
+    const receiver = entry.reference.hookData ? this.options.settlementReceivers?.get(chainId) : undefined;
+    if (entry.reference.hookData && !receiver) {
+      throw new Error(`Commitment ${reference.intentId} carries an intent hook but no SettlementReceiver is configured for chain ${chainId}.`);
+    }
+
     let txHash: TxHash;
     try {
-      txHash = await writer.writeContract({
-        address: transmitter,
-        abi: MESSAGE_TRANSMITTER_V2_ABI,
-        functionName: 'receiveMessage',
-        args: [entry.message, entry.attestation],
-      });
+      txHash = receiver
+        ? await writer.writeContract({
+            address: receiver,
+            abi: RECEIVER_ABI,
+            functionName: 'settleWithProof',
+            args: [entry.message, entry.attestation],
+          })
+        : await writer.writeContract({
+            address: transmitter,
+            abi: MESSAGE_TRANSMITTER_V2_ABI,
+            functionName: 'receiveMessage',
+            args: [entry.message, entry.attestation],
+          });
     } catch (error) {
       entry.failureReason = asError(error).message;
       entry.updatedAt = this.clock();
@@ -226,7 +260,13 @@ export class CircleCCTPAdapter implements SettlementAdapter {
       throw error;
     }
 
-    entry.status = SettlementStatus.RECEIVED;
+    if (receiver) {
+      // Minted and routed in one step: the outcome is in the receipt's logs (D8).
+      entry.outcome = outcomeFromLogs(receipt.logs ?? [], receiver);
+      entry.status = SettlementStatus.RECONCILED;
+    } else {
+      entry.status = SettlementStatus.RECEIVED;
+    }
     entry.destinationTxHash = txHash;
     entry.completedAt = this.clock();
     entry.updatedAt = this.clock();
@@ -321,9 +361,9 @@ export class CircleCCTPAdapter implements SettlementAdapter {
       amount: entry.amount,
       updatedAt: entry.updatedAt,
     };
-    return entry.destinationTxHash === undefined
-      ? base
-      : { ...base, destinationTxHash: entry.destinationTxHash };
+    const withTx =
+      entry.destinationTxHash === undefined ? base : { ...base, destinationTxHash: entry.destinationTxHash };
+    return entry.outcome === undefined ? withTx : { ...withTx, outcome: entry.outcome };
   }
 
   private completed(): Tracked[] {
@@ -362,3 +402,17 @@ const syntheticHash = (intentId: Bytes32): TxHash =>
   `0x${intentId.slice(2, 10).padEnd(64, 'f')}` as TxHash;
 
 const asError = (error: unknown): Error => (error instanceof Error ? error : new Error(String(error)));
+
+function outcomeFromLogs(
+  logs: readonly { address: Address; topics: readonly `0x${string}`[] }[],
+  receiver: Address,
+): NonNullable<SettlementState['outcome']> {
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== receiver.toLowerCase()) continue;
+    const topic = log.topics[0]?.toLowerCase();
+    for (const [selector, outcome] of OUTCOME_TOPICS) {
+      if (topic === selector.toLowerCase()) return outcome;
+    }
+  }
+  throw new Error('settleWithProof emitted no outcome event.');
+}

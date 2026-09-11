@@ -21,6 +21,11 @@ function vault(partial: Partial<VaultState> = {}): VaultState {
     outstandingExposure: 0n,
     accruedProtocolFees: 0n,
     paused: false,
+    feePolicy: {
+      baseFeeBps: 10, midFeeBps: 25, highFeeBps: 60, criticalFeeBps: 120,
+      midThresholdBps: 5_000, highThresholdBps: 7_500, criticalThresholdBps: 9_000,
+    },
+    currentFeeBps: 10,
     blockNumber: 1n,
     observedAt: 1_800_000_000,
     ...partial,

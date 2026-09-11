@@ -80,6 +80,8 @@ export interface DecisionInputs {
   readonly outstandingExposure: bigint;
   readonly utilisationBps: Bps;
   readonly userMaxFeeBps: Bps;
+  /** The vault's posted tier at decision time — the price, by construction (D7). */
+  readonly vaultFeeBps: Bps;
   readonly sourceConfirmations: number;
   readonly requiredConfirmations: number;
   readonly settlementHealth: SettlementHealth;

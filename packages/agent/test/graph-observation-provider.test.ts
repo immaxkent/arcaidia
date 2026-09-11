@@ -76,16 +76,14 @@ class FakeContractReads implements EvmContractReadClient {
   private readonly overrides = new Map<string, bigint>();
 
   constructor(
-    private readonly defaults: {
-      reserveFloor: bigint;
-      maxFillAmount: bigint;
-      maxOutstandingExposure: bigint;
-      totalSupply: bigint;
-    } = {
+    private readonly defaults: Record<string, unknown> = {
       reserveFloor: USDC(10_000),
       maxFillAmount: USDC(25_000),
       maxOutstandingExposure: USDC(60_000),
       totalSupply: USDC(100_000),
+      // The v2 vault's immutable policy (7-tuple, as viem returns the struct getter) + live tier.
+      feePolicy: [10, 25, 60, 120, 5_000, 7_500, 9_000],
+      currentFeeBps: 10,
     },
   ) {}
 
@@ -112,6 +110,9 @@ const rawIntent = (overrides: Record<string, unknown> = {}) => ({
   maxFeeBps: 100,
   deadline: String(NOW + 3600),
   nonce: '1',
+  intentVersion: 1,
+  tokenOut: '0x0000000000000000000000000000000000000000',
+  targetMinOut: '0',
   settlementRef: '0x'.padEnd(66, 'c'),
   createdAtBlock: '100',
   createdAtTimestamp: String(NOW - 60),

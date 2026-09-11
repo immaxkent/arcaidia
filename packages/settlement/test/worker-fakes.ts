@@ -53,4 +53,18 @@ export class FakeReceiverClient implements SettlementReceiverClient {
       outcome: this.filled.has(key) ? 'LP_REIMBURSED' : 'RECIPIENT_FALLBACK',
     };
   }
+
+  proofCalls: Array<{ message: `0x${string}`; attestation: `0x${string}` }> = [];
+
+  /** v2 path: the fake cannot parse a hook, so it settles the first pending id it is told about. */
+  async settleWithProof(
+    _chainId: number,
+    _receiver: Address,
+    message: `0x${string}`,
+    attestation: `0x${string}`,
+  ): Promise<SettlementOutcomeReport> {
+    if (this.failSettleWith) throw this.failSettleWith;
+    this.proofCalls.push({ message, attestation });
+    return { txHash: `0x${'d'.repeat(64)}` as TxHash, outcome: 'LP_REIMBURSED' };
+  }
 }

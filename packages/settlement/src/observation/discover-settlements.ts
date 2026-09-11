@@ -19,7 +19,7 @@
  * for why no separate `CircleCCTPInitiator` data source was needed for this).
  */
 
-import type { Address, Bytes32 } from '@arcaidia/domain';
+import { encodeIntentHook, type Address, type Bytes32 } from '@arcaidia/domain';
 import type { SettlementRecord } from '../worker/ports.js';
 import type { GraphQueryClient } from './graph-client.js';
 
@@ -46,6 +46,7 @@ const PENDING_SETTLEMENTS = `
       orderDirection: asc
     ) {
       id recipient amount sourceChainId destinationChainId
+      intentVersion tokenOut targetMinOut
       settlementRef createdAtTimestamp createdTxHash
     }
   }`;
@@ -56,6 +57,9 @@ interface RawIntent {
   amount: string;
   sourceChainId: string;
   destinationChainId: string;
+  intentVersion?: number | string | null;
+  tokenOut?: string | null;
+  targetMinOut?: string | null;
   settlementRef: string;
   createdAtTimestamp: string;
   createdTxHash: string;
@@ -108,6 +112,13 @@ export class GraphSettlementDiscovery implements SettlementDiscoveryProvider {
         sourceTxHash: raw.createdTxHash as `0x${string}`,
         messageRef: raw.settlementRef as Bytes32,
         initiatedAt: Number(raw.createdAtTimestamp),
+        // v2 commitments (the router stamps `intentVersion`) carry exactly this hook in
+        // their CCTP message (D8); reconstructing it here is what tells the adapter to
+        // complete through `settleWithProof`. A v1 row has no version and settles by the
+        // reporter path.
+        ...(raw.intentVersion !== undefined && raw.intentVersion !== null
+          ? { hookData: encodeIntentHook({ intentId: raw.id as Bytes32, recipient: raw.recipient as Address }) }
+          : {}),
       },
       amount: BigInt(raw.amount),
       fallbackRecipient: raw.recipient as Address,

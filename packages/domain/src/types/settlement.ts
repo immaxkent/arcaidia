@@ -7,7 +7,8 @@
  * directly. Nothing above the adapter boundary knows Circle exists.
  */
 
-import type { Address, Bytes32, Hex, TxHash, UnixSeconds } from './primitives.js';
+import type { Address, Bps, Bytes32, Hex, TxHash, UnixSeconds } from './primitives.js';
+import type { FeePolicy } from '../fee-policy.js';
 
 /**
  * The lifecycle of one canonical settlement message.
@@ -77,6 +78,12 @@ export interface SettlementState {
   readonly amount: bigint;
   /** Destination transaction that completed the receive, once submitted. */
   readonly destinationTxHash?: TxHash;
+  /**
+   * Set once the transport completed *and routed* in one step — v2's
+   * `settleWithProof` (D8) — so the worker knows the intent is RECONCILED
+   * without a separate `settle` call.
+   */
+  readonly outcome?: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT';
   /** Set when status is FAILED. */
   readonly failureReason?: string;
   readonly updatedAt: UnixSeconds;
@@ -143,6 +150,17 @@ export interface VaultState {
    */
   readonly accruedProtocolFees: bigint;
   readonly paused: boolean;
+  /**
+   * The vault's own fee policy, fixed at creation (D7). Read from the chain,
+   * never the indexer — like the caps above, it is what the contract enforces.
+   */
+  readonly feePolicy: FeePolicy;
+  /**
+   * `ArcaidiaLiquidityVault.currentFeeBps()` at observation time: the tier the
+   * vault will accept right now. This *is* the solver's price (WP-28) — the
+   * vault is the source of truth for fees; the solver never re-prices.
+   */
+  readonly currentFeeBps: Bps;
   /** Block the observation was taken at, for staleness checks. */
   readonly blockNumber: bigint;
   readonly observedAt: UnixSeconds;

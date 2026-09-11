@@ -28,10 +28,10 @@
 import {
   ABIS,
   FastStatus,
-  LEGACY_V1_INTENT_FIELDS,
   type Bytes32,
   type Intent,
   type ObservationProvider,
+  type FeePolicy,
   type SettlementHealth,
   type UnixSeconds,
   type VaultState,
@@ -76,6 +76,9 @@ interface RawPendingIntentRow {
   readonly destination_chain_id: string;
   readonly max_fee_bps: string | number;
   readonly deadline: string;
+  readonly intent_version: string | number;
+  readonly token_out: string;
+  readonly target_min_out: string;
   readonly settlement_ref: string;
   readonly created_at_block: number;
   readonly created_at_timestamp: number;
@@ -131,7 +134,8 @@ export class SqlNestObservationProvider implements ObservationProvider {
         const result = await this.client.query<RawPendingIntentRow>(
           source.endpoint,
           'SELECT id, sender, recipient, input_token, amount, source_chain_id, destination_chain_id, ' +
-            'max_fee_bps, deadline, settlement_ref, created_at_block, created_at_timestamp, created_tx_hash ' +
+            'max_fee_bps, deadline, intent_version, token_out, target_min_out, settlement_ref, ' +
+            'created_at_block, created_at_timestamp, created_tx_hash ' +
             'FROM pending_intents ORDER BY created_at_block ASC',
         );
         if (result.truncated) {
@@ -187,7 +191,7 @@ export class SqlNestObservationProvider implements ObservationProvider {
       this.client.query<RawVaultRow>(
         source.endpoint,
         'SELECT id, liquid_balance, outstanding_exposure, accrued_protocol_fees, paused, updated_at_block ' +
-          `FROM vault WHERE id = '${source.vault.toLowerCase()}'`,
+          `FROM vaults WHERE id = '${source.vault.toLowerCase()}'`,
       ),
       this.client.ready(source.endpoint),
       this.readVaultConfig(chainId, source.vault as `0x${string}`),
@@ -212,6 +216,8 @@ export class SqlNestObservationProvider implements ObservationProvider {
       outstandingExposure: BigInt(row.outstanding_exposure),
       accruedProtocolFees: BigInt(row.accrued_protocol_fees),
       paused: row.paused,
+      feePolicy: config.feePolicy,
+      currentFeeBps: config.currentFeeBps,
       blockNumber: BigInt(row.updated_at_block),
       // The Nest's own indexing-head freshness (`/ready`'s last successful
       // poll), not this vault row's own last-mutation timestamp — identical
@@ -229,21 +235,34 @@ export class SqlNestObservationProvider implements ObservationProvider {
     maxFillAmount: bigint;
     maxOutstandingExposure: bigint;
     totalShares: bigint;
+    feePolicy: FeePolicy;
+    currentFeeBps: number;
   }> {
     const client = this.readClients.get(chainId);
     if (!client) throw new Error(`No contract read client configured for chain ${chainId}.`);
 
     const call = (functionName: string) =>
-      client.readContract({ address: vault, abi: VAULT_ABI, functionName }) as Promise<bigint>;
+      client.readContract({ address: vault, abi: VAULT_ABI, functionName }) as Promise<unknown>;
 
-    const [reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares] = await Promise.all([
-      call('reserveFloor'),
-      call('maxFillAmount'),
-      call('maxOutstandingExposure'),
-      call('totalSupply'),
-    ]);
+    const [reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares, rawPolicy, currentFeeBps] =
+      await Promise.all([
+        call('reserveFloor') as Promise<bigint>,
+        call('maxFillAmount') as Promise<bigint>,
+        call('maxOutstandingExposure') as Promise<bigint>,
+        call('totalSupply') as Promise<bigint>,
+        // The public struct getter returns a 7-tuple in declaration order (D7).
+        call('feePolicy') as Promise<readonly number[]>,
+        call('currentFeeBps') as Promise<number>,
+      ]);
 
-    return { reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares };
+    return {
+      reserveFloor,
+      maxFillAmount,
+      maxOutstandingExposure,
+      totalShares,
+      feePolicy: feePolicyFromTuple(rawPolicy),
+      currentFeeBps: Number(currentFeeBps),
+    };
   }
 
   async settlementHealth(): Promise<SettlementHealth> {
@@ -325,9 +344,9 @@ function toIntent(row: RawPendingIntentRow, nonces: ReadonlyMap<string, bigint>)
   }
 
   return {
-    // The live v1 router emits no trade fields; these are what its event means
-    // by construction. Replaced by real columns in WP-27/28.
-    ...LEGACY_V1_INTENT_FIELDS,
+    intentVersion: Number(row.intent_version),
+    tokenOut: row.token_out as `0x${string}`,
+    targetMinOut: BigInt(row.target_min_out),
     intentId: row.id as `0x${string}`,
     sender: row.sender as `0x${string}`,
     recipient: row.recipient as `0x${string}`,
@@ -346,3 +365,11 @@ function toIntent(row: RawPendingIntentRow, nonces: ReadonlyMap<string, bigint>)
 }
 
 export { FastStatus };
+
+/** `ArcaidiaLiquidityVault.feePolicy()` as viem returns it: the struct's seven uint16s, in order. */
+function feePolicyFromTuple(raw: readonly number[]): FeePolicy {
+  if (raw.length !== 7) throw new Error(`feePolicy() returned ${raw.length} values, expected 7.`);
+  const [baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps] =
+    raw.map(Number) as [number, number, number, number, number, number, number];
+  return { baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps };
+}

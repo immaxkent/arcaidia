@@ -452,6 +452,8 @@ async function readVaultState(
     outstandingExposure,
     accruedProtocolFees,
     paused,
+    rawPolicy,
+    currentFeeBps,
   ] = (await Promise.all([
     read('liquidBalance'),
     read('totalSupply'),
@@ -461,7 +463,11 @@ async function readVaultState(
     read('outstandingExposure'),
     read('accruedProtocolFees'),
     read('paused'),
-  ])) as [bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean];
+    read('feePolicy'),
+    read('currentFeeBps'),
+  ])) as [bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean, readonly number[], number];
+  const [baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps] =
+    rawPolicy.map(Number) as [number, number, number, number, number, number, number];
 
   return {
     chainId: chain.chainId,
@@ -475,6 +481,8 @@ async function readVaultState(
     outstandingExposure,
     accruedProtocolFees,
     paused,
+    feePolicy: { baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps },
+    currentFeeBps: Number(currentFeeBps),
     blockNumber: await chain.client.getBlockNumber(),
     observedAt,
   };

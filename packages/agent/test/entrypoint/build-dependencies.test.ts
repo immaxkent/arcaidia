@@ -98,7 +98,7 @@ describe('buildSolverDependencies', () => {
   it('carries the configured policy and TTL through unchanged', () => {
     const { deps } = buildSolverDependencies(config(), { log: new InMemoryDecisionLog() });
     expect(deps.config.authorizationTtlSeconds).toBe(45);
-    expect(deps.config.policy.version).toMatch(/^v1-testnet/);
+    expect(deps.config.policy.version).toMatch(/^v2-testnet/);
   });
 
   it('uses the log instance the caller provided, not one of its own', () => {

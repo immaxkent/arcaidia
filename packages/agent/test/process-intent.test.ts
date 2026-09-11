@@ -386,3 +386,136 @@ describe('processIntent', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// WP-28: optional ports — the swap adapter (D9) and ecosystem intelligence (WP-33)
+// ---------------------------------------------------------------------------
+
+describe('processIntent — optional swap adapter and intelligence', () => {
+  const tradeIntent = intent({ tokenOut: '0x3333333333333333333333333333333333333333', targetMinOut: 5n });
+
+  function depsFor(i = tradeIntent, extra: Partial<SolverDependencies> = {}): {
+    deps: SolverDependencies;
+    submitter: FakeSubmitter;
+    log: InMemoryDecisionLog;
+  } {
+    registerDeployment('ethereum-sepolia', {
+      intentRouter: SEPOLIA_ROUTER,
+      liquidityVault: SEPOLIA_VAULT,
+      settlementReceiver: SEPOLIA_RECEIVER,
+    });
+    registerDeployment('arc-testnet', {
+      intentRouter: ARC_ROUTER,
+      liquidityVault: ARC_VAULT,
+      settlementReceiver: ARC_RECEIVER,
+    });
+    const submitter = new FakeSubmitter();
+    const log = new InMemoryDecisionLog();
+    const deps: SolverDependencies = {
+      observation: new FakeObservationProvider(vault(), health()),
+      sourceReader: new FakeSourceReader(evidenceFor(i)),
+      authority: new RecordingAuthority(),
+      submitter,
+      log,
+      clock: () => NOW,
+      nonces: new SequentialNonceSource(),
+      journal: new InMemorySubmissionJournal(),
+      config: { policy: DEFAULT_RISK_POLICY, authorizationTtlSeconds: 45 },
+      ...extra,
+    };
+    return { deps, submitter, log };
+  }
+
+  afterEach(() => resetDeployments());
+
+  it('the baseline solver (no adapter) declines every trade intent and leaves it to canonical USDC', async () => {
+    const { deps, submitter } = depsFor();
+    const outcome = await processIntent(tradeIntent, deps);
+    expect(outcome.kind).toBe('DECLINED');
+    if (outcome.kind !== 'DECLINED') throw new Error(outcome.kind);
+    expect(outcome.decision.reason).toBe('TRADE_NOT_SUPPORTED');
+    expect(submitter.submissions).toHaveLength(0);
+  });
+
+  it('fills a trade intent the adapter can satisfy, handing the vault the same intent it verified', async () => {
+    const asked: unknown[] = [];
+    const { deps, submitter } = depsFor(tradeIntent, {
+      swapAdapter: {
+        async quote() {
+          return 10n;
+        },
+        async canSatisfy(chainId, tokenIn, tokenOut, amountIn, minOut) {
+          asked.push([chainId, tokenIn, tokenOut, amountIn, minOut]);
+          return true;
+        },
+      },
+    });
+    const outcome = await processIntent(tradeIntent, deps);
+    expect(outcome.kind).toBe('FILLED');
+    expect(asked).toEqual([[ARC, ARC_USDC, tradeIntent.tokenOut, tradeIntent.amount, 5n]]);
+    expect(submitter.submissions[0]!.intent.tokenOut).toBe(tradeIntent.tokenOut);
+  });
+
+  it('declines when the adapter cannot meet the floor, and when it throws', async () => {
+    for (const adapter of [
+      { async quote() { return 0n; }, async canSatisfy() { return false; } },
+      { async quote() { return 0n; }, async canSatisfy(): Promise<boolean> { throw new Error('rpc down'); } },
+    ]) {
+      const { deps } = depsFor(tradeIntent, { swapAdapter: adapter });
+      const outcome = await processIntent(tradeIntent, deps);
+      expect(outcome.kind).toBe('DECLINED');
+      if (outcome.kind === 'DECLINED') expect(outcome.decision.reason).toBe('TRADE_NOT_SUPPORTED');
+    }
+  });
+
+  it('never consults the adapter for a plain USDC transfer', async () => {
+    let consulted = 0;
+    const plain = intent();
+    const { deps } = depsFor(plain, {
+      swapAdapter: { async quote() { return 0n; }, async canSatisfy() { consulted++; return false; } },
+    });
+    expect((await processIntent(plain, deps)).kind).toBe('FILLED');
+    expect(consulted).toBe(0);
+  });
+
+  const view = {
+    aggregateAvailableLiquidity: USDC(250_000),
+    aggregateUtilisationBps: 4_200,
+    feeDistribution: { perVault: [], minBps: 10, medianBps: 25, maxBps: 60 },
+    outstandingIntentVolume: USDC(12_000),
+    pendingCctpExposure: USDC(30_000),
+    recentFillVelocityPerHour: 14,
+    recentSettlementLatency: { p50Seconds: 400, p95Seconds: 900, sampleSize: 20 },
+    liquidityConcentrationBps: 3_300,
+    estimatedOpportunitySize: USDC(25_000),
+    scarcityScoreBps: 1_500,
+    window: { fromSeconds: NOW - 3_600, toSeconds: NOW },
+    computedAt: NOW,
+    sourceBlocks: {},
+  };
+
+  it('records intelligence as narrative only — the verdict and numbers are the same with or without it', async () => {
+    const plain = intent();
+    const without = depsFor(plain);
+    const withIt = depsFor(plain, { intelligence: { async ecosystem() { return view; } } });
+
+    const a = await processIntent(plain, without.deps);
+    const b = await processIntent(plain, withIt.deps);
+    if (a.kind !== 'FILLED' || b.kind !== 'FILLED') throw new Error(`${a.kind} / ${b.kind}`);
+
+    expect(b.decision.narrative).toMatch(/^ecosystem: liquidity 250000000000, utilisation 4200 bps, scarcity 1500 bps$/);
+    expect(a.decision.narrative).toBeUndefined();
+    const strip = (d: typeof a.decision) => ({ ...d, narrative: undefined });
+    expect(strip(b.decision)).toEqual(strip(a.decision));
+  });
+
+  it('a failing intelligence provider changes nothing', async () => {
+    const plain = intent();
+    const { deps } = depsFor(plain, {
+      intelligence: { async ecosystem(): Promise<typeof view> { throw new Error('402 unpaid'); } },
+    });
+    const outcome = await processIntent(plain, deps);
+    expect(outcome.kind).toBe('FILLED');
+    if (outcome.kind === 'FILLED') expect(outcome.decision.narrative).toBeUndefined();
+  });
+});

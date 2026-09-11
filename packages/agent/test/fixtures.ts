@@ -58,6 +58,18 @@ export function vault(overrides: Partial<VaultState> = {}): VaultState {
     outstandingExposure: 0n,
     accruedProtocolFees: 0n,
     paused: false,
+    // The plan's House Vault policy (D7); `currentFeeBps` is what the chain reports at the
+    // observed utilisation — tests that move utilisation set both, as the chain would.
+    feePolicy: {
+      baseFeeBps: 10,
+      midFeeBps: 25,
+      highFeeBps: 60,
+      criticalFeeBps: 120,
+      midThresholdBps: 5_000,
+      highThresholdBps: 7_500,
+      criticalThresholdBps: 9_000,
+    },
+    currentFeeBps: 10,
     blockNumber: 1n,
     observedAt: NOW,
     ...overrides,
@@ -81,6 +93,7 @@ export function context(overrides: Partial<EvaluationContext> = {}): EvaluationC
     now: NOW,
     sourceConfirmations: 10,
     alreadyFilled: false,
+    tradeSatisfiable: null,
     ...overrides,
   };
 }

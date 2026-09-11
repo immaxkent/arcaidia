@@ -17,6 +17,7 @@ import {
   DecisionReason,
   Verdict,
   availableLiquidity,
+  isTradeIntent,
   utilisationBps,
   type AgentDecision,
   type DecisionInputs,
@@ -27,7 +28,7 @@ import {
   type VaultState,
 } from '@arcaidia/domain';
 
-import { effectiveMaxFillAmount, feeAmountFor, requiredFeeBps } from './fee.js';
+import { effectiveMaxFillAmount, feeAmountFor } from './fee.js';
 import { requiredConfirmations } from './confirmations.js';
 
 /** What the agent learned from the chain, passed in rather than fetched here. */
@@ -37,6 +38,13 @@ export interface EvaluationContext {
   readonly sourceConfirmations: number;
   /** Whether the destination vault already consumed this intent. */
   readonly alreadyFilled: boolean;
+  /**
+   * For a trade intent (`tokenOut != USDC`): whether this solver's swap
+   * adapter reports it can meet `targetMinOut` right now. `null` when the
+   * solver runs without an adapter (the baseline; every trade intent is then
+   * declined and left to canonical USDC delivery). Ignored for plain transfers.
+   */
+  readonly tradeSatisfiable: boolean | null;
 }
 
 export function evaluateIntent(
@@ -58,6 +66,7 @@ export function evaluateIntent(
     outstandingExposure: vault.outstandingExposure,
     utilisationBps: utilisation,
     userMaxFeeBps: intent.maxFeeBps,
+    vaultFeeBps: vault.currentFeeBps,
     sourceConfirmations: context.sourceConfirmations,
     requiredConfirmations: required,
     settlementHealth: settlement,
@@ -105,6 +114,16 @@ export function evaluateIntent(
     return refuse(Verdict.REJECT, DecisionReason.INSUFFICIENT_CONFIRMATIONS);
   }
 
+  // --- Trade terms ----------------------------------------------------------
+
+  // A trade intent is fillable only if the destination swap can actually meet
+  // the user's floor. Without an adapter, or with one that says no, this solver
+  // declines — canonical settlement still delivers USDC to the recipient, so
+  // nothing is stranded; it is simply not this solver's fill to make (D9).
+  if (isTradeIntent(intent) && context.tradeSatisfiable !== true) {
+    return refuse(Verdict.REJECT, DecisionReason.TRADE_NOT_SUPPORTED);
+  }
+
   // --- Size ----------------------------------------------------------------
 
   // The policy's own ceiling is the solver's separate risk appetite, sized
@@ -121,15 +140,15 @@ export function evaluateIntent(
 
   // --- Price ---------------------------------------------------------------
 
-  const feeBps = requiredFeeBps(policy, utilisation, settlement);
+  // The vault is the source of truth for fees (D7): its posted tier at the
+  // observed utilisation is the price, and it enforces exactly that on chain.
+  // This solver neither marks up (the vault would revert) nor discounts (it
+  // would be giving away its LPs' return for nothing under first-valid-fill).
+  const feeBps = vault.currentFeeBps;
 
-  // Rejected rather than clamped: charging the ceiling would mean knowingly
-  // taking risk we have already priced as underpaid.
-  if (feeBps > policy.maxFeeBps) {
-    return refuse(Verdict.REJECT, DecisionReason.FEE_EXCEEDS_PROTOCOL_CEILING);
-  }
-  // The user's ceiling is a hard limit, and exceeding it is a rejection rather
-  // than a silent reduction, which would hide a mispriced risk.
+  // The user's ceiling is a hard limit — enforced on chain too (D6) — and
+  // exceeding it is a rejection rather than a silent reduction. This is the
+  // "solver ignores intents above the user's acceptable fee" branch.
   if (feeBps > intent.maxFeeBps) {
     return refuse(Verdict.REJECT, DecisionReason.FEE_CEILING_EXCEEDED);
   }

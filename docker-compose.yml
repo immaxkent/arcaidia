@@ -23,3 +23,30 @@ services:
       # POST /quote (WP-14) — colocated in this process.
       - '8787:8787'
     restart: unless-stopped
+
+  # --- Additional independent solver instances (WP-28.6 / WP-31 / WP-32) -------
+  # Same image, a different operator: its own keys and its own vault via
+  # .env.solver-b / .env.solver-c (copied from .env.example). Opt-in by profile so
+  # a single-solver `docker compose up` is unchanged:
+  #   docker compose --profile solver-b --profile solver-c up --build -d
+  arcaidia-solver-b:
+    profiles: ['solver-b']
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    env_file:
+      - .env.solver-b
+    ports:
+      - '8788:8787'
+    restart: unless-stopped
+
+  arcaidia-solver-c:
+    profiles: ['solver-c']
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    env_file:
+      - .env.solver-c
+    ports:
+      - '8789:8787'
+    restart: unless-stopped

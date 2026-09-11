@@ -41,12 +41,7 @@ export { Verdict, DecisionReason } from './types/decision.js';
 export type { AgentDecision, DecisionInputs } from './types/decision.js';
 
 // Risk policy
-export type {
-  RiskPolicy,
-  SettlementRiskPolicy,
-  FeeCurvePoint,
-  ConfirmationTier,
-} from './types/risk.js';
+export type { RiskPolicy, SettlementRiskPolicy, ConfirmationTier } from './types/risk.js';
 
 // Settlement and vault state
 export {

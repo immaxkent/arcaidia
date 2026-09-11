@@ -79,14 +79,14 @@ describe('ViemSettlementReceiverClient', () => {
   it('ignores matching events from another contract', async () => {
     await expect(
       clientFor([fallbackLog(OTHER)]).settle(ARC, RECEIVER, INTENT, RECIPIENT, USDC(1_000)),
-    ).rejects.toThrow(/neither outcome event/);
+    ).rejects.toThrow(/no outcome event/);
   });
 
   it('refuses when neither event was emitted', async () => {
     const noise: Log = { address: RECEIVER, topics: [`0x${'ee'.repeat(32)}`], data: '0x' };
     await expect(
       clientFor([noise]).settle(ARC, RECEIVER, INTENT, RECIPIENT, USDC(1_000)),
-    ).rejects.toThrow(/neither outcome event/);
+    ).rejects.toThrow(/no outcome event/);
   });
 
   it('reports onchain settlement state', async () => {

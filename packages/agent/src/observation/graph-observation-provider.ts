@@ -27,10 +27,10 @@
 import {
   ABIS,
   FastStatus,
-  LEGACY_V1_INTENT_FIELDS,
   type Bytes32,
   type Intent,
   type ObservationProvider,
+  type FeePolicy,
   type SettlementHealth,
   type UnixSeconds,
   type VaultState,
@@ -129,6 +129,7 @@ function fillsForIntentsQuery(count: number): string {
 interface RawIntent {
   id: string; sender: string; recipient: string; inputToken: string; amount: string;
   sourceChainId: string; destinationChainId: string; maxFeeBps: number;
+  intentVersion: number; tokenOut: string; targetMinOut: string;
   deadline: string; nonce: string; settlementRef: string;
   createdAtBlock: string; createdAtTimestamp: string; createdTxHash: string;
 }
@@ -252,6 +253,8 @@ export class GraphObservationProvider implements ObservationProvider {
       outstandingExposure: BigInt(data.vault.outstandingExposure),
       accruedProtocolFees: BigInt(data.vault.accruedProtocolFees),
       paused: data.vault.paused,
+      feePolicy: config.feePolicy,
+      currentFeeBps: config.currentFeeBps,
       blockNumber: BigInt(data.vault.updatedAtBlock),
       // The subgraph's own indexing head, not this vault's last-mutation
       // timestamp — a quiet vault (no deposits/fills for a while) is not the
@@ -274,21 +277,34 @@ export class GraphObservationProvider implements ObservationProvider {
     maxFillAmount: bigint;
     maxOutstandingExposure: bigint;
     totalShares: bigint;
+    feePolicy: FeePolicy;
+    currentFeeBps: number;
   }> {
     const client = this.readClients.get(chainId);
     if (!client) throw new Error(`No contract read client configured for chain ${chainId}.`);
 
     const call = (functionName: string) =>
-      client.readContract({ address: vault, abi: VAULT_ABI, functionName }) as Promise<bigint>;
+      client.readContract({ address: vault, abi: VAULT_ABI, functionName }) as Promise<unknown>;
 
-    const [reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares] = await Promise.all([
-      call('reserveFloor'),
-      call('maxFillAmount'),
-      call('maxOutstandingExposure'),
-      call('totalSupply'),
-    ]);
+    const [reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares, rawPolicy, currentFeeBps] =
+      await Promise.all([
+        call('reserveFloor') as Promise<bigint>,
+        call('maxFillAmount') as Promise<bigint>,
+        call('maxOutstandingExposure') as Promise<bigint>,
+        call('totalSupply') as Promise<bigint>,
+        // The public struct getter returns a 7-tuple in declaration order (D7).
+        call('feePolicy') as Promise<readonly number[]>,
+        call('currentFeeBps') as Promise<number>,
+      ]);
 
-    return { reserveFloor, maxFillAmount, maxOutstandingExposure, totalShares };
+    return {
+      reserveFloor,
+      maxFillAmount,
+      maxOutstandingExposure,
+      totalShares,
+      feePolicy: feePolicyFromTuple(rawPolicy),
+      currentFeeBps: Number(currentFeeBps),
+    };
   }
 
   /** Aggregate settlement health across both chains. */
@@ -361,9 +377,9 @@ export class GraphObservationProvider implements ObservationProvider {
 
 function toIntent(raw: RawIntent): Intent {
   return {
-    // The live v1 router emits no trade fields; these are what its event means
-    // by construction. Replaced by real columns in WP-27/28.
-    ...LEGACY_V1_INTENT_FIELDS,
+    intentVersion: Number(raw.intentVersion),
+    tokenOut: raw.tokenOut as `0x${string}`,
+    targetMinOut: BigInt(raw.targetMinOut),
     intentId: raw.id as `0x${string}`,
     sender: raw.sender as `0x${string}`,
     recipient: raw.recipient as `0x${string}`,
@@ -382,3 +398,11 @@ function toIntent(raw: RawIntent): Intent {
 }
 
 export { FastStatus };
+
+/** `ArcaidiaLiquidityVault.feePolicy()` as viem returns it: the struct's seven uint16s, in order. */
+function feePolicyFromTuple(raw: readonly number[]): FeePolicy {
+  if (raw.length !== 7) throw new Error(`feePolicy() returned ${raw.length} values, expected 7.`);
+  const [baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps] =
+    raw.map(Number) as [number, number, number, number, number, number, number];
+  return { baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps };
+}

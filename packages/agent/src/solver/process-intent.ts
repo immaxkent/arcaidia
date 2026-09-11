@@ -25,11 +25,14 @@ import {
   type AgentDecision,
   type FillAuthorization,
   type Intent,
+  type IntelligenceProvider,
   type ObservationProvider,
   type RiskPolicy,
   type SignedFillAuthorization,
+  type SwapAdapter,
   type TxHash,
 } from '@arcaidia/domain';
+import { isTradeIntent } from '@arcaidia/domain';
 import { NoopTelemetryClient, type TelemetryClient, type TelemetryStage } from '@arcaidia/telemetry';
 
 import { evaluateIntent } from '../risk/evaluate-intent.js';
@@ -67,6 +70,18 @@ export interface SolverDependencies {
    * that every fill still completes correctly with this entirely absent.
    */
   readonly telemetry?: TelemetryClient;
+  /**
+   * Optional (D9, WP-34): lets this solver fill trade intents by asking
+   * whether the destination swap can meet the user's floor. Absent = baseline
+   * solver: every trade intent is declined (`TRADE_NOT_SUPPORTED`).
+   */
+  readonly swapAdapter?: SwapAdapter;
+  /**
+   * Optional (WP-33/35): ecosystem intelligence, consulted *after* the
+   * deterministic verdict and recorded only as narrative. Never the gate
+   * (working agreement rule 4); a provider that fails or lies changes nothing.
+   */
+  readonly intelligence?: IntelligenceProvider;
 }
 
 export type ProcessOutcome =
@@ -151,11 +166,15 @@ export async function processIntent(
     observation.settlementHealth(),
   ]);
 
-  const decision = evaluateIntent(intent, vaultState, settlementHealth, config.policy, {
+  const tradeSatisfiable = await tradeSatisfiabilityOf(intent, vaultState.asset, deps.swapAdapter);
+
+  const verdict = evaluateIntent(intent, vaultState, settlementHealth, config.policy, {
     now,
     sourceConfirmations: verification.confirmations,
     alreadyFilled,
+    tradeSatisfiable,
   });
+  const decision = await withIntelligenceNarrative(verdict, deps.intelligence, now);
 
   // Logged before acting, so a decision exists in the record even if submission
   // later fails. A log written only on success would hide exactly the runs
@@ -205,5 +224,52 @@ export async function processIntent(
       signed,
       error: error instanceof Error ? error : new Error(String(error)),
     };
+  }
+}
+
+/**
+ * Whether a trade intent's floor is meetable right now — `null` for plain USDC
+ * transfers and for a solver with no adapter. An adapter that throws is
+ * treated as "cannot satisfy" rather than as an error: the fill is simply not
+ * made, and canonical settlement still delivers USDC.
+ */
+async function tradeSatisfiabilityOf(
+  intent: Intent,
+  asset: `0x${string}`,
+  adapter: SwapAdapter | undefined,
+): Promise<boolean | null> {
+  if (!isTradeIntent(intent) || !adapter) return null;
+  try {
+    return await adapter.canSatisfy(
+      intent.destinationChainId,
+      asset,
+      intent.tokenOut,
+      intent.amount,
+      intent.targetMinOut,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Attach an intelligence summary to the decision's narrative, if a provider is
+ * configured and answers. The verdict, fee and amounts are already fixed by
+ * the time this runs — nothing here can change them, by construction.
+ */
+async function withIntelligenceNarrative(
+  decision: AgentDecision,
+  intelligence: IntelligenceProvider | undefined,
+  now: number,
+): Promise<AgentDecision> {
+  if (!intelligence) return decision;
+  try {
+    const view = await intelligence.ecosystem(now);
+    const narrative =
+      `ecosystem: liquidity ${view.aggregateAvailableLiquidity.toString()}, ` +
+      `utilisation ${view.aggregateUtilisationBps} bps, scarcity ${view.scarcityScoreBps} bps`;
+    return { ...decision, narrative };
+  } catch {
+    return decision;
   }
 }

@@ -4,40 +4,14 @@ import {
   effectiveMaxFillAmount,
   feeAmountFor,
   isSettlementSlowing,
-  requiredFeeBps,
-  utilisationFeeBps,
 } from '../src/index.js';
 import { USDC, health } from './fixtures.js';
 
 const policy = DEFAULT_RISK_POLICY;
 
-describe('utilisationFeeBps', () => {
-  it.each([
-    [0, 10],
-    [2_499, 10],
-    [2_500, 20],
-    [4_999, 20],
-    [5_000, 35],
-    [7_499, 35],
-    [7_500, 60],
-    [10_000, 60],
-  ])('charges %i bps utilisation at %i bps fee', (utilisation, expected) => {
-    expect(utilisationFeeBps(policy, utilisation)).toBe(expected);
-  });
-
-  it('is monotonic: more utilisation never costs less', () => {
-    let previous = 0;
-    for (let utilisation = 0; utilisation <= 10_000; utilisation += 97) {
-      const fee = utilisationFeeBps(policy, utilisation);
-      expect(fee).toBeGreaterThanOrEqual(previous);
-      previous = fee;
-    }
-  });
-
-  it('falls back to the base fee with an empty curve', () => {
-    expect(utilisationFeeBps({ ...policy, utilisationFeeCurve: [] }, 9_000)).toBe(policy.baseFeeBps);
-  });
-});
+// v2 (WP-28, D7): there is no `utilisationFeeBps`/`requiredFeeBps` any more — the price is
+// the vault's posted tier, read from the chain and enforced there. What this file still
+// covers is the arithmetic and the settlement-driven fill cap the solver keeps for itself.
 
 describe('isSettlementSlowing', () => {
   it('is false while latency is within the threshold', () => {
@@ -58,18 +32,6 @@ describe('isSettlementSlowing', () => {
   /// bound the downside if this call is wrong.
   it('treats no observed latency as not slowing', () => {
     expect(isSettlementSlowing(policy, health({ averageSettlementLatencySeconds: null }))).toBe(false);
-  });
-});
-
-describe('requiredFeeBps', () => {
-  it('adds the surcharge when settlement is slowing', () => {
-    const normal = requiredFeeBps(policy, 0, health());
-    const slowing = requiredFeeBps(policy, 0, health({ averageSettlementLatencySeconds: 600 }));
-    expect(slowing - normal).toBe(policy.settlement.slowFeeSurchargeBps);
-  });
-
-  it('compounds utilisation and the settlement surcharge', () => {
-    expect(requiredFeeBps(policy, 7_500, health({ transport: 'DEGRADED' }))).toBe(60 + 25);
   });
 });
 

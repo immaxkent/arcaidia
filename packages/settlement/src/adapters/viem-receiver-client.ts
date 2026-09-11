@@ -75,6 +75,30 @@ export class ViemSettlementReceiverClient implements SettlementReceiverClient {
     return { txHash, outcome: outcomeFromLogs(receipt.logs, receiver) };
   }
 
+  async settleWithProof(
+    chainId: number,
+    receiver: Address,
+    message: `0x${string}`,
+    attestation: `0x${string}`,
+  ): Promise<SettlementOutcomeReport> {
+    const writer = this.require(this.writers, chainId, 'write');
+    const reader = this.require(this.readers, chainId, 'read');
+
+    const txHash = await writer.writeContract({
+      address: receiver,
+      abi: RECEIVER_ABI,
+      functionName: 'settleWithProof',
+      args: [message, attestation],
+    });
+
+    const receipt = await reader.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== 'success') {
+      throw new Error(`settleWithProof transaction ${txHash} reverted.`);
+    }
+
+    return { txHash, outcome: outcomeFromLogs(receipt.logs, receiver) };
+  }
+
   private require<T>(source: ReadonlyMap<number, T>, chainId: number, kind: string): T {
     const client = source.get(chainId);
     if (!client) throw new Error(`No ${kind} client configured for chain ${chainId}.`);
@@ -96,6 +120,7 @@ const LP_REIMBURSED_TOPIC = toEventSelector('LpReimbursed(bytes32,address,uint25
 const RECIPIENT_FALLBACK_TOPIC = toEventSelector(
   'RecipientPaidByFallback(bytes32,address,uint256)',
 );
+const HELD_FOR_VAULT_TOPIC = toEventSelector('HeldForVault(bytes32,address,uint256)');
 
 function outcomeFromLogs(
   logs: readonly { address: Address; topics: readonly `0x${string}`[]; data: `0x${string}` }[],
@@ -107,7 +132,8 @@ function outcomeFromLogs(
     const topic = log.topics[0]?.toLowerCase();
     if (topic === LP_REIMBURSED_TOPIC.toLowerCase()) return 'LP_REIMBURSED';
     if (topic === RECIPIENT_FALLBACK_TOPIC.toLowerCase()) return 'RECIPIENT_FALLBACK';
+    if (topic === HELD_FOR_VAULT_TOPIC.toLowerCase()) return 'HELD_FOR_VAULT';
   }
 
-  throw new Error('Settlement transaction emitted neither outcome event.');
+  throw new Error('Settlement transaction emitted no outcome event.');
 }

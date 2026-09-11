@@ -105,6 +105,9 @@ export async function buildQuote(request: QuoteRequest, deps: QuoteDependencies)
     now,
     sourceConfirmations: requiredConfirmations(deps.policy, request.amount),
     alreadyFilled: false,
+    // A quote has no swap adapter to consult; a trade-intent quote therefore reports
+    // TRADE_NOT_SUPPORTED, which is honest until WP-34 wires the adapter into quotes too.
+    tradeSatisfiable: null,
   });
 
   return { ...decision, estimatedUnderAssumption: true };

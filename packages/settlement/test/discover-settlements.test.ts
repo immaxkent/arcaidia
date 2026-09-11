@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { encodeIntentHook } from '@arcaidia/domain';
 import { GraphSettlementDiscovery, type GraphQueryClient } from '../src/index.js';
 import { ARC, SEPOLIA, USDC } from './fixtures.js';
 
@@ -16,6 +17,9 @@ interface RawIntent {
   settlementRef: string;
   createdAtTimestamp: string;
   createdTxHash: string;
+  intentVersion?: number;
+  tokenOut?: string;
+  targetMinOut?: string;
 }
 
 function rawIntent(seed: number, overrides: Partial<RawIntent> = {}): RawIntent {
@@ -73,6 +77,28 @@ describe('GraphSettlementDiscovery', () => {
     expect(record!.reference.destinationDomain).toBe(26);
     expect(record!.reference.sourceTxHash).toBe(rawIntent(1).createdTxHash);
     expect(record!.reference.messageRef).toBe(rawIntent(1).settlementRef);
+  });
+
+  /// D8: a v2 row (the router stamped `intentVersion`) carries the exact hook its CCTP message
+  /// holds, so the adapter knows to complete through `settleWithProof`; a v1 row does not.
+  it('attaches the intent hook to v2 rows and leaves v1 rows hookless', async () => {
+    const client = new FakeGraphClient();
+    client.responses.set(SEPOLIA_ENDPOINT, [
+      rawIntent(7, { intentVersion: 1, tokenOut: '0x0000000000000000000000000000000000000000', targetMinOut: '0' }),
+      rawIntent(8),
+    ]);
+    const discovery = new GraphSettlementDiscovery({
+      sources: [{ chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT }],
+      client,
+      domainFor,
+    });
+
+    const [v2, v1] = await discovery.pendingSettlements();
+
+    expect(v2!.reference.hookData).toBe(
+      encodeIntentHook({ intentId: rawIntent(7).id as `0x${string}`, recipient: rawIntent(7).recipient as `0x${string}` }),
+    );
+    expect(v1!.reference.hookData).toBeUndefined();
   });
 
   it('merges results from every configured chain', async () => {

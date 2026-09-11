@@ -8,7 +8,7 @@ import {
   type SettlementDependencies,
   type SettlementRecord,
 } from '../src/index.js';
-import { ARC, SEPOLIA, TestClock, USDC, mirroredReference, reference } from './fixtures.js';
+import { ARC, NOW, SEPOLIA, TestClock, USDC, mirroredReference, reference } from './fixtures.js';
 import { FakeReceiverClient } from './worker-fakes.js';
 
 const DELAY = 120;
@@ -248,6 +248,48 @@ describe('processSettlement', () => {
 
     expect((await processSettlement(r, deps)).kind).toBe('FAILED');
     expect(receiverClient.settleCalls).toHaveLength(0);
+  });
+});
+
+describe('processSettlement — v2 RECONCILED short-circuit (D8)', () => {
+  /// `settleWithProof` mints and routes in one transaction; the adapter reports RECONCILED
+  /// with the outcome it read from the receipt, and there is no `settle` to make.
+  it('records the outcome the adapter already observed and never calls settle', async () => {
+    const receiverClient = new FakeReceiverClient();
+    const journal = new InMemorySettlementJournal();
+    const r: SettlementRecord = { reference: reference(90), amount: USDC(1_000), fallbackRecipient: RECIPIENT };
+    journal.add(r);
+
+    const reconciled = {
+      async status() {
+        return {
+          reference: r.reference,
+          status: SettlementStatus.RECONCILED,
+          amount: r.amount,
+          destinationTxHash: `0x${'ab'.repeat(32)}` as const,
+          outcome: 'LP_REIMBURSED' as const,
+          updatedAt: NOW,
+        };
+      },
+      async complete() {
+        throw new Error('must not be called');
+      },
+      async health() {
+        throw new Error('not used');
+      },
+    };
+
+    const outcome = await processSettlement(r, {
+      adapter: reconciled,
+      receivers: new Map([[ARC, ARC_RECEIVER], [SEPOLIA, SEPOLIA_RECEIVER]]),
+      receiverClient,
+      journal,
+      clock: () => NOW,
+    });
+
+    expect(outcome).toEqual({ kind: 'SETTLED', outcome: 'LP_REIMBURSED', txHash: `0x${'ab'.repeat(32)}` });
+    expect(receiverClient.settleCalls).toHaveLength(0);
+    expect(journal.isSettled(r.reference.intentId)).toBe(true);
   });
 });
 

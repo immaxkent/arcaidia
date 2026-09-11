@@ -47,7 +47,7 @@ describe('evaluateIntent', () => {
   // Acceptance
   // -----------------------------------------------------------------------
 
-  it('accepts a healthy intent at the base fee', () => {
+  it("accepts a healthy intent at the vault's posted tier", () => {
     const decision = evaluate();
     expect(decision.verdict).toBe(Verdict.ACCEPT);
     expect(decision.reason).toBe(DecisionReason.ACCEPTED);
@@ -61,9 +61,44 @@ describe('evaluateIntent', () => {
     expect(decision.outputAmount + decision.feeAmount).toBe(USDC(1_000));
   });
 
-  it('prices higher as utilisation rises', () => {
-    const busy = vault({ totalBalance: USDC(45_000), outstandingExposure: USDC(55_000) });
-    expect(evaluate(intent(), busy).feeBps).toBeGreaterThan(evaluate().feeBps);
+  /// D7: the vault is the source of truth for fees. The solver charges exactly the tier the
+  /// chain reports — never its own curve, never a markup the vault would reject.
+  it("prices at the vault's posted tier, whatever it is", () => {
+    const busy = vault({ totalBalance: USDC(45_000), outstandingExposure: USDC(55_000), currentFeeBps: 60 });
+    const decision = evaluate(intent(), busy);
+    expect(decision.feeBps).toBe(60);
+    expect(decision.inputsUsed.vaultFeeBps).toBe(60);
+    expect(decision.feeAmount).toBe(USDC(6));
+  });
+
+  // -----------------------------------------------------------------------
+  // Trade intents (D9): fill only when the destination swap can meet the floor
+  // -----------------------------------------------------------------------
+
+  const tradeIntent = () =>
+    intent({ tokenOut: '0x3333333333333333333333333333333333333333', targetMinOut: 1n });
+
+  it('declines a trade intent when this solver has no swap adapter', () => {
+    const decision = evaluate(tradeIntent(), vault(), health(), context({ tradeSatisfiable: null }));
+    expect(decision.verdict).toBe(Verdict.REJECT);
+    expect(decision.reason).toBe(DecisionReason.TRADE_NOT_SUPPORTED);
+  });
+
+  it('declines a trade intent whose floor the adapter cannot meet', () => {
+    const decision = evaluate(tradeIntent(), vault(), health(), context({ tradeSatisfiable: false }));
+    expect(decision.reason).toBe(DecisionReason.TRADE_NOT_SUPPORTED);
+  });
+
+  it('accepts a trade intent the adapter can satisfy, priced like any other', () => {
+    const decision = evaluate(tradeIntent(), vault(), health(), context({ tradeSatisfiable: true }));
+    expect(decision.verdict).toBe(Verdict.ACCEPT);
+    expect(decision.feeBps).toBe(10);
+  });
+
+  it('ignores the trade gate for a plain USDC transfer', () => {
+    expect(evaluate(intent(), vault(), health(), context({ tradeSatisfiable: false })).verdict).toBe(
+      Verdict.ACCEPT,
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -237,10 +272,15 @@ describe('evaluateIntent', () => {
     expect(evaluate(intent({ maxFeeBps: 10 })).verdict).toBe(Verdict.ACCEPT);
   });
 
-  it('rejects when the risk-priced fee exceeds the protocol ceiling', () => {
-    const expensive = { ...policy, baseFeeBps: 150 };
-    const decision = evaluate(intent(), vault(), health(), context(), expensive);
-    expect(decision.reason).toBe(DecisionReason.FEE_EXCEEDS_PROTOCOL_CEILING);
+  /// "Solver ignores intents above the user's acceptable fee": the vault's tier rose past
+  /// what this user allowed, so this solver leaves the intent to canonical settlement.
+  it("rejects when the vault's posted tier exceeds the user's ceiling", () => {
+    const busy = vault({ currentFeeBps: 60 });
+    const decision = evaluate(intent({ maxFeeBps: 50 }), busy);
+    expect(decision.verdict).toBe(Verdict.REJECT);
+    expect(decision.reason).toBe(DecisionReason.FEE_CEILING_EXCEEDED);
+    expect(decision.inputsUsed.vaultFeeBps).toBe(60);
+    expect(decision.inputsUsed.userMaxFeeBps).toBe(50);
   });
 
   it('rejects when liquidity cannot cover the output', () => {
@@ -282,7 +322,8 @@ describe('evaluateIntent', () => {
         const decision = evaluate(intent({ amount: USDC(whole) }), v);
         if (decision.verdict === Verdict.ACCEPT) {
           expect(decision.feeBps).toBeLessThanOrEqual(intent().maxFeeBps);
-          expect(decision.feeBps).toBeLessThanOrEqual(policy.maxFeeBps);
+          // The price is the vault's, by construction (D7).
+          expect(decision.feeBps).toBe(v.currentFeeBps);
         }
       }
     }

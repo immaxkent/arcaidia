@@ -45,7 +45,7 @@ export type SettlementStepOutcome =
   /** Canonical funds routed. The intent is finished. */
   | {
       readonly kind: 'SETTLED';
-      readonly outcome: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK';
+      readonly outcome: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT';
       readonly txHash: `0x${string}`;
     }
   /** The chain had already settled this — another worker, or a previous run. */
@@ -107,6 +107,14 @@ export async function processSettlement(
     } catch (error) {
       return { kind: 'TRANSPORT_UNAVAILABLE', error: asError(error) };
     }
+  }
+
+  // v2 (D8): a hooked commitment is received *and* routed by `settleWithProof` in one
+  // step — the adapter reports RECONCILED with the outcome it read from the receipt, and
+  // there is no separate `settle` to make (it would revert `AlreadySettled`).
+  if (state.status === SettlementStatus.RECONCILED && state.outcome !== undefined && state.destinationTxHash) {
+    journal.markSettled(reference.intentId, clock());
+    return { kind: 'SETTLED', outcome: state.outcome, txHash: state.destinationTxHash };
   }
 
   if (state.status !== SettlementStatus.RECEIVED && state.status !== SettlementStatus.RECONCILED) {

@@ -19,7 +19,7 @@ export interface SettlementRecord {
 
 export interface SettlementOutcomeReport {
   readonly txHash: TxHash;
-  readonly outcome: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK';
+  readonly outcome: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT';
 }
 
 /** The destination `SettlementReceiver`, as the worker sees it. */
@@ -32,12 +32,24 @@ export interface SettlementReceiverClient {
    */
   isSettled(chainId: number, receiver: Address, intentId: Bytes32): Promise<boolean>;
 
+  /** v1 / recovery path: reporter-asserted routing. */
   settle(
     chainId: number,
     receiver: Address,
     intentId: Bytes32,
     fallbackRecipient: Address,
     amount: bigint,
+  ): Promise<SettlementOutcomeReport>;
+
+  /**
+   * v2 (D8): hand the receiver Circle's attested message; it receives the mint
+   * itself and routes by the hook — one transaction, no reporter assertion.
+   */
+  settleWithProof(
+    chainId: number,
+    receiver: Address,
+    message: `0x${string}`,
+    attestation: `0x${string}`,
   ): Promise<SettlementOutcomeReport>;
 }
 

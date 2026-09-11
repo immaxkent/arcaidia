@@ -84,6 +84,7 @@ export function buildSettlementDependencies(config: SettlementEntrypointConfig):
   const adapter = new CircleCCTPAdapter({
     irisBaseUrl: config.irisBaseUrl,
     messageTransmitter,
+    settlementReceivers: receivers,
     readers,
     writers,
   });

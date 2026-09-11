@@ -1,10 +1,13 @@
 /**
- * The V1 demo risk policy.
+ * The reference risk policy.
  *
  * Every number here is a decision, not a default. The values are tuned for the
  * hackathon's target networks and are deliberately conservative: this is a
  * disclosed authorised-solver system advancing real capital against a canonical
  * leg that takes minutes.
+ *
+ * v2 (WP-28): no fee fields. The fee is the vault's posted tier (D7); this
+ * policy only decides *whether* to advance, never *at what price*.
  */
 
 import type { RiskPolicy } from '@arcaidia/domain';
@@ -12,27 +15,13 @@ import type { RiskPolicy } from '@arcaidia/domain';
 const USDC = (whole: number): bigint => BigInt(whole) * 1_000_000n;
 
 export const DEFAULT_RISK_POLICY: RiskPolicy = {
-  version: 'v1-testnet-2026-09',
+  version: 'v2-testnet-2026-09',
 
   /** A tenth of the vault is never advanced, so a mispriced fill cannot empty it. */
   reserveFloorBps: 1_000,
 
   maxFillAmount: USDC(25_000),
   maxOutstandingExposure: USDC(60_000),
-
-  /** 10 bps floor, 100 bps protocol ceiling. */
-  baseFeeBps: 10,
-  maxFeeBps: 100,
-
-  /**
-   * Fee rises with utilisation: the more LP capital is already advanced, the
-   * more the next advance costs, because it consumes the last of the buffer.
-   */
-  utilisationFeeCurve: [
-    { atUtilisationBps: 2_500, feeBps: 20 },
-    { atUtilisationBps: 5_000, feeBps: 35 },
-    { atUtilisationBps: 7_500, feeBps: 60 },
-  ],
 
   /**
    * Confirmation thresholds (Q9).
@@ -54,7 +43,6 @@ export const DEFAULT_RISK_POLICY: RiskPolicy = {
   settlement: {
     /** Canonical settlement slower than five minutes counts as slowing. */
     slowLatencySeconds: 300,
-    slowFeeSurchargeBps: 25,
     slowMaxFillAmount: USDC(5_000),
     /** Stop advancing once this much principal is already awaiting reimbursement. */
     backlogRejectValue: USDC(45_000),
