@@ -55,6 +55,18 @@ export interface ChainConfig {
   subgraphUrl: string | null;
 }
 
+/**
+ * Arcaidia's own shared, unlimited indexer (WP-22) — SQL-over-HTTP, not
+ * GraphQL (see `./nest.ts`). Committed defaults, mirroring the identical
+ * pair in `packages/domain/src/config/chains.ts` exactly: same URLs, same
+ * override-with-fallback shape via `VITE_SUBGRAPH_URL_{PREFIX}` (WP-23).
+ * `str(...)` returning `null` (var unset) is what falls through to these —
+ * an operator overrides only to point the browser build at their own
+ * subgraph or indexer instead.
+ */
+const NEST_URL_ETHEREUM_SEPOLIA = "https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia";
+const NEST_URL_ARC_TESTNET = "https://hackathon.89.167.109.4.sslip.io/arcaidia-arc";
+
 export const CHAIN_CONFIG: Record<number, ChainConfig> = {
   [ETHEREUM_SEPOLIA]: {
     chainId: ETHEREUM_SEPOLIA,
@@ -63,7 +75,7 @@ export const CHAIN_CONFIG: Record<number, ChainConfig> = {
     intentRouter: address("VITE_INTENT_ROUTER_ETHEREUM_SEPOLIA"),
     houseVault: address("VITE_HOUSE_VAULT_ETHEREUM_SEPOLIA"),
     vaultFactory: address("VITE_VAULT_FACTORY_ETHEREUM_SEPOLIA"),
-    subgraphUrl: str("VITE_SUBGRAPH_URL_ETHEREUM_SEPOLIA"),
+    subgraphUrl: str("VITE_SUBGRAPH_URL_ETHEREUM_SEPOLIA") ?? NEST_URL_ETHEREUM_SEPOLIA,
   },
   [ARC_TESTNET]: {
     chainId: ARC_TESTNET,
@@ -72,7 +84,7 @@ export const CHAIN_CONFIG: Record<number, ChainConfig> = {
     intentRouter: address("VITE_INTENT_ROUTER_ARC_TESTNET"),
     houseVault: address("VITE_HOUSE_VAULT_ARC_TESTNET"),
     vaultFactory: address("VITE_VAULT_FACTORY_ARC_TESTNET"),
-    subgraphUrl: str("VITE_SUBGRAPH_URL_ARC_TESTNET"),
+    subgraphUrl: str("VITE_SUBGRAPH_URL_ARC_TESTNET") ?? NEST_URL_ARC_TESTNET,
   },
 };
 

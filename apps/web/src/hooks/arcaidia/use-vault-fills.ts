@@ -1,12 +1,13 @@
 /**
  * Realised fills (successful, winning) and non-realised activity for a vault.
  *
- * SOURCE (fills): The Graph, two subgraphs joined by intentId — the same
- * cross-chain join `useIntentHistory` needs, run from the opposite direction.
- * `Fill`/`Settlement` are indexed on *this* vault's own chain (its own
+ * SOURCE (fills): Arcaidia's shared, unlimited indexer (WP-22/23) — SQL over
+ * HTTP, two Nests joined by intentId, the same cross-chain join
+ * `useIntentHistory` needs, run from the opposite direction. `fills`/
+ * `settlements` are indexed on *this* vault's own chain (its own
  * `chainConfig(chainId).subgraphUrl`); the intent's origin details
  * (sourceChainId, sourceTxHash, principal amount) live on the *other*
- * chain's subgraph, since that's where `IntentCreated` fired. V1 has exactly
+ * chain's Nest, since that's where `IntentCreated` fired. V1 has exactly
  * one vault per chain, so every fill indexed on this chain came from this
  * vault by construction — no vault-address filter exists in the schema, or
  * is needed.
@@ -31,48 +32,31 @@ import {
   unavailableState,
   type DataState,
 } from "@/lib/arcaidia/data-state";
-import { querySubgraph } from "@/lib/arcaidia/subgraph";
+import { queryNest, sqlHex32InClause } from "@/lib/arcaidia/nest";
 import type { ActivityRow, Address, CanonicalStatus, FillRow, Hex } from "@/lib/arcaidia/types";
-
-const FILLS_WITH_SETTLEMENTS = `
-  query FillsWithSettlements($first: Int!) {
-    fills(first: $first, orderBy: timestamp, orderDirection: desc) {
-      id intentId outputAmount timestamp txHash
-    }
-  }`;
-
-const SETTLEMENTS_FOR_INTENTS = `
-  query SettlementsForIntents($ids: [Bytes!]!) {
-    settlements(where: { intentId_in: $ids }) { intentId outcome amount timestamp txHash }
-  }`;
-
-const INTENTS_FOR_IDS = `
-  query IntentsForIds($ids: [Bytes!]!) {
-    intents(where: { id_in: $ids }) { id sourceChainId amount createdAtTimestamp createdTxHash }
-  }`;
 
 interface RawFill {
   id: string;
-  intentId: string;
-  outputAmount: string;
-  timestamp: string;
-  txHash: string;
+  intent_id: string;
+  output_amount: string;
+  timestamp: number;
+  tx_hash: string;
 }
 
 interface RawSettlement {
-  intentId: string;
+  intent_id: string;
   outcome: string;
   amount: string;
-  timestamp: string;
-  txHash: string;
+  timestamp: number;
+  tx_hash: string;
 }
 
 interface RawIntent {
   id: string;
-  sourceChainId: string;
+  source_chain_id: string;
   amount: string;
-  createdAtTimestamp: string;
-  createdTxHash: string;
+  created_at_timestamp: number;
+  created_tx_hash: string;
 }
 
 function otherChainId(chainId: number): number | null {
@@ -83,48 +67,54 @@ async function fetchVaultFills(chainId: number): Promise<FillRow[]> {
   const endpoint = chainConfig(chainId)?.subgraphUrl;
   if (!endpoint) throw new Error("Indexer not connected");
 
-  const { fills } = await querySubgraph<{ fills: RawFill[] }>(endpoint, FILLS_WITH_SETTLEMENTS, {
-    first: 200,
-  });
+  const { rows: fills } = await queryNest<RawFill>(
+    endpoint,
+    "SELECT id, intent_id, output_amount, timestamp, tx_hash FROM fills ORDER BY timestamp DESC LIMIT 200",
+  );
   if (fills.length === 0) return [];
 
-  const ids = fills.map((fill) => fill.intentId);
+  const ids = fills.map((fill) => fill.intent_id as Hex);
+  const idsClause = sqlHex32InClause(ids);
   const sourceEndpoint = chainConfig(otherChainId(chainId) ?? -1)?.subgraphUrl;
 
-  const [{ settlements }, sourceIntents] = await Promise.all([
-    querySubgraph<{ settlements: RawSettlement[] }>(endpoint, SETTLEMENTS_FOR_INTENTS, { ids }),
+  const [{ rows: settlements }, sourceIntents] = await Promise.all([
+    queryNest<RawSettlement>(
+      endpoint,
+      `SELECT intent_id, outcome, amount, timestamp, tx_hash FROM settlements WHERE intent_id IN (${idsClause})`,
+    ),
     sourceEndpoint
-      ? querySubgraph<{ intents: RawIntent[] }>(sourceEndpoint, INTENTS_FOR_IDS, { ids })
-      : Promise.resolve({ intents: [] as RawIntent[] }),
+      ? queryNest<RawIntent>(
+          sourceEndpoint,
+          `SELECT id, source_chain_id, amount, created_at_timestamp, created_tx_hash FROM intents WHERE id IN (${idsClause})`,
+        )
+      : Promise.resolve({ rows: [] as RawIntent[], count: 0, truncated: false, degraded: false }),
   ]);
 
-  const settlementByIntentId = new Map(settlements.map((s) => [s.intentId, s]));
-  const intentByIntentId = new Map(sourceIntents.intents.map((i) => [i.id, i]));
+  const settlementByIntentId = new Map(settlements.map((s) => [s.intent_id, s]));
+  const intentByIntentId = new Map(sourceIntents.rows.map((i) => [i.id, i]));
 
   return fills.map((fill): FillRow => {
-    const settlement = settlementByIntentId.get(fill.intentId) ?? null;
-    const sourceIntent = intentByIntentId.get(fill.intentId) ?? null;
+    const settlement = settlementByIntentId.get(fill.intent_id) ?? null;
+    const sourceIntent = intentByIntentId.get(fill.intent_id) ?? null;
     const canonicalStatus: CanonicalStatus = settlement ? "SETTLED" : "PENDING";
 
     return {
-      intentId: fill.intentId as Hex,
+      intentId: fill.intent_id as Hex,
       sourceChainId: sourceIntent
-        ? Number(sourceIntent.sourceChainId)
+        ? Number(sourceIntent.source_chain_id)
         : (otherChainId(chainId) ?? chainId),
       destinationChainId: chainId,
-      amountAdvanced: BigInt(fill.outputAmount),
-      feeAmount: sourceIntent ? BigInt(sourceIntent.amount) - BigInt(fill.outputAmount) : 0n,
-      fastFillTimestamp: Number(fill.timestamp),
+      amountAdvanced: BigInt(fill.output_amount),
+      feeAmount: sourceIntent ? BigInt(sourceIntent.amount) - BigInt(fill.output_amount) : 0n,
+      fastFillTimestamp: fill.timestamp,
       canonicalStatus,
       settlementLatencySeconds:
-        settlement && sourceIntent
-          ? Number(settlement.timestamp) - Number(sourceIntent.createdAtTimestamp)
-          : null,
+        settlement && sourceIntent ? settlement.timestamp - sourceIntent.created_at_timestamp : null,
       // Falls back to the destination tx only in the rare case the source-chain
       // intent hasn't indexed yet — momentary lag, not a fabricated value; the
       // type has no null to express "not yet known" here.
-      sourceTxHash: (sourceIntent?.createdTxHash ?? fill.txHash) as Hex,
-      destinationTxHash: fill.txHash as Hex,
+      sourceTxHash: (sourceIntent?.created_tx_hash ?? fill.tx_hash) as Hex,
+      destinationTxHash: fill.tx_hash as Hex,
     };
   });
 }
