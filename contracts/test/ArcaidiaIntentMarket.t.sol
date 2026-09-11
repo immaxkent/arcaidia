@@ -137,6 +137,9 @@ contract ArcaidiaIntentMarketTest is Test {
     ) public {
         vm.assume(firstCaller != address(0) && secondCaller != address(0));
         vm.assume(firstCaller != secondCaller);
+        outputAmount = bound(outputAmount, 0, 1_000_000_000e6);
+        // Within the universal ceiling, so this test exercises the race, not the ceiling.
+        feeAmount = bound(feeAmount, 0, (outputAmount * market.MAX_FEE_BPS()) / 10_000);
         bytes32 id = _intentId(7);
 
         vm.prank(firstCaller);
@@ -148,5 +151,44 @@ contract ArcaidiaIntentMarketTest is Test {
             abi.encodeWithSelector(ArcaidiaIntentMarket.IntentAlreadyClaimed.selector, id, firstCaller)
         );
         market.claimIntent(id, outputAmount, feeAmount);
+    }
+
+    function test_acceptsAFeeExactlyAtTheUniversalCeiling() public {
+        bytes32 id = _intentId(8);
+        uint256 outputAmount = 1_000e6;
+        uint256 feeAmount = (outputAmount * market.MAX_FEE_BPS()) / (10_000 - market.MAX_FEE_BPS());
+
+        vm.prank(vaultA);
+        market.claimIntent(id, outputAmount, feeAmount);
+
+        assertEq(market.filledBy(id), vaultA);
+    }
+
+    function test_rejectsAFeeAboveTheUniversalCeilingRegardlessOfCaller() public {
+        bytes32 id = _intentId(9);
+        uint256 outputAmount = 1_000e6;
+        // One wei of fee above exactly 0.50% of the total.
+        uint256 feeAmount = (outputAmount * market.MAX_FEE_BPS()) / (10_000 - market.MAX_FEE_BPS()) + 1;
+        uint256 ceiling = ((outputAmount + feeAmount) * market.MAX_FEE_BPS()) / 10_000;
+
+        vm.prank(vaultA);
+        vm.expectRevert(
+            abi.encodeWithSelector(ArcaidiaIntentMarket.FeeAboveUniversalCeiling.selector, feeAmount, ceiling)
+        );
+        market.claimIntent(id, outputAmount, feeAmount);
+
+        assertEq(market.filledBy(id), address(0));
+    }
+
+    /// A vault's own, owner-configurable ceiling being far more generous than the market's
+    /// universal one must never matter — the market never even sees or trusts it.
+    function test_universalCeilingCannotBeRaisedByTheCallingVault() public {
+        bytes32 id = _intentId(10);
+        uint256 outputAmount = 1_000e6;
+        uint256 excessiveFee = 50e6; // 5% — plausible if a vault's own ceiling were misconfigured
+
+        vm.prank(vaultA);
+        vm.expectRevert();
+        market.claimIntent(id, outputAmount, excessiveFee);
     }
 }

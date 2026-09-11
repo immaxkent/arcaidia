@@ -7,8 +7,24 @@ reentrant or racing call could split apart.
 **Depends on:** WP-15. **Blocks:** WP-17, WP-20. **Stack:** Foundry, `contracts/src`,
 `contracts/script`.
 
+## Fee/deadline scope, settled 2026-09-11
+
+No `FillAuthorization` changes, no cross-chain propagation of the intent's real `maxFeeBps` or
+deadline — discussed at length, recorded in `WP-INTENT-MARKET.md` §6. Under first-valid-fill,
+price isn't a winning factor, so every vault rationally always charges the ceiling; a user's own
+lower preference stays protected exactly where it already is, off-chain, in `evaluateIntent`. What
+this WP actually adds instead: **one fixed, non-configurable fee ceiling enforced centrally by the
+market** — not each vault's own owner-configurable `maxFeeBps`, which nothing stops a careless or
+adversarial third-party vault owner from setting higher. No on-chain fee-curve library — a vault
+either can safely take the fill under its own existing utilisation caps or it can't; if it can, it
+charges the ceiling.
+
 ## Sub-tasks
 
+- [x] **16.0 Universal fee ceiling in `ArcaidiaIntentMarket`.** A fixed `uint16` constant (not
+      owner-configurable, not per-vault) — every `claimIntent` call reverts if `feeAmount` exceeds
+      that fraction of `outputAmount + feeAmount`, regardless of what any individual vault's own
+      `maxFeeBps` allows.
 - [ ] **16.1 One new line in `fastFill`, before existing logic.**
       `market.claimIntent(auth.intentId, auth.outputAmount, auth.feeAmount);` — everything below it
       (allowlist check, replay, caps, transfer) is today's `fastFill`, unchanged. The external
