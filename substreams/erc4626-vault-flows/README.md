@@ -38,13 +38,31 @@ your network, run it, and your vault's flows appear in the output stream
 alongside anyone else's. This is what "generic" means in practice: there is
 no per-vault setup step to skip.
 
-## graph_out — feeding a Graph Studio subgraph directly
+## Live verification
+
+Not just unit-tested against hand-built fixtures — run for real against the
+live Ethereum Sepolia Firehose (`substreams run substreams.yaml
+map_vault_flows -s 11675763 -t +1`), bounded to the exact block containing
+Arcaidia's own real test deposit. The module decoded **four** deposits in
+that one block: Arcaidia's own (values cross-checked exactly against an
+independent `cast call totalSupply()`) and **three from vaults this project
+has never seen or configured**. Raw output preserved at
+[`verification/sepolia-block-11675763.json`](verification/sepolia-block-11675763.json).
+Live, cross-vault proof of the genericness claim above, not just an
+assertion.
+
+## graph_out — EntityChanges for a Graph Studio subgraph
 
 A second module, `graph_out`, takes `map_vault_flows`'s output and renders it
 as `EntityChanges` — the shape a `substreams/graph-entities` Studio subgraph
-data source consumes with **no AssemblyScript mapping of its own**. See
-[`../vault-flows-subgraph`](../vault-flows-subgraph) — one Substreams package
-composed directly into a Graph product, not just a standalone artifact.
+data source would consume with **no AssemblyScript mapping of its own**.
+Built, unit-tested, and verified end-to-end against a real Studio deploy
+(`graph build` compiles clean; `graph deploy` uploads successfully to IPFS) —
+but Subgraph Studio has since removed this integration path platform-wide
+(*"Substreams-powered Subgraphs... are no longer supported"*), not something
+fixable from this repo. Kept in [`../vault-flows-subgraph`](../vault-flows-subgraph)
+as real, working proof the module reaches exactly where the platform stopped
+supporting it, with the exact finding documented there.
 
 ## What became easier
 
