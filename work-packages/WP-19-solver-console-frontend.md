@@ -18,10 +18,17 @@ because no Relay existed. This WP replaces those stubs; it does not redesign the
 
 ## Sub-tasks
 
-- [ ] **19.1 Config generator.** `/earn` emits the non-secret runtime config block
-      (`VAULT_ADDRESS, CHAIN_ID, RPC_URL, GRAPH_ENDPOINT, ARCAIDIA_API_BASE_URL,
-      ARCAIDIA_TELEMETRY_URL`) for a vault the connected wallet just deployed — never the operator
-      key itself, which the container generates locally.
+- [x] **19.1 Config generator.** `/earn`'s `runtimeConfigText()` emits the vault's real
+      per-chain env block, in the actual shape `.env.example`/the WP-17.3 Docker Compose stack
+      read — `{PREFIX}_LIQUIDITY_VAULT`, an optional `{PREFIX}_RPC_URL` override, `TELEMETRY_ENABLED`
+      + `ARCAIDIA_TELEMETRY_URL` — not the sub-task's own original, aspirational field list
+      (`VAULT_ADDRESS, CHAIN_ID, GRAPH_ENDPOINT, ARCAIDIA_API_BASE_URL`), written before WP-17/18/22
+      existed for real. Deliberately omits a live `SUBGRAPH_URL_{PREFIX}` value — WP-22 already
+      made "unset" mean "use Arcaidia's own shared, unlimited indexer," so handing one back here
+      would silently reintroduce the account/key requirement WP-22 removed; shown only as a
+      commented-out example for an operator who wants their own indexer instead. Never emits the
+      operator key itself, which the container generates or loads locally
+      (`WP-INTENT-MARKET.md` §7).
 - [x] **19.2 Wire `use-solver-telemetry.ts` to the real Relay SSE stream** (WP-18.4). Opens a
       browser `EventSource` at `GET {solverTelemetryUrl}/v1/telemetry/vault/{chainId}/{vaultAddress}
       /stream`; the Relay pushes a full `VaultTelemetryState` snapshot on connect and on every

@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
 import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address, type SolverDeployTarget } from "@/lib/arcaidia/types";
 import { formatBps, formatUsdc, isAddressLike, parseUsdc, truncateAddress } from "@/lib/arcaidia/format";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
 import { useWallet } from "@/components/wallet/wallet-context";
-import { chainConfig } from "@/lib/arcaidia/config";
+import { chainConfig, SERVICES } from "@/lib/arcaidia/config";
 import { NOT_AVAILABLE } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateValue } from "@/components/data/state-views";
 import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
@@ -86,6 +87,55 @@ helm install arcaidia-solver arcaidia/reference-solver \\
 # kubectl logs prints: solver operator address 0x…`,
   },
 ];
+
+/** Matches `CHAIN_ENV_PREFIX` in packages/agent/src/entrypoint/config.ts exactly. */
+const CHAIN_ENV_PREFIX: Record<number, string> = {
+  [ETHEREUM_SEPOLIA]: "ETHEREUM_SEPOLIA",
+  [ARC_TESTNET]: "ARC_TESTNET",
+};
+
+/**
+ * WP-19.1 — the non-secret runtime config block for the vault this wallet
+ * just deployed, in the shape `.env.example` and the reference Docker
+ * Compose stack (WP-17.3) actually read, not an idealised placeholder.
+ *
+ * Deliberately omits the solver's own operator key — `LOCAL_AGENT_PRIVATE_KEY`
+ * / `LOCAL_SUBMITTER_PRIVATE_KEY` are generated or loaded *inside* the solver
+ * container on first start (WP-INTENT-MARKET.md §7); this page never sees or
+ * emits them.
+ *
+ * Also deliberately omits `SUBGRAPH_URL_{PREFIX}` (WP-22): unset already
+ * means "use Arcaidia's own shared, unlimited indexer" — the actual gap
+ * WP-22 closed was operators needing their own Graph account/key at all, so
+ * handing back an indexer URL here would silently reintroduce the thing that
+ * config was designed to make unnecessary. Shown only as a commented-out
+ * example for an operator who wants their own indexer instead.
+ */
+export function runtimeConfigText(chainId: number, vaultAddress: Address, telemetryUrl: string | null): string {
+  const prefix = CHAIN_ENV_PREFIX[chainId] ?? "UNKNOWN_CHAIN";
+  return `# Arcaidia solver runtime config — generated for your vault.
+# Set these in the reference solver's .env (see .env.example), or as
+# container env vars for any other deployment target.
+#
+# Never set LOCAL_AGENT_PRIVATE_KEY / LOCAL_SUBMITTER_PRIVATE_KEY here — the
+# solver container generates or loads its own operator key on first start.
+# This page never sees or emits it.
+
+${prefix}_LIQUIDITY_VAULT=${vaultAddress}
+
+# Unset ${prefix}_RPC_URL to use the public default RPC endpoint. Set it only
+# if you want your own (a private/paid RPC, or your own node).
+# ${prefix}_RPC_URL=
+
+# Unset means "use Arcaidia's own shared, unlimited indexer" — no Graph
+# account or API key needed. Set only to point this solver at your own
+# subgraph or indexer instead.
+# SUBGRAPH_URL_${prefix}=
+
+TELEMETRY_ENABLED=true
+ARCAIDIA_TELEMETRY_URL=${telemetryUrl ?? "# not configured for this deployment yet"}
+`;
+}
 
 /**
  * HANDOFF — Earn / operator flow.
@@ -385,6 +435,37 @@ function EarnPage() {
                   Circle Agent Wallet — able to submit fast fills against your vault.
                 </p>
               )}
+
+              <div className="mt-5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-wide text-text-dim">Runtime config</p>
+                  {deployed ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(
+                          runtimeConfigText(chainId, vaultAddress!, SERVICES.solverTelemetryUrl),
+                        );
+                        toast.success("Copied", { description: "Runtime config" });
+                      }}
+                      className="text-[10px] font-semibold uppercase tracking-wide text-electric-glow hover:text-electric"
+                    >
+                      Copy
+                    </button>
+                  ) : null}
+                </div>
+                {deployed ? (
+                  <pre className="num mt-2 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">
+                    {runtimeConfigText(chainId, vaultAddress!, SERVICES.solverTelemetryUrl)}
+                  </pre>
+                ) : (
+                  <p className="measure mt-2 text-xs text-text-dim">Deploy your vault first to generate this.</p>
+                )}
+                <p className="measure mt-2 text-xs text-text-dim">
+                  Every field here is non-secret — safe to paste into a container's env or a .env file. No
+                  Graph account or indexer of your own is required unless you want to use one.
+                </p>
+              </div>
 
               <Field label="Solver operator address" id="solver-operator">
                 <input
