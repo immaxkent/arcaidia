@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { TransferForm } from "@/components/transfer/transfer-form";
 import { DecisionPanel } from "@/components/transfer/decision-panel";
-import { IntentHistoryPanel } from "@/components/transfer/intent-history-panel";
+import { AllTransfersPanel, IntentHistoryPanel } from "@/components/transfer/intent-history-panel";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { IntentProvider } from "@/hooks/arcaidia/use-intent";
 import type { AgentDecision } from "@/lib/arcaidia/types";
@@ -82,6 +82,7 @@ function TransferPageContent() {
           <DecisionPanel decision={liveQuote} />
 
           <IntentHistoryPanel owner={address} />
+          <AllTransfersPanel />
         </div>
       </div>
     </div>

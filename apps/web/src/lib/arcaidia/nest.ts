@@ -29,27 +29,55 @@ interface RawReadyResponse {
   readonly last_poll_unixtime?: number;
 }
 
+const RETRYABLE_STATUS = new Set([429, 503]);
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 300;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Retries a `503 server busy: too many concurrent SQL queries` (confirmed
+ * live, 2026-09-11 — the Nest enforces a real concurrency cap) or a `429`,
+ * with a short fixed backoff. The console page alone can fire a handful of
+ * these in parallel (one vault's worth of history is already 4 queries;
+ * several vaults' worth, for the ecosystem utilisation chart, multiplies
+ * that) — without a retry, a transient rejection here would surface as a
+ * fabricated-looking "indexer down" error for a request that would have
+ * succeeded a moment later.
+ */
 export async function queryNest<T>(endpoint: string, sql: string): Promise<NestQueryResult<T>> {
   const url = `${endpoint.replace(/\/+$/, "")}/sql?q=${encodeURIComponent(sql)}`;
-  const response = await fetch(url);
-  const body = (await response.json()) as RawNestResponse<T>;
 
-  if (!response.ok) {
-    throw new Error(`Nest query failed: ${response.status} ${body.error ?? response.statusText}`);
-  }
-  if (body.degraded) {
-    throw new Error(`Nest reports degraded data for this query on ${endpoint}.`);
-  }
-  if (body.truncated) {
-    throw new Error(`Nest query truncated on ${endpoint} — narrow the query or raise the limit.`);
-  }
+  let lastError: Error = new Error("unreachable");
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const response = await fetch(url);
+    const body = (await response.json()) as RawNestResponse<T>;
 
-  return {
-    rows: body.rows ?? [],
-    count: body.count ?? 0,
-    truncated: body.truncated ?? false,
-    degraded: body.degraded ?? false,
-  };
+    if (!response.ok) {
+      lastError = new Error(`Nest query failed: ${response.status} ${body.error ?? response.statusText}`);
+      if (RETRYABLE_STATUS.has(response.status) && attempt < MAX_ATTEMPTS) {
+        await sleep(RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw lastError;
+    }
+    if (body.degraded) {
+      throw new Error(`Nest reports degraded data for this query on ${endpoint}.`);
+    }
+    if (body.truncated) {
+      throw new Error(`Nest query truncated on ${endpoint} — narrow the query or raise the limit.`);
+    }
+
+    return {
+      rows: body.rows ?? [],
+      count: body.count ?? 0,
+      truncated: body.truncated ?? false,
+      degraded: body.degraded ?? false,
+    };
+  }
+  throw lastError;
 }
 
 export async function nestReady(endpoint: string): Promise<{ ready: boolean; lastPollUnixtime: number }> {

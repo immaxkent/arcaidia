@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA } from "@/lib/arcaidia/types";
-import { useIntentHistory } from "./use-intent-history";
+import { useAllTransfers, useIntentHistory } from "./use-intent-history";
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -105,5 +105,56 @@ describe("useIntentHistory", () => {
 
     expect(result.current).toEqual({ status: "unavailable", reason: "Connect wallet" });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("useAllTransfers", () => {
+  it("queries intents with no sender filter at all", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(decodeSql(url));
+        return nestResponse([]);
+      }),
+    );
+
+    renderHook(() => useAllTransfers([ETHEREUM_SEPOLIA, ARC_TESTNET]), { wrapper });
+
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    expect(calls.every((sql) => sql.startsWith("SELECT id, sender") && !sql.includes("WHERE sender"))).toBe(true);
+  });
+
+  it("returns transfers from every wallet, not just one", async () => {
+    const otherOwner = `0x${"22".repeat(20)}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const sql = decodeSql(url);
+        // Only the Sepolia endpoint answers with rows — otherwise querying
+        // both configured chains would double-count the same fixture rows.
+        if (sql.startsWith("SELECT id, sender") && url.includes("sepolia")) {
+          return nestResponse([INTENT, { ...INTENT, id: `0x${"55".repeat(32)}`, sender: otherOwner }]);
+        }
+        return nestResponse([]);
+      }),
+    );
+
+    const { result } = renderHook(() => useAllTransfers([ETHEREUM_SEPOLIA, ARC_TESTNET]), { wrapper });
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    if (result.current.status !== "ready") throw new Error("expected ready");
+    expect(result.current.data).toHaveLength(2);
+    expect(new Set(result.current.data.map((r) => r.intent.sender))).toEqual(
+      new Set([OWNER.toLowerCase(), otherOwner]),
+    );
+  });
+
+  it("is never gated on a connected wallet — reports ready/empty regardless", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => nestResponse([])));
+
+    const { result } = renderHook(() => useAllTransfers([ETHEREUM_SEPOLIA, ARC_TESTNET]), { wrapper });
+
+    await waitFor(() => expect(result.current.status).toBe("empty"));
   });
 });

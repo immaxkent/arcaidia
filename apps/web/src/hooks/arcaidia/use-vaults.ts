@@ -2,8 +2,14 @@
  * Vault directory + single-vault current state.
  *
  * SOURCE:
- *   V1            -> one Arcaidia House Vault per chain: chainConfig(chainId).houseVault
- *   Intent Market -> additional SolverVaults discovered from Factory/Registry events — not yet wired
+ *   Directory     -> every vault that has ever won a fastFill, on this chain's Nest
+ *                    (`SELECT DISTINCT vault FROM fills`), plus the committed House Vault
+ *                    unconditionally (so it's never invisible before its first win). This is
+ *                    the same "derive participants from fill history" approach WP-21.1 uses —
+ *                    `ArcaidiaIntentMarket` itself has no vault registry (no `registerVault()`,
+ *                    no `VaultRegistered` event), so a vault that has joined but never yet won a
+ *                    single race is genuinely invisible to this until it does. Stated plainly,
+ *                    not hidden — the same known limitation WP-21.1 already documents.
  *   Current state -> direct contract reads via solverVaultAbi (liquidity, exposure, paused, owner)
  *   Aggregates    -> Arcaidia's shared, unlimited indexer (WP-22/23): `vault.fill_count` and
  *                    `protocol_state.total_fees_earned`. V1 has exactly one vault per chain, so
@@ -95,9 +101,10 @@ function utilisationBps(available: bigint, exposure: bigint): number | null {
   return Number((exposure * 10_000n) / total);
 }
 
-async function readHouseVaultRow(
+async function readVaultRow(
   chainId: number,
   vaultAddress: Address,
+  houseVault: Address | null,
 ): Promise<VaultDirectoryRow> {
   const client = publicClientFor(chainId);
   if (!client) throw new Error("RPC not configured");
@@ -117,11 +124,12 @@ async function readHouseVaultRow(
     readVaultAggregates(chainId, vaultAddress),
   ]);
 
+  const isHouse = houseVault !== null && vaultAddress.toLowerCase() === houseVault.toLowerCase();
   return {
     chainId,
     vaultAddress,
-    operatorLabel: "Arcaidia House Vault",
-    operatorType: "HOUSE",
+    operatorLabel: isHouse ? "Arcaidia House Vault" : null,
+    operatorType: isHouse ? "HOUSE" : "INDEPENDENT",
     ownerAddress: owner,
     availableLiquidity,
     outstandingExposure,
@@ -136,26 +144,53 @@ async function readHouseVaultRow(
   };
 }
 
+/** Every vault address that has ever won a fastFill on this chain — see this file's own SOURCE doc comment for the known limitation. */
+async function discoverParticipantVaults(chainId: number): Promise<Address[]> {
+  const endpoint = chainConfig(chainId)?.subgraphUrl;
+  if (!endpoint) return [];
+  const result = await queryNest<{ vault: string }>(endpoint, "SELECT DISTINCT vault FROM fills");
+  return result.rows.map((row) => row.vault as Address);
+}
+
+async function fetchVaultDirectory(chainId: number, houseVault: Address | null): Promise<VaultDirectoryRow[]> {
+  const participants = await discoverParticipantVaults(chainId);
+  // Keyed by lowercase for dedup, valued by one real, original-case address
+  // to read from and display — the committed houseVault's own casing wins
+  // for that one address, since it's already the canonical form used
+  // everywhere else in the app.
+  const addressByKey = new Map<string, Address>(participants.map((a) => [a.toLowerCase(), a]));
+  if (houseVault) addressByKey.set(houseVault.toLowerCase(), houseVault);
+  if (addressByKey.size === 0) return [];
+
+  const rows = await Promise.all(
+    [...addressByKey.values()].map((address) => readVaultRow(chainId, address, houseVault)),
+  );
+  // House Vault first, then by available liquidity — a stable, meaningful order rather than
+  // whatever arbitrary order the SQL/Set iteration happened to produce.
+  return rows.sort((a, b) => {
+    if (a.operatorType !== b.operatorType) return a.operatorType === "HOUSE" ? -1 : 1;
+    return (b.availableLiquidity ?? 0n) > (a.availableLiquidity ?? 0n) ? 1 : -1;
+  });
+}
+
 export function useVaults(chainId: number): DataState<VaultDirectoryRow[]> {
   const config = chainConfig(chainId);
   const houseVault = config?.houseVault ?? null;
-  const enabled = Boolean(houseVault && config?.rpcUrl);
+  const enabled = Boolean(config?.rpcUrl);
 
   const query = useQuery({
     queryKey: ["vault-directory", chainId, houseVault],
-    queryFn: () => readHouseVaultRow(chainId, houseVault as Address),
+    queryFn: () => fetchVaultDirectory(chainId, houseVault),
     enabled,
     refetchInterval: POLL_INTERVAL_MS,
   });
 
-  if (!houseVault && !config?.vaultFactory)
-    return unavailableState("No vaults deployed on this chain yet");
-  if (!houseVault) return unavailableState("Vault registry not connected");
   if (!config?.rpcUrl) return unavailableState("RPC not configured");
   if (query.isError)
     return errorState(query.error instanceof Error ? query.error.message : "Read failed");
-  if (!query.data) return unavailableState("Vault registry not connected");
-  return readyState([query.data]);
+  if (!query.data) return unavailableState("Vault directory not connected");
+  if (query.data.length === 0) return unavailableState("No vaults deployed on this chain yet");
+  return readyState(query.data);
 }
 
 export function useVault(
@@ -163,11 +198,12 @@ export function useVault(
   vaultAddress: Address | null,
 ): DataState<VaultDirectoryRow> {
   const config = chainConfig(chainId);
+  const houseVault = config?.houseVault ?? null;
   const enabled = Boolean(vaultAddress && config?.rpcUrl);
 
   const query = useQuery({
     queryKey: ["vault-detail", chainId, vaultAddress],
-    queryFn: () => readHouseVaultRow(chainId, vaultAddress as Address),
+    queryFn: () => readVaultRow(chainId, vaultAddress as Address, houseVault),
     enabled,
     refetchInterval: POLL_INTERVAL_MS,
   });
@@ -185,16 +221,173 @@ export interface VaultAnalytics {
   volumeSeries: Array<{ at: number; value: bigint }>;
   feeSeries: Array<{ at: number; value: bigint }>;
   utilisationSeries: Array<{ at: number; bps: number }>;
+  /**
+   * The raw balance/exposure this vault's own `utilisationSeries` was
+   * derived from, at each event — kept so a caller combining *several*
+   * vaults into one ecosystem-wide aggregate can sum real balances and
+   * exposures first and take one ratio, rather than averaging each vault's
+   * already-computed percentage (which is not the same number).
+   */
+  stateSeries: Array<{ at: number; balance: bigint; exposure: bigint }>;
 }
+
+interface RawDeposit {
+  assets: string;
+  block_timestamp: number;
+}
+interface RawWithdraw {
+  assets: string;
+  block_timestamp: number;
+}
+interface RawFastFilled {
+  outputAmount: string;
+  block_timestamp: number;
+}
+interface RawReimbursement {
+  amountReceived: string;
+  exposureCleared: string;
+  block_timestamp: number;
+}
+
+type BalanceEvent =
+  | { at: number; kind: "deposit"; assets: bigint }
+  | { at: number; kind: "withdraw"; assets: bigint }
+  | { at: number; kind: "fill"; outputAmount: bigint }
+  | { at: number; kind: "reimburse"; amountReceived: bigint; exposureCleared: bigint };
+
+/**
+ * Reconstructs `{liquidBalance, outstandingExposure}` over time by replaying
+ * this vault's own raw events in order — the Nest keeps every one
+ * (`liquidity_vault__deposit/withdraw/fast_filled/reimbursement_recorded`),
+ * it just doesn't keep a ready-made history of the *derived* balance/exposure
+ * themselves. Mirrors `ArcaidiaLiquidityVault`'s own accounting exactly:
+ * deposit/withdraw move `liquidBalance` directly; a fastFill moves
+ * `outputAmount` from balance into exposure; a reimbursement moves
+ * `exposureCleared` back out of exposure and `amountReceived` (the fuller
+ * CCTP-bridged amount) into balance — the difference between those two is
+ * exactly the fee that lands as LP profit.
+ */
+async function fetchBalanceEvents(endpoint: string, vaultAddress: Address): Promise<BalanceEvent[]> {
+  const idLiteral = sqlHex20Literal(vaultAddress);
+  const [deposits, withdraws, fills, reimbursements] = await Promise.all([
+    queryNest<RawDeposit>(
+      endpoint,
+      `SELECT assets, block_timestamp FROM liquidity_vault__deposit WHERE address = ${idLiteral} ORDER BY block_timestamp ASC`,
+    ),
+    queryNest<RawWithdraw>(
+      endpoint,
+      `SELECT assets, block_timestamp FROM liquidity_vault__withdraw WHERE address = ${idLiteral} ORDER BY block_timestamp ASC`,
+    ),
+    queryNest<RawFastFilled>(
+      endpoint,
+      `SELECT outputAmount, block_timestamp FROM liquidity_vault__fast_filled WHERE address = ${idLiteral} ORDER BY block_timestamp ASC`,
+    ),
+    queryNest<RawReimbursement>(
+      endpoint,
+      `SELECT amountReceived, exposureCleared, block_timestamp FROM liquidity_vault__reimbursement_recorded WHERE address = ${idLiteral} ORDER BY block_timestamp ASC`,
+    ),
+  ]);
+
+  const events: BalanceEvent[] = [
+    ...deposits.rows.map((d): BalanceEvent => ({ at: d.block_timestamp, kind: "deposit", assets: BigInt(d.assets) })),
+    ...withdraws.rows.map((w): BalanceEvent => ({ at: w.block_timestamp, kind: "withdraw", assets: BigInt(w.assets) })),
+    ...fills.rows.map((f): BalanceEvent => ({ at: f.block_timestamp, kind: "fill", outputAmount: BigInt(f.outputAmount) })),
+    ...reimbursements.rows.map(
+      (r): BalanceEvent => ({
+        at: r.block_timestamp,
+        kind: "reimburse",
+        amountReceived: BigInt(r.amountReceived),
+        exposureCleared: BigInt(r.exposureCleared),
+      }),
+    ),
+  ];
+  return events.sort((a, b) => a.at - b.at);
+}
+
+export async function fetchVaultAnalyticsData(chainId: number, vaultAddress: Address): Promise<VaultAnalytics> {
+  const endpoint = chainConfig(chainId)?.subgraphUrl;
+  if (!endpoint) throw new Error("Indexer not connected");
+
+  const idLiteral = sqlHex20Literal(vaultAddress);
+  const [events, currentRowResult] = await Promise.all([
+    fetchBalanceEvents(endpoint, vaultAddress),
+    queryNest<{ liquid_balance: string; outstanding_exposure: string }>(
+      endpoint,
+      `SELECT liquid_balance, outstanding_exposure FROM vault WHERE id = ${idLiteral}`,
+    ),
+  ]);
+
+  let balance = 0n;
+  let exposure = 0n;
+  let cumulativeVolume = 0n;
+  let cumulativeFees = 0n;
+  const utilisationSeries: VaultAnalytics["utilisationSeries"] = [];
+  const volumeSeries: VaultAnalytics["volumeSeries"] = [];
+  const feeSeries: VaultAnalytics["feeSeries"] = [];
+  const stateSeries: VaultAnalytics["stateSeries"] = [];
+
+  for (const event of events) {
+    if (event.kind === "deposit") balance += event.assets;
+    else if (event.kind === "withdraw") balance -= event.assets;
+    else if (event.kind === "fill") {
+      balance -= event.outputAmount;
+      exposure += event.outputAmount;
+      cumulativeVolume += event.outputAmount;
+      volumeSeries.push({ at: event.at, value: cumulativeVolume });
+    } else {
+      balance += event.amountReceived;
+      exposure -= event.exposureCleared;
+      cumulativeFees += event.amountReceived - event.exposureCleared;
+      feeSeries.push({ at: event.at, value: cumulativeFees });
+    }
+
+    const total = balance + exposure;
+    utilisationSeries.push({ at: event.at, bps: total === 0n ? 0 : Number((exposure * 10_000n) / total) });
+    stateSeries.push({ at: event.at, balance, exposure });
+  }
+
+  // The load-bearing check: replaying every event this vault has ever
+  // emitted must land on exactly the balance/exposure the contract itself
+  // reports right now. A mismatch means either a missing event type or a
+  // wrong accounting rule above — better to refuse the chart outright than
+  // show one that's silently wrong.
+  const currentRow = currentRowResult.rows[0];
+  if (currentRow) {
+    const realBalance = BigInt(currentRow.liquid_balance);
+    const realExposure = BigInt(currentRow.outstanding_exposure);
+    if (balance !== realBalance || exposure !== realExposure) {
+      throw new Error(
+        "Reconstructed vault history does not match the vault's current on-chain state — refusing to show a potentially incorrect chart.",
+      );
+    }
+  }
+
+  return { volumeSeries, feeSeries, utilisationSeries, stateSeries };
+}
+
+const ANALYTICS_POLL_INTERVAL_MS = 30_000;
 
 export function useVaultAnalytics(
   chainId: number,
   vaultAddress: Address | null,
 ): DataState<VaultAnalytics> {
+  const endpoint = chainConfig(chainId)?.subgraphUrl;
+  const enabled = Boolean(vaultAddress && endpoint);
+
+  const query = useQuery({
+    queryKey: ["vault-analytics", chainId, vaultAddress],
+    queryFn: () => fetchVaultAnalyticsData(chainId, vaultAddress as Address),
+    enabled,
+    refetchInterval: ANALYTICS_POLL_INTERVAL_MS,
+  });
+
   if (!vaultAddress) return unavailableState("Select a vault");
-  if (!chainConfig(chainId)?.subgraphUrl) return unavailableState("Indexer not connected");
-  // TODO(integration): aggregate indexed fills into real historical series.
-  return unavailableState("Indexer not connected");
+  if (!endpoint) return unavailableState("Indexer not connected");
+  if (query.isError) {
+    return errorState(query.error instanceof Error ? query.error.message : "Indexer query failed");
+  }
+  if (!query.data) return unavailableState("Indexer not connected");
+  return readyState(query.data);
 }
 
 export interface AggregateVaultState {

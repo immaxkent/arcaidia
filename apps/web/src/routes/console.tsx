@@ -1,36 +1,39 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
 import { SolverOrb } from "@/components/solver/solver-orb";
+import { UtilisationChart } from "@/components/solver/utilisation-chart";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { CHAINS, type ActivityRow, type SolverAuthState, type SolverRuntimeStatus } from "@/lib/arcaidia/types";
 import { formatBps, formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
-import { CHAIN_CONFIG, SUPPORTED_CHAIN_IDS, explorerTxUrl } from "@/lib/arcaidia/config";
-import { NOT_AVAILABLE, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
+import { explorerTxUrl, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
+import { NOT_AVAILABLE, errorState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateSection, StateValue } from "@/components/data/state-views";
+import { solverVaultAbi, vaultCapabilitiesFromAbi, type VaultCapability } from "@/lib/arcaidia/abis";
+import { useEcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
 import { useIntentOutcome } from "@/hooks/arcaidia/use-intent-outcome";
-import { useOwnedVaults, type OwnedVaultRow } from "@/hooks/arcaidia/use-owned-vaults";
 import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
 import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
 import { useVaultActivity, useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
+import { useVaults, type VaultDirectoryRow } from "@/hooks/arcaidia/use-vaults";
 import { deriveOnchainStage } from "@/lib/arcaidia/solver-stage";
 
 export const Route = createFileRoute("/console")({
   head: () => ({
     meta: [
-      { title: "Solver console — watch your vault execute | Arcaidia" },
+      { title: "Solver console — watch the market live | Arcaidia" },
       {
         name: "description",
         content:
-          "A console for every vault you own: authorised solver status, settled volume, fees earned, fill latency, and a stage-by-stage execution timeline separating solver telemetry from onchain-confirmed state.",
+          "Every vault competing in the intent market, on both chains: authorised solver status, settled volume, fees earned, ecosystem-wide utilisation over time, and a stage-by-stage execution timeline separating solver telemetry from onchain-confirmed state.",
       },
       { property: "og:title", content: "Solver console — Arcaidia" },
       {
         property: "og:description",
         content:
-          "Authorised solver status, realised fills and a live execution timeline for each vault you own.",
+          "A public, view-only window onto every vault in the market — authorised solver status, realised fills and live execution timelines.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -41,52 +44,70 @@ export const Route = createFileRoute("/console")({
 
 type Tab = "FILLS" | "ACTIVITY";
 
-/** House vaults are real deployed addresses from config, or nothing at all. */
-function useHouseVaults(): DataState<OwnedVaultRow[]> {
-  return useMemo(() => {
-    const rows: OwnedVaultRow[] = SUPPORTED_CHAIN_IDS.flatMap((chainId) => {
-      const vaultAddress = CHAIN_CONFIG[chainId]?.houseVault ?? null;
-      if (!vaultAddress) return [];
-      return [
-        {
-          chainId,
-          vaultAddress,
-          label: "Arcaidia House Vault",
-          authorisedSolver: null,
-          solverAuthState: null,
-          solverKind: null,
-          capabilities: null,
-        },
-      ];
-    });
-    return rows.length > 0 ? readyState(rows) : unavailableState("No house vault deployed yet");
-  }, []);
+/**
+ * The whole market's vault directory, both chains merged into one list —
+ * every vault that has ever won a fastFill, plus each chain's House Vault
+ * unconditionally (see use-vaults.ts's own doc comment for the known
+ * "never won yet" limitation). This is a view-only window onto the market:
+ * a vault appearing here is not "yours" by any special status, and owning
+ * one is not required to watch it — that's what makes this the Solver
+ * Console rather than "my vaults".
+ */
+function useMarketVaultDirectory(): DataState<VaultDirectoryRow[]> {
+  // Explicitly two calls, not a `.map()` over SUPPORTED_CHAIN_IDS — the
+  // Rules of Hooks care about a stable call count/order across renders, and
+  // spelling it out here makes that obviously true without relying on a
+  // reader also checking that SUPPORTED_CHAIN_IDS is a compile-time constant.
+  const sepolia = useVaults(SUPPORTED_CHAIN_IDS[0]);
+  const arc = useVaults(SUPPORTED_CHAIN_IDS[1]);
+  const perChain = [sepolia, arc];
+
+  if (perChain.some((s) => s.status === "loading")) return { status: "loading" };
+  const errored = perChain.find((s) => s.status === "error");
+  if (errored && errored.status === "error") return errorState(errored.error);
+
+  const rows = perChain.flatMap((s) => (s.status === "ready" ? s.data : []));
+  if (rows.length === 0) return unavailableState("No vaults deployed anywhere yet");
+  return readyState(rows);
 }
 
 /**
  * HANDOFF — Solver Console.
  *
  * Data sources, none of them simulated:
- *   vault list  -> useOwnedVaults (owner) / configured House Vault (public view)
+ *   vault list  -> useMarketVaultDirectory: every vault across both chains (WP-21.1's own
+ *                  "derive participants from fill history" approach)
  *   metrics     -> useSolverMetrics: SolverVault reads + indexed winning fills
  *   orb stages  -> useSolverTelemetry (pre-chain only) + real onchain stage
  *   fills       -> useVaultFills (indexed, starts empty)
  *   activity    -> useVaultActivity (lost races / reverts, kept separate)
- * Owner controls render only for capabilities the deployed vault ABI exposes.
+ * Owner controls render only when the connected wallet is that specific
+ * vault's own real owner() (a contract read), never merely "a wallet is
+ * connected" — this page is public and view-only for everyone else.
  */
 function ConsolePage() {
   const { status: walletStatus, address, connect } = useWallet();
   const connected = walletStatus === "CONNECTED";
 
-  const owned = useOwnedVaults(connected ? address : null);
-  const house = useHouseVaults();
-  const list = connected ? owned : house;
+  const list = useMarketVaultDirectory();
   const rows = list.status === "ready" ? list.data : [];
 
   const [selected, setSelected] = useState(0);
   const [tab, setTab] = useState<Tab>("FILLS");
 
   const vault = rows[Math.min(selected, Math.max(0, rows.length - 1))] ?? null;
+  const isVaultOwner = Boolean(
+    connected && address && vault?.ownerAddress && vault.ownerAddress.toLowerCase() === address.toLowerCase(),
+  );
+  const capabilities = vaultCapabilitiesFromAbi(solverVaultAbi as unknown as ReadonlyArray<{ type: string; name?: string }>);
+  // Scoped to the currently viewed vault's own chain — Sepolia and Arc are
+  // separate liquidity pools, so an aggregate blending both would conflate
+  // two independent markets into one number that doesn't mean anything.
+  const chainVaults: DataState<VaultDirectoryRow[]> =
+    vault && list.status === "ready"
+      ? readyState(list.data.filter((row) => row.chainId === vault.chainId))
+      : list;
+  const ecosystemUtilisation = useEcosystemUtilisation(vault?.chainId ?? SUPPORTED_CHAIN_IDS[0]!, chainVaults);
   // Telemetry first: its reported operator/online state feeds useSolverMetrics
   // below (WP-19.4's own rule — telemetry only ever supplies a *candidate*
   // operator to check onchain, never the authorisation fact itself).
@@ -107,52 +128,28 @@ function ConsolePage() {
   const intentOutcome = useIntentOutcome(vault?.chainId ?? 0, activeIntentId);
   const onchainStage = deriveOnchainStage(vault?.vaultAddress ?? null, intentOutcome);
 
-  const authState: SolverAuthState | null =
-    (metrics.status === "ready" ? metrics.data.authState : null) ?? vault?.solverAuthState ?? null;
+  const authState: SolverAuthState | null = metrics.status === "ready" ? metrics.data.authState : null;
   const runtimeStatus: SolverRuntimeStatus | null =
     metrics.status === "ready" ? metrics.data.runtimeStatus : null;
-  const authorisedSolver =
-    (metrics.status === "ready" ? metrics.data.authorisedSolver : null) ?? vault?.authorisedSolver ?? null;
+  const authorisedSolver = metrics.status === "ready" ? metrics.data.authorisedSolver : null;
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
       <p className="num text-xs uppercase tracking-[0.3em] text-acid">Solver console</p>
-      <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">Your solver, live</h1>
+      <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">The market, live</h1>
       <p className="measure mt-2 text-sm text-text-dim">
-        One console per vault you own. The vault is the durable economic identity; the solver operator
-        address in front of it is replaceable. Your owner wallet signs; the solver holds its own key and
-        Arcaidia never sees it.
+        Every vault currently competing in the intent market, on both chains — a public, view-only
+        window onto the market's activity. Connect the wallet that owns a vault to see its owner controls;
+        watching does not require it.
       </p>
-
-      {!connected ? (
-        <div className="panel mt-6 flex flex-wrap items-center gap-4 p-4">
-          <div>
-            <p className="num text-xs uppercase tracking-wide text-acid">Public view</p>
-            <p className="mt-1 text-sm text-text-dim">
-              Connect your owner wallet to see your own solver&apos;s activity.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => connect()}
-            className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid"
-          >
-            Connect wallet
-          </button>
-        </div>
-      ) : null}
 
       {!vault ? (
         <section className="panel mt-8">
           <StateSection
             state={list}
             emptyTitle="No vaults yet"
-            emptyNote={
-              connected
-                ? "This owner address does not control a solver vault yet."
-                : "No Arcaidia House Vault is deployed yet."
-            }
-            unavailableTitle={connected ? "Connect wallet" : "Not available yet"}
+            emptyNote="No vault has deployed or won a fastFill on either chain yet."
+            unavailableTitle="Not available yet"
             action={
               <Link
                 to="/earn"
@@ -169,14 +166,13 @@ function ConsolePage() {
         <>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <p className="num text-xs uppercase tracking-wide text-text-dim">
-              {connected
-                ? `Owner ${address ? truncateAddress(address) : NOT_AVAILABLE}`
-                : "House vault · public view"}
+              {rows.length} vault{rows.length === 1 ? "" : "s"} in the market
+              {connected && address ? ` · viewing as ${truncateAddress(address)}` : ""}
             </p>
             <div className="flex flex-wrap gap-2">
               {rows.map((v, i) => (
                 <button
-                  key={v.vaultAddress}
+                  key={`${v.chainId}:${v.vaultAddress}`}
                   type="button"
                   onClick={() => setSelected(i)}
                   aria-pressed={i === selected}
@@ -186,7 +182,7 @@ function ConsolePage() {
                       : "border-border text-text-dim hover:text-text"
                   }`}
                 >
-                  {v.label ?? truncateAddress(v.vaultAddress)} · {CHAINS[v.chainId]?.short}
+                  {v.operatorLabel ?? truncateAddress(v.vaultAddress)} · {CHAINS[v.chainId]?.short}
                 </button>
               ))}
             </div>
@@ -195,7 +191,7 @@ function ConsolePage() {
           <section className="panel mt-4 p-5">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-display text-2xl uppercase text-newsprint">
-                {vault.label ?? truncateAddress(vault.vaultAddress)}
+                {vault.operatorLabel ?? truncateAddress(vault.vaultAddress)}
               </h2>
               <ChainBadge chainId={vault.chainId} />
               <AuthChip authState={authState} />
@@ -289,12 +285,12 @@ function ConsolePage() {
                 )}
               </p>
               <p className="num text-xs text-text-dim">
-                Runtime{" "}
-                {vault.solverKind === "REFERENCE"
-                  ? "Arcaidia reference solver"
-                  : vault.solverKind === "EXTERNAL"
-                    ? "External solver"
-                    : NOT_AVAILABLE}
+                Owner{" "}
+                {vault.ownerAddress ? (
+                  <CopyValue value={vault.ownerAddress} label="vault owner address" />
+                ) : (
+                  <span className="text-text-dim/70">{NOT_AVAILABLE}</span>
+                )}
               </p>
             </div>
             <AwaitingSource>
@@ -302,30 +298,36 @@ function ConsolePage() {
             </AwaitingSource>
           </section>
 
-          <section className="panel mt-6 p-5">
-            <SolverOrb
-              telemetry={telemetry}
-              runtimeStatus={runtimeStatus}
-              authState={authState}
-              onchainStage={onchainStage}
-            />
-          </section>
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <section className="panel p-5">
+              <SolverOrb
+                telemetry={telemetry}
+                runtimeStatus={runtimeStatus}
+                authState={authState}
+                onchainStage={onchainStage}
+              />
+            </section>
+            <UtilisationChart state={ecosystemUtilisation} />
+          </div>
 
-          {connected ? (
-            <OwnerControls capabilities={vault.capabilities} />
+          {isVaultOwner ? (
+            <OwnerControls capabilities={capabilities} />
           ) : (
             <section className="panel mt-6 flex flex-wrap items-center gap-4 p-5">
               <p className="measure text-sm text-text-dim">
-                Owner controls — pause, revoke or replace the authorised solver — appear once you connect
-                the wallet that owns the vault.
+                {connected
+                  ? "This isn't your vault — it's shown here because it's part of the market. Owner controls only appear for the wallet that actually owns it."
+                  : "Owner controls — pause, revoke or replace the authorised solver — appear once you connect the wallet that owns this vault."}
               </p>
-              <button
-                type="button"
-                onClick={() => connect()}
-                className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid"
-              >
-                Connect wallet
-              </button>
+              {!connected ? (
+                <button
+                  type="button"
+                  onClick={() => connect()}
+                  className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid"
+                >
+                  Connect wallet
+                </button>
+              ) : null}
             </section>
           )}
 
@@ -441,7 +443,7 @@ function RuntimeChip({ runtime }: { runtime: SolverRuntimeStatus | null }) {
  * Only rendered for capabilities the deployed vault ABI exposes.
  * WIRE: each button becomes an owner-signed transaction against the vault.
  */
-function OwnerControls({ capabilities }: { capabilities: OwnedVaultRow["capabilities"] }) {
+function OwnerControls({ capabilities }: { capabilities: Record<VaultCapability, boolean> | null }) {
   if (!capabilities) {
     return (
       <section className="panel mt-6 p-5">

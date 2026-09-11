@@ -80,9 +80,15 @@ interface RawSettlement {
   tx_hash: string;
 }
 
-async function fetchIntentHistory(
-  owner: Address,
+/**
+ * The shared fetch+join both `useIntentHistory` (sender-scoped) and
+ * `useAllTransfers` (unscoped) need — identical cross-chain fill/settlement
+ * join, the only difference is whether the initial `intents` query carries
+ * a `WHERE sender = ...` at all.
+ */
+async function fetchIntentRows(
   chainIds: readonly number[],
+  senderFilter: Address | null,
 ): Promise<IntentHistoryRow[]> {
   const endpoints = chainIds
     .map((id) => ({
@@ -95,14 +101,14 @@ async function fetchIntentHistory(
         c.subgraphUrl !== null,
     );
 
-  const senderLiteral = sqlHex20Literal(owner);
+  const whereClause = senderFilter ? `WHERE sender = ${sqlHex20Literal(senderFilter)} ` : "";
   const perChain = await Promise.all(
     endpoints.map((source) =>
       queryNest<RawIntent>(
         source.subgraphUrl,
         "SELECT id, sender, recipient, input_token, amount, source_chain_id, destination_chain_id, " +
           `max_fee_bps, deadline, created_at_timestamp, created_tx_hash FROM intents ` +
-          `WHERE sender = ${senderLiteral} ORDER BY created_at_timestamp DESC LIMIT 200`,
+          `${whereClause}ORDER BY created_at_timestamp DESC LIMIT 200`,
       ),
     ),
   );
@@ -195,12 +201,39 @@ export function useIntentHistory(
 
   const query = useQuery({
     queryKey: ["intent-history", owner, indexedChainIds],
-    queryFn: () => fetchIntentHistory(owner as Address, indexedChainIds),
+    queryFn: () => fetchIntentRows(indexedChainIds, owner as Address),
     enabled,
     refetchInterval: 20_000,
   });
 
   if (!owner) return unavailableState("Connect wallet");
+  if (indexedChainIds.length === 0) return unavailableState("Indexer not connected");
+  if (query.isError) {
+    return errorState(query.error instanceof Error ? query.error.message : "Indexer query failed");
+  }
+  if (!query.data) return unavailableState("Indexer not connected");
+  if (query.data.length === 0) return emptyState();
+  return readyState(query.data);
+}
+
+/**
+ * Every transfer across the whole market — no sender filter — for a public,
+ * view-only "all transfers" feed. Same join, same rules, deliberately no
+ * concept of ownership: unlike `useIntentHistory`, a disconnected wallet is
+ * not a reason to show `unavailable` here, since nothing about this view
+ * ever depended on who's connected.
+ */
+export function useAllTransfers(chainIds: readonly number[]): DataState<IntentHistoryRow[]> {
+  const indexedChainIds = chainIds.filter((id) => chainConfig(id)?.subgraphUrl);
+  const enabled = indexedChainIds.length > 0;
+
+  const query = useQuery({
+    queryKey: ["all-transfers", indexedChainIds],
+    queryFn: () => fetchIntentRows(indexedChainIds, null),
+    enabled,
+    refetchInterval: 20_000,
+  });
+
   if (indexedChainIds.length === 0) return unavailableState("Indexer not connected");
   if (query.isError) {
     return errorState(query.error instanceof Error ? query.error.message : "Indexer query failed");

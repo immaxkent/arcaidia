@@ -1,21 +1,22 @@
 /**
- * The connected wallet's real intent history — live and past transfers alike.
+ * Real intent history — the connected wallet's own (`IntentHistoryPanel`),
+ * and every transfer across the market (`AllTransfersPanel`).
  *
- * SOURCE: useIntentHistory (The Graph, both chains, client-side join — see
- * that hook's own docs for why the join can't happen inside the subgraph
- * mapping). This was built and correct from the start; it just had no page
- * rendering it. `fastStatus`/`canonicalStatus` are the real per-intent facts
- * — the same two-track model the rest of the app holds to, never merged into
- * one boolean.
+ * SOURCE: useIntentHistory / useAllTransfers (Arcaidia's shared Nest indexer,
+ * both chains, client-side join — see those hooks' own docs for why the join
+ * can't happen inside a single query). `fastStatus`/`canonicalStatus` are the
+ * real per-intent facts — the same two-track model the rest of the app holds
+ * to, never merged into one boolean.
  */
 import { toast } from "sonner";
 import { ETHEREUM_SEPOLIA, ARC_TESTNET, type Address, type Hex } from "@/lib/arcaidia/types";
 import { formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
 import { explorerTxUrl } from "@/lib/arcaidia/config";
+import type { DataState } from "@/lib/arcaidia/data-state";
 import { StateSection } from "@/components/data/state-views";
 import { ChainBadge } from "@/components/vaults/vault-bits";
 import { TimeValue } from "@/components/site/time-value";
-import { useIntentHistory, type IntentHistoryRow } from "@/hooks/arcaidia/use-intent-history";
+import { useAllTransfers, useIntentHistory, type IntentHistoryRow } from "@/hooks/arcaidia/use-intent-history";
 import { cn } from "@/lib/utils";
 
 /**
@@ -131,21 +132,67 @@ function CanonicalStatusChip({ status }: { status: "PENDING" | "SETTLED" }) {
 
 export function IntentHistoryPanel({ owner }: { owner: Address | null }) {
   const history = useIntentHistory(owner, [ETHEREUM_SEPOLIA, ARC_TESTNET]);
+  return (
+    <IntentHistoryTable
+      title="Your transfers"
+      history={history}
+      emptyTitle="No transfers yet"
+      emptyNote="Every transfer you create appears here, live — the fast advance and the canonical settlement, tracked separately."
+      unavailableTitle="No transfers yet"
+      unavailableNote="Connect a wallet to see your transfer history."
+    />
+  );
+}
 
+/**
+ * Every transfer across the whole market, no ownership filter — a public,
+ * view-only feed. Same table, same live join, deliberately no "connect a
+ * wallet" gate: unlike `IntentHistoryPanel`, nothing here ever depended on
+ * who's connected.
+ */
+export function AllTransfersPanel() {
+  const history = useAllTransfers([ETHEREUM_SEPOLIA, ARC_TESTNET]);
+  return (
+    <IntentHistoryTable
+      title="All transfers"
+      history={history}
+      emptyTitle="No transfers yet"
+      emptyNote="Every transfer across the market appears here, live — the fast advance and the canonical settlement, tracked separately."
+      unavailableTitle="No transfers yet"
+      unavailableNote="Indexer not connected."
+    />
+  );
+}
+
+function IntentHistoryTable({
+  title,
+  history,
+  emptyTitle,
+  emptyNote,
+  unavailableTitle,
+  unavailableNote,
+}: {
+  title: string;
+  history: DataState<IntentHistoryRow[]>;
+  emptyTitle: string;
+  emptyNote: string;
+  unavailableTitle: string;
+  unavailableNote: string;
+}) {
   return (
     <section className="panel p-5">
-      <h3 className="text-sm font-semibold tracking-wide text-text uppercase">Your transfers</h3>
+      <h3 className="text-sm font-semibold tracking-wide text-text uppercase">{title}</h3>
       <StateSection
         state={history}
-        emptyTitle="No transfers yet"
-        emptyNote="Every transfer you create appears here, live — the fast advance and the canonical settlement, tracked separately."
-        unavailableTitle="No transfers yet"
-        unavailableNote="Connect a wallet to see your transfer history."
+        emptyTitle={emptyTitle}
+        emptyNote={emptyNote}
+        unavailableTitle={unavailableTitle}
+        unavailableNote={unavailableNote}
       >
         {(rows) => (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
-              <caption className="sr-only">Your intent history, both directions</caption>
+              <caption className="sr-only">{title}, both directions</caption>
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-text-dim">
                   <th className="pb-2 font-medium">Intent</th>

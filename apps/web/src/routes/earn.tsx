@@ -156,11 +156,19 @@ function EarnPage() {
 
   const [step, setStep] = useState(1);
   const [chainId, setChainId] = useState(ARC_TESTNET);
+  const [vaultName, setVaultName] = useState("");
   const [funding, setFunding] = useState("");
-  const [baseFeeBps, setBaseFeeBps] = useState(12);
-  const [curve, setCurve] = useState("utilisation-linear-v1");
-  const [utilisationCeilingBps, setUtilisationCeilingBps] = useState(7000);
-  const [maxFillSize, setMaxFillSize] = useState("50000");
+  // Fees are no longer a per-vault choice — the intent market enforces one
+  // universal fee ceiling (ArcaidiaIntentMarket.MAX_FEE_BPS, WP-16) that every
+  // vault charges under first-valid-fill, so a per-vault base fee / pricing
+  // curve picker here would configure something the protocol doesn't read.
+  // What a vault owner actually controls is risk exposure, not price:
+  // maxFillBps caps any one fill as a percentage of the vault's own available
+  // liquidity; maxExposureBps caps how much of the vault can be in flight at
+  // once. Defaults match the vault contract's own committed defaults' intent
+  // (conservative but real capacity), not an arbitrary UI default.
+  const [maxFillBps, setMaxFillBps] = useState(5_000);
+  const [maxExposureBps, setMaxExposureBps] = useState(9_000);
   const [solverMode, setSolverMode] = useState<SolverMode>("REFERENCE");
   const [deployTarget, setDeployTarget] = useState<SolverDeployTarget>("DOCKER");
   const [solverOperator, setSolverOperator] = useState("");
@@ -169,6 +177,14 @@ function EarnPage() {
   const [vaultAddress] = useState<Address | null>(null);
   const deployed = vaultAddress !== null;
   const factoryReady = chainConfig(chainId)?.vaultFactory !== null;
+
+  const vaultNameValid = vaultName.trim().length > 0;
+  // A step is reachable by clicking its own tab only once every step before
+  // it is satisfied — Back is always free, but skipping ahead of the
+  // furthest-completed step is not, so a vault's name/economics are always
+  // captured before anything downstream (deploy, fund, authorise) can read
+  // them. `Next` and the tabs share this one gate.
+  const maxReachableStep = vaultNameValid ? 6 : 2;
 
   const operatorValid = isAddressLike(solverOperator.trim());
 
@@ -216,19 +232,26 @@ function EarnPage() {
       <ol className="mt-8 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {STEPS.map((s) => {
           const state = s.n === step ? "current" : s.n < step ? "done" : "todo";
+          // Only a step already reached is clickable directly — jumping
+          // ahead has to go through Next, one step at a time, so a step's
+          // own required data is always captured before anything past it
+          // can read it.
+          const reachable = s.n <= step;
           return (
             <li key={s.n}>
               <button
                 type="button"
-                onClick={() => setStep(s.n)}
+                onClick={() => reachable && setStep(s.n)}
+                disabled={!reachable}
                 aria-current={state === "current"}
+                aria-disabled={!reachable}
                 className={`w-full rounded-md border px-3 py-2 text-left text-xs uppercase tracking-wide transition-colors ${
                   state === "current"
                     ? "border-acid/70 bg-acid/10 text-acid"
                     : state === "done"
                       ? "border-gold/40 bg-gold/5 text-gold-glow"
-                      : "border-border text-text-dim hover:text-text"
-                }`}
+                      : "border-border text-text-dim"
+                } ${reachable ? "hover:text-text" : "cursor-not-allowed opacity-50"}`}
               >
                 <span className="num block text-[10px] opacity-70">Step {s.n}</span>
                 {s.label}
@@ -266,6 +289,18 @@ function EarnPage() {
               title="Create vault"
               hint="Deploys a standard ArcaidiaSolverVault from the supported factory template. No custom vault code."
             >
+              <Field label="Vault name" id="vault-name">
+                <input
+                  id="vault-name"
+                  placeholder="e.g. Midnight Runner"
+                  value={vaultName}
+                  onChange={(e) => setVaultName(e.target.value)}
+                  className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                />
+              </Field>
+              <p className="num mt-1 text-[11px] text-text-dim">
+                A label for your own reference — carried through deploy, not read onchain.
+              </p>
               <dl className="mt-3 space-y-1.5 text-sm">
                 <Row k="Template" v="ArcaidiaSolverVault (standard)" />
                 <Row k="Chain" v={CHAINS[chainId]?.name ?? NOT_AVAILABLE} />
@@ -339,53 +374,42 @@ function EarnPage() {
           ) : null}
 
           {step === 4 ? (
-            <Step title="Configure economics" hint="Deterministic pricing only. No discretionary quoting.">
+            <Step
+              title="Configure economics"
+              hint="No per-vault fee to set — the intent market's one fixed fee ceiling applies under first-valid-fill. What you control is risk exposure."
+            >
               <div className="mt-3 space-y-4">
-                <Field label={`Base fee — ${formatBps(baseFeeBps)}`} id="base-fee">
+                <Field label={`Max single fill — ${formatBps(maxFillBps)} of available liquidity`} id="max-fill-bps">
                   <input
-                    id="base-fee"
+                    id="max-fill-bps"
                     type="range"
-                    min={5}
-                    max={50}
-                    value={baseFeeBps}
-                    onChange={(e) => setBaseFeeBps(Number(e.target.value))}
-                    className="w-full accent-acid"
-                  />
-                </Field>
-                <Field label="Canonical pricing curve" id="curve">
-                  <select
-                    id="curve"
-                    value={curve}
-                    onChange={(e) => setCurve(e.target.value)}
-                    className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
-                  >
-                    <option value="utilisation-linear-v1">utilisation-linear-v1 (supported)</option>
-                    <option value="utilisation-convex-v1" disabled>
-                      utilisation-convex-v1 (not audited yet)
-                    </option>
-                  </select>
-                </Field>
-                <Field label={`Utilisation ceiling — ${formatBps(utilisationCeilingBps)}`} id="ceiling">
-                  <input
-                    id="ceiling"
-                    type="range"
-                    min={2000}
-                    max={9500}
+                    min={500}
+                    max={10_000}
                     step={100}
-                    value={utilisationCeilingBps}
-                    onChange={(e) => setUtilisationCeilingBps(Number(e.target.value))}
+                    value={maxFillBps}
+                    onChange={(e) => setMaxFillBps(Number(e.target.value))}
                     className="w-full accent-acid"
                   />
                 </Field>
-                <Field label="Max single fill (USDC)" id="max-fill">
+                <p className="num text-[11px] text-text-dim">
+                  The largest share of your vault's *remaining* available liquidity any one fill may take.
+                </p>
+                <Field label={`Max utilisation — ${formatBps(maxExposureBps)}`} id="max-exposure-bps">
                   <input
-                    id="max-fill"
-                    inputMode="decimal"
-                    value={maxFillSize}
-                    onChange={(e) => setMaxFillSize(e.target.value)}
-                    className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                    id="max-exposure-bps"
+                    type="range"
+                    min={1_000}
+                    max={9_800}
+                    step={100}
+                    value={maxExposureBps}
+                    onChange={(e) => setMaxExposureBps(Number(e.target.value))}
+                    className="w-full accent-acid"
                   />
                 </Field>
+                <p className="num text-[11px] text-text-dim">
+                  The most of your vault's capital that may be in flight (advanced, awaiting canonical
+                  settlement) at once.
+                </p>
               </div>
             </Step>
           ) : null}
@@ -565,13 +589,12 @@ function EarnPage() {
           {step === 6 ? (
             <Step title="Go live" hint="Review, then activate. You can pause the vault at any time.">
               <dl className="mt-3 space-y-1.5 text-sm">
+                <Row k="Name" v={vaultNameValid ? vaultName.trim() : NOT_AVAILABLE} />
                 <Row k="Chain" v={CHAINS[chainId]?.name ?? NOT_AVAILABLE} />
                 <Row k="Vault" v={deployed ? truncateAddress(vaultAddress!) : "Not deployed"} />
                 <Row k="Funded" v={`${formatUsdc(funded)} USDC`} />
-                <Row k="Base fee" v={formatBps(baseFeeBps)} />
-                <Row k="Pricing curve" v={curve} />
-                <Row k="Utilisation ceiling" v={formatBps(utilisationCeilingBps)} />
-                <Row k="Max single fill" v={`${maxFillSize || "0"} USDC`} />
+                <Row k="Max single fill" v={`${formatBps(maxFillBps)} of available liquidity`} />
+                <Row k="Max utilisation" v={formatBps(maxExposureBps)} />
                 <Row k="Solver runtime" v={solverMode === "REFERENCE" ? "Arcaidia reference solver" : "External solver"} />
                 <Row
                   k="Authorised operator"
@@ -615,11 +638,15 @@ function EarnPage() {
             </button>
             <button
               type="button"
-              onClick={() => setStep((s) => Math.min(6, s + 1))}
-              className="rounded-md border border-acid/60 bg-acid/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-acid"
+              disabled={step >= maxReachableStep}
+              onClick={() => setStep((s) => Math.min(maxReachableStep, s + 1))}
+              className="rounded-md border border-acid/60 bg-acid/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-acid disabled:cursor-not-allowed disabled:opacity-50"
             >
               Next step
             </button>
+            {step === 2 && !vaultNameValid ? (
+              <p className="num self-center text-[11px] text-warning">Name your vault to continue</p>
+            ) : null}
           </div>
         </section>
 

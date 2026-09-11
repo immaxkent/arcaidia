@@ -86,6 +86,64 @@ describe("queryNest", () => {
     const result = await queryNest(ENDPOINT, "SELECT 1 WHERE false");
     expect(result.rows).toEqual([]);
   });
+
+  /// Confirmed live, 2026-09-11: the Nest enforces a real concurrent-query
+  /// cap and answers with 503 under load. A page firing several queries at
+  /// once (one vault's history is already 4 queries) must not surface that
+  /// as a permanent-looking failure.
+  it("retries a 503 (server busy) and succeeds once the Nest answers", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch(async () => {
+        calls++;
+        if (calls < 3) return new Response(JSON.stringify({ error: "server busy" }), { status: 503 });
+        return new Response(JSON.stringify({ rows: [{ a: 1 }] }), { status: 200 });
+      }),
+    );
+
+    const result = await queryNest<{ a: number }>(ENDPOINT, "SELECT a FROM vault");
+    expect(result.rows).toEqual([{ a: 1 }]);
+    expect(calls).toBe(3);
+  });
+
+  it("retries a 429 the same way as a 503", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch(async () => {
+        calls++;
+        if (calls < 2) return new Response(JSON.stringify({ error: "rate limited" }), { status: 429 });
+        return new Response(JSON.stringify({ rows: [] }), { status: 200 });
+      }),
+    );
+
+    await queryNest(ENDPOINT, "SELECT 1");
+    expect(calls).toBe(2);
+  });
+
+  it("gives up and throws after exhausting retries on a persistent 503", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch(async () => new Response(JSON.stringify({ error: "server busy" }), { status: 503 })),
+    );
+
+    await expect(queryNest(ENDPOINT, "SELECT 1")).rejects.toThrow(/503/);
+  });
+
+  it("never retries a non-retryable status (e.g. 400) — fails fast instead", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch(async () => {
+        calls++;
+        return new Response(JSON.stringify({ error: "bad query" }), { status: 400 });
+      }),
+    );
+
+    await expect(queryNest(ENDPOINT, "SELECT bogus")).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
 });
 
 describe("nestReady", () => {
