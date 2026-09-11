@@ -10,6 +10,7 @@
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AgentAuthority } from '@arcaidia/domain';
+import { HttpTelemetryClient, NoopTelemetryClient, type TelemetryClient } from '@arcaidia/telemetry';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
   buildCircleSigningClient,
@@ -105,6 +106,21 @@ function routerMap(chains: SolverEntrypointConfig['chains']) {
   return new Map(chains.map((chain) => [chain.chainId, chain.intentRouter]));
 }
 
+/** WP-17.2: `TELEMETRY_ENABLED=false` (or unset) is a correct, first-class mode — see
+ *  `TelemetryConfig`'s own doc comment for why it isn't defaulted to enabled yet. */
+function buildTelemetryClient(config: SolverEntrypointConfig['telemetry']): TelemetryClient {
+  if (!config.enabled) return new NoopTelemetryClient();
+  return new HttpTelemetryClient({
+    relayUrl: config.relayUrl,
+    onError: (error, context) => {
+      // Never rethrown, never awaited by the caller — see HttpTelemetryClient's own doc
+      // comment. Logged so an operator can still notice a persistently unreachable Relay
+      // without it ever affecting a single fill.
+      console.warn(`[telemetry] ${context} failed:`, error);
+    },
+  });
+}
+
 export interface BuiltSolverDependencies {
   readonly deps: SolverDependencies;
   /** The signer's own address — log it at startup so it's obvious which key is live. */
@@ -143,6 +159,7 @@ export function buildSolverDependencies(
       policy: DEFAULT_RISK_POLICY,
       authorizationTtlSeconds: config.authorizationTtlSeconds,
     },
+    telemetry: buildTelemetryClient(config.telemetry),
   };
 
   return { deps, signerAddress: authority.address, submitterAddress: submitterAccount.address };

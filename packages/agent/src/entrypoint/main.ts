@@ -60,6 +60,11 @@ async function main(): Promise<void> {
     console.log(`[solver] chain ${chain.chainId}: router ${chain.intentRouter}, vault ${chain.liquidityVault}`);
     console.log(`[solver] chain ${chain.chainId}: subgraph ${chain.subgraphUrl}`);
   }
+  console.log(
+    config.telemetry.enabled
+      ? `[solver] telemetry  -> ${config.telemetry.relayUrl}`
+      : '[solver] telemetry  disabled',
+  );
 
   const handle = startSolverWorker(deps, {
     pollIntervalMs: config.pollIntervalMs,

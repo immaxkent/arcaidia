@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerDeployment, resetDeployments } from '@arcaidia/domain';
+import { HttpTelemetryClient, NoopTelemetryClient } from '@arcaidia/telemetry';
 import { InMemoryDecisionLog } from '../../src/logging/decision-log.js';
 import {
   buildReadClients,
@@ -36,6 +37,7 @@ function config(): SolverEntrypointConfig {
     authorizationTtlSeconds: 45,
     quotePort: 8787,
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
+    telemetry: { enabled: false },
   };
 }
 
@@ -149,5 +151,25 @@ describe('buildSolverDependencies', () => {
         signer: SEPOLIA_CHAIN.intentRouter,
       }),
     ).rejects.toThrow(/No write client configured for chain 999/);
+  });
+
+  // -----------------------------------------------------------------------
+  // Telemetry (WP-17.2)
+  // -----------------------------------------------------------------------
+
+  it('wires a NoopTelemetryClient when telemetry is disabled', () => {
+    const { deps } = buildSolverDependencies(
+      { ...config(), telemetry: { enabled: false } },
+      { log: new InMemoryDecisionLog() },
+    );
+    expect(deps.telemetry).toBeInstanceOf(NoopTelemetryClient);
+  });
+
+  it('wires a real HttpTelemetryClient, pointed at the configured relay, when enabled', () => {
+    const { deps } = buildSolverDependencies(
+      { ...config(), telemetry: { enabled: true, relayUrl: 'https://relay.example' } },
+      { log: new InMemoryDecisionLog() },
+    );
+    expect(deps.telemetry).toBeInstanceOf(HttpTelemetryClient);
   });
 });

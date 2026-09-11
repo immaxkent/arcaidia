@@ -9,6 +9,7 @@ import type {
   TxHash,
   VaultState,
 } from '@arcaidia/domain';
+import type { TelemetryClient, TelemetryHeartbeat, TelemetryStageEvent } from '@arcaidia/telemetry';
 import type { SourceChainReader, SourceEvidence } from '../src/verification/source-evidence.js';
 import type { FillSubmitter } from '../src/solver/ports.js';
 
@@ -98,5 +99,22 @@ export class FakeSubmitter implements FillSubmitter {
     if (this.failWith) throw this.failWith;
     this.submissions.push({ chainId, vault, signed });
     return `0x${'ab'.repeat(32)}`;
+  }
+}
+
+/**
+ * Records every reported stage in order — the shape `processIntent`'s own
+ * telemetry tests need to assert against, without a real Relay.
+ */
+export class FakeTelemetryClient implements TelemetryClient {
+  stages: TelemetryStageEvent[] = [];
+  heartbeats: TelemetryHeartbeat[] = [];
+
+  reportStage(event: TelemetryStageEvent): void {
+    this.stages.push(event);
+  }
+
+  heartbeat(beat: TelemetryHeartbeat): void {
+    this.heartbeats.push(beat);
   }
 }

@@ -30,12 +30,15 @@ import {
   type SignedFillAuthorization,
   type TxHash,
 } from '@arcaidia/domain';
+import { NoopTelemetryClient, type TelemetryClient, type TelemetryStage } from '@arcaidia/telemetry';
 
 import { evaluateIntent } from '../risk/evaluate-intent.js';
 import { verifySourceTransaction } from '../verification/verify-source.js';
 import type { SourceChainReader } from '../verification/source-evidence.js';
 import type { DecisionLog } from '../logging/decision-log.js';
 import type { Clock, FillSubmitter, NonceSource, SubmissionJournal } from './ports.js';
+
+const NOOP_TELEMETRY = new NoopTelemetryClient();
 
 export interface SolverConfig {
   readonly policy: RiskPolicy;
@@ -57,6 +60,13 @@ export interface SolverDependencies {
   readonly nonces: NonceSource;
   readonly journal: SubmissionJournal;
   readonly config: SolverConfig;
+  /**
+   * Optional, not defaulted away by accident: unset behaves exactly like an
+   * explicit `NoopTelemetryClient` (`TELEMETRY_ENABLED=false`), because
+   * telemetry is pre-chain observation only — WP-17's own acceptance gate is
+   * that every fill still completes correctly with this entirely absent.
+   */
+  readonly telemetry?: TelemetryClient;
 }
 
 export type ProcessOutcome =
@@ -77,10 +87,31 @@ export async function processIntent(
 ): Promise<ProcessOutcome> {
   const { observation, sourceReader, authority, submitter, log, clock, nonces, journal, config } =
     deps;
+  const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
 
   // Direction is data: these two fields decide every endpoint below.
   const route = resolveRoute(intent.sourceChainId, intent.destinationChainId);
   const endpoints = resolveEndpoints(route);
+
+  // Pre-chain and purely informational — see the `telemetry` field's own doc comment. Skipped
+  // (not merely no-op'd) for the two short-circuit returns just below: an intent this pass
+  // already knows is done or already attempted was never really "in progress" here.
+  //
+  // Wrapped defensively even though `HttpTelemetryClient` is itself careful never to throw or
+  // block: WP-17's acceptance gate is that telemetry can never affect a fill, and that guarantee
+  // should not rest entirely on every implementation of this interface remembering to uphold it.
+  const report = (stage: TelemetryStage) => {
+    try {
+      telemetry.reportStage({
+        stage,
+        intentId: intent.intentId,
+        vaultAddress: endpoints.destinationVault,
+        at: clock(),
+      });
+    } catch {
+      // Deliberately silent — see the comment above.
+    }
+  };
 
   if (journal.has(intent.intentId)) {
     return { kind: 'SKIPPED', reason: 'ALREADY_ATTEMPTED' };
@@ -91,10 +122,13 @@ export async function processIntent(
     return { kind: 'SKIPPED', reason: 'ALREADY_FILLED' };
   }
 
+  report('INTENT_DISCOVERED');
+
   const now = clock();
 
   // --- Verify the source before anything else is considered ----------------
 
+  report('VERIFYING_SOURCE');
   const evidence = await sourceReader.readEvidence(intent.sourceChainId, intent.sourceTxHash);
   const verification = verifySourceTransaction(intent, evidence, {
     now,
@@ -110,6 +144,7 @@ export async function processIntent(
 
   // --- Decide --------------------------------------------------------------
 
+  report('FORMULATING_FILL');
   const [vaultState, settlementHealth] = await Promise.all([
     observation.vaultState(route.destination.chainId),
     observation.settlementHealth(),
@@ -153,6 +188,7 @@ export async function processIntent(
   // moved funds, so a retry must not assume failure means nothing happened.
   journal.mark(intent.intentId);
 
+  report('SUBMITTING_SETTLEMENT');
   try {
     const txHash = await submitter.submitFastFill(
       route.destination.chainId,

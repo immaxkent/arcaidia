@@ -19,10 +19,24 @@ entirely without stopping a single fill.
       Solver gets the committed default unchanged; malformed-but-present still fails loudly
       (`ConfigError`), never silently ignored. Container packaging itself (a Dockerfile for
       `arcaidia-solver`) is still open — tracked below, no longer blocked on this.
-- [ ] **17.2 `arcaidia-telemetry` sidecar.** New, separate package. Forwards lifecycle events
-      (`tx_submitted`, `fill_won`, `fill_lost`, ...) and a heartbeat to the Relay (WP-18) over
-      outbound HTTPS only — no inbound port, no custody, cannot move funds by construction.
-      Authenticates by signing a challenge with the solver's own operator key.
+- [x] **17.2 `packages/telemetry` — event forwarding + heartbeat done; pairing/auth deferred to
+      WP-18.** `TelemetryClient` (`reportStage`/`heartbeat`, both `void`, never `Promise` — that
+      return type is what makes "never blocks the caller" a compile-time guarantee, not a
+      discipline), `HttpTelemetryClient` (fire-and-forget, failures observed through `onError`,
+      never thrown), `NoopTelemetryClient` (`TELEMETRY_ENABLED=false`). **Corrected the sub-task's
+      own event vocabulary while building it**: `tx_submitted`/`fill_won`/`fill_lost` (as drafted
+      above) are onchain-confirmed facts, which `WP-INTENT-MARKET.md` §7 and the frontend's own
+      already-implemented `SolverStageId` type both say telemetry must never report — only
+      `INTENT_DISCOVERED` / `VERIFYING_SOURCE` / `FORMULATING_FILL` / `SUBMITTING_SETTLEMENT` are
+      pre-chain and telemetry-sourced; used that vocabulary instead, matching what the frontend
+      already expects. Wired into `processIntent` at all four points, guarded by a local try/catch
+      so even a client that throws synchronously can't break a fill — defense-in-depth on top of
+      `HttpTelemetryClient`'s own care, not instead of it. `SolverDependencies.telemetry` is
+      optional (unset behaves exactly like an explicit `NoopTelemetryClient`), so this touches zero
+      existing test fixtures. `config.ts`/`build-dependencies.ts` wire `TELEMETRY_ENABLED` +
+      `ARCAIDIA_TELEMETRY_URL` into a real client end to end. **Not done:** the pairing/challenge-
+      signing handshake — can't build a client for an API whose shape WP-18 hasn't defined yet;
+      same principle as not guessing a cross-chain data format earlier in this branch.
 - [ ] **17.3 Docker Compose reference stack.** `docker-compose.yml` wiring `arcaidia-solver` +
       `arcaidia-telemetry` together, `TELEMETRY_ENABLED=true` default, `.env.example` listing every
       variable from `WP-INTENT-MARKET.md` §7's reference config block.
@@ -38,10 +52,17 @@ entirely without stopping a single fill.
       the other, and a malformed override fails loudly rather than falling back silently.
 - [ ] Container-level version of the same claim, once 17.1's Dockerfile exists: two actual
       `arcaidia-solver` containers, two `VAULT_ADDRESS` values, no shared state.
-- Telemetry sidecar: a forwarded event's HTTP call failing or timing out never blocks or delays
-  the solver's own decision/submission path.
-- Kill-the-Relay: full golden-run-equivalent lifecycle, Relay never started, solver completes
-  every fill exactly as WP-07's golden run does.
+- [x] Telemetry sidecar: proven at two layers. `packages/telemetry/test/client.test.ts` — a
+      forwarded event's HTTP call failing, or never resolving at all, never blocks or delays the
+      caller. `packages/agent/test/process-intent.test.ts` — a telemetry client that throws
+      synchronously on every call still lets a fill complete end to end, and each outcome
+      (`FILLED`/`DECLINED`/`UNVERIFIED`/`SKIPPED`) reports exactly the stages that outcome actually
+      passed through, no more.
+- [ ] Kill-the-Relay: full golden-run-equivalent lifecycle, Relay never started, solver completes
+      every fill exactly as WP-07's golden run does. (The unit-level version of this claim — a
+      telemetry client that fails/throws on everything still lets a fill complete — is done, above;
+      this is the full e2e-harness version, once the harness itself is wired to pass a telemetry
+      client through.)
 
 ## Acceptance gate
 

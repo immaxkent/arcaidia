@@ -36,6 +36,7 @@ describe('loadSolverConfig', () => {
     expect(config.authorizationTtlSeconds).toBe(45);
     expect(config.quotePort).toBe(8787);
     expect(config.chains).toHaveLength(2);
+    expect(config.telemetry).toEqual({ enabled: false });
 
     const sepolia = config.chains.find((c) => c.chainId === 11_155_111);
     expect(sepolia).toMatchObject({
@@ -224,5 +225,39 @@ describe('loadSolverConfig', () => {
     expect(() =>
       loadSolverConfig({ ...circleEnv(), CIRCLE_AGENT_WALLET_ADDRESS: 'not-an-address' }),
     ).toThrow(ConfigError);
+  });
+
+  // -----------------------------------------------------------------------
+  // Telemetry (WP-17.2) — disabled is a correct default, not a missing feature
+  // -----------------------------------------------------------------------
+
+  describe('telemetry', () => {
+    it('defaults to disabled when TELEMETRY_ENABLED is unset', () => {
+      const config = loadSolverConfig(baseEnv());
+      expect(config.telemetry).toEqual({ enabled: false });
+    });
+
+    it('stays disabled for any value other than the literal string "true"', () => {
+      const config = loadSolverConfig({ ...baseEnv(), TELEMETRY_ENABLED: '1' });
+      expect(config.telemetry).toEqual({ enabled: false });
+    });
+
+    it('enables telemetry and carries the relay URL through when both are set', () => {
+      const config = loadSolverConfig({
+        ...baseEnv(),
+        TELEMETRY_ENABLED: 'true',
+        ARCAIDIA_TELEMETRY_URL: 'https://relay.example',
+      });
+      expect(config.telemetry).toEqual({ enabled: true, relayUrl: 'https://relay.example' });
+    });
+
+    it('refuses TELEMETRY_ENABLED=true with no relay URL to send anything to', () => {
+      expect(() => loadSolverConfig({ ...baseEnv(), TELEMETRY_ENABLED: 'true' })).toThrow(
+        ConfigError,
+      );
+      expect(() => loadSolverConfig({ ...baseEnv(), TELEMETRY_ENABLED: 'true' })).toThrow(
+        /ARCAIDIA_TELEMETRY_URL/,
+      );
+    });
   });
 });

@@ -37,6 +37,18 @@ export type SignerAuthorityConfig =
       readonly address: `0x${string}`;
     };
 
+/**
+ * WP-17.2. Unset or explicitly `false` disables telemetry — a correct, first-class mode, not a
+ * degraded one; see `SolverDependencies.telemetry`'s own doc comment. Deliberately *not*
+ * defaulted to enabled the way `WP-INTENT-MARKET.md` §7 describes for the eventual production
+ * default: the Relay (WP-18) doesn't exist on this branch yet, so defaulting to "on" here would
+ * mean every instance silently fails every event/heartbeat post against nothing. Revisit the
+ * default once a real Relay exists to point at.
+ */
+export type TelemetryConfig =
+  | { readonly enabled: false }
+  | { readonly enabled: true; readonly relayUrl: string };
+
 export interface SolverEntrypointConfig {
   readonly signerAuthority: SignerAuthorityConfig;
   readonly submitterPrivateKey: `0x${string}`;
@@ -45,6 +57,7 @@ export interface SolverEntrypointConfig {
   /** POST /quote (WP-14) — colocated in this process; see quote-server.ts. */
   readonly quotePort: number;
   readonly chains: readonly [ChainEntrypointConfig, ChainEntrypointConfig];
+  readonly telemetry: TelemetryConfig;
 }
 
 export class ConfigError extends Error {}
@@ -182,5 +195,18 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
     authorizationTtlSeconds,
     quotePort,
     chains: [chainConfig('ethereum-sepolia', env), chainConfig('arc-testnet', env)],
+    telemetry: loadTelemetryConfig(env),
   };
+}
+
+function loadTelemetryConfig(env: Env): TelemetryConfig {
+  if (env.TELEMETRY_ENABLED !== 'true') return { enabled: false };
+
+  const relayUrl = env.ARCAIDIA_TELEMETRY_URL;
+  if (!relayUrl) {
+    throw new ConfigError(
+      'TELEMETRY_ENABLED=true but ARCAIDIA_TELEMETRY_URL is not set — nowhere to send events to.',
+    );
+  }
+  return { enabled: true, relayUrl };
 }
