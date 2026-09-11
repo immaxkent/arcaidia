@@ -126,17 +126,6 @@ export async function deployProtocol(
     }),
   );
 
-  // WP-16.1: the vault refuses every fastFill outright (`NoMarketConfigured`)
-  // until this is set — plain `new`, not CREATE2. Its one constructor arg
-  // (this chain's own SettlementReceiver) already differs from a wallet-nonce
-  // standpoint even when the address itself matches across chains, and
-  // nothing elsewhere in this harness predicts or hardcodes the market's own
-  // address the way it does for vault/router/receiver, so there is no address
-  // parity to preserve here.
-  const market = await send.deploy(ARTIFACTS.ArcaidiaIntentMarket.abi, ARTIFACTS.ArcaidiaIntentMarket.bytecode, [
-    settlementReceiver,
-  ]);
-
   // --- wiring -------------------------------------------------------------
 
   const vaultCall = (functionName: string, args: readonly unknown[]) =>
@@ -201,16 +190,8 @@ function sender(client: PublicClient, wallet: WalletClient) {
   };
 
   return {
-    async deploy(
-      abi: readonly unknown[],
-      bytecode: Hex,
-      args: readonly unknown[] = [],
-    ): Promise<Address> {
-      const hash = await wallet.deployContract({
-        abi: abi as never,
-        bytecode,
-        args: args as never,
-      } as never);
+    async deploy(abi: readonly unknown[], bytecode: Hex): Promise<Address> {
+      const hash = await wallet.deployContract({ abi: abi as never, bytecode } as never);
       const receipt = await confirm(hash);
       if (!receipt.contractAddress) throw new Error('Deployment produced no address.');
       return receipt.contractAddress;
