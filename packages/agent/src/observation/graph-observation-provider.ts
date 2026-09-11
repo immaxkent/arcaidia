@@ -101,6 +101,30 @@ const FILL_FOR_INTENT = `
     fills(first: 1, where: { intentId: $intentId }) { id }
   }`;
 
+/**
+ * The batched form of `FILL_FOR_INTENT`, one alias per candidate.
+ *
+ * `pendingIntents()` used to run one `FILL_FOR_INTENT` query *per candidate
+ * per chain* — a quiet poll with a handful of pending intents on a 2s
+ * interval (`SOLVER_POLL_INTERVAL_MS`) turns into thousands of subgraph
+ * requests an hour, which is what actually exhausts a free-tier daily cap.
+ * GraphQL aliases let many lookups travel in one HTTP request instead: this
+ * builds one query with `f0`, `f1`, ... aliases, so a poll costs exactly one
+ * request per chain regardless of how many candidates it found, not one
+ * request per candidate per chain.
+ */
+function fillsForIntentsQuery(count: number): string {
+  const params = Array.from({ length: count }, (_, i) => `$id${i}: Bytes!`).join(', ');
+  const fields = Array.from(
+    { length: count },
+    (_, i) => `f${i}: fills(first: 1, where: { intentId: $id${i} }) { id }`,
+  ).join('\n    ');
+  return `
+  query FillsForIntents(${params}) {
+    ${fields}
+  }`;
+}
+
 interface RawIntent {
   id: string; sender: string; recipient: string; inputToken: string; amount: string;
   sourceChainId: string; destinationChainId: string; maxFeeBps: number;
@@ -167,11 +191,35 @@ export class GraphObservationProvider implements ObservationProvider {
     );
 
     const candidates = perChain.flat();
-    const unfilled = await Promise.all(
-      candidates.map(async (intent) => ((await this.isFilled(intent.intentId)) ? null : intent)),
+    if (candidates.length === 0) return [];
+
+    const filled = await this.filledIntentIds(candidates.map((intent) => intent.intentId));
+    return candidates.filter((intent) => !filled.has(intent.intentId));
+  }
+
+  /**
+   * Which of these intent ids already have a fill, on either chain — the
+   * batched replacement for calling `isFilled` once per candidate. One
+   * aliased request per chain, however many ids are asked about.
+   */
+  private async filledIntentIds(intentIds: readonly Bytes32[]): Promise<Set<Bytes32>> {
+    const ids = [...new Set(intentIds)];
+    const document = fillsForIntentsQuery(ids.length);
+    const variables = Object.fromEntries(ids.map((id, i) => [`id${i}`, id.toLowerCase()]));
+
+    const responses = await Promise.all(
+      this.sources.map((source) =>
+        this.client.query<Record<string, Array<{ id: string }>>>(source.endpoint, document, variables),
+      ),
     );
 
-    return unfilled.filter((intent): intent is Intent => intent !== null);
+    const filled = new Set<Bytes32>();
+    for (const response of responses) {
+      ids.forEach((id, i) => {
+        if ((response[`f${i}`] ?? []).length > 0) filled.add(id);
+      });
+    }
+    return filled;
   }
 
   async vaultState(chainId: number): Promise<VaultState> {
