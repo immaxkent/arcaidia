@@ -6,6 +6,11 @@
  * nothing and reports an empty world, which the solver reads as "no work" — a
  * silent failure that looks exactly like a quiet day.
  *
+ * v2 (WP-27): event signatures are derived from the compiled ABIs rather than
+ * hand-typed — found on main: the manifest still listed `LpReimbursed(indexed
+ * bytes32,uint256)` after WP-16 had made it three parameters, and nothing could
+ * catch that because the string was typed twice. Now the ABI is the only source.
+ *
  * `--check` fails when the committed manifests are stale, in the same way
  * `abi:check` does for the ABI barrel.
  *
@@ -17,7 +22,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CHAINS, deploymentFor, type ChainConfig, type ChainKey } from '../packages/domain/src/index.js';
+import { ABIS, CHAINS, deploymentFor, type ChainConfig, type ChainKey } from '../packages/domain/src/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SUBGRAPH = join(ROOT, 'subgraph');
@@ -26,66 +31,79 @@ const SUBGRAPH = join(ROOT, 'subgraph');
 export const PLACEHOLDER = '0x0000000000000000000000000000000000000000';
 
 /**
- * Where the vault and settlement receiver's indexing begins.
- *
- * Zero would replay the entire chain — wasteful and, on Studio's free tier,
- * slow enough to matter. These are the real block the 2026-09-10 redeploy
- * (WP-12, DeployVaultV2.s.sol — live percentage-based fill/exposure caps)
- * landed in on each chain (contracts/broadcast/DeployVaultV2.s.sol/<chainId>/run-latest.json).
- * The original vault/receiver deployed 2026-09-08 are retired; indexing from
- * their block would replay history under an address that never existed there.
+ * Where the v2 deployment's indexing begins, per chain — the block the coordinated
+ * redeploy (WP-31) lands in. `0` until then: a placeholder the `--check` flow
+ * tolerates, and one a real Studio deploy must never ship with (it would replay the
+ * chain from genesis), so WP-31's checklist fills these in before deploying.
  */
 export const START_BLOCKS: Record<ChainKey, number> = {
-  'ethereum-sepolia': 11_675_651,
-  'arc-testnet': 61_414_683,
+  'ethereum-sepolia': 0,
+  'arc-testnet': 0,
 };
+
+interface AbiInput {
+  readonly type: string;
+  readonly indexed?: boolean;
+  readonly components?: readonly AbiInput[];
+}
+interface AbiItem {
+  readonly type: string;
+  readonly name?: string;
+  readonly inputs?: readonly AbiInput[];
+}
+
+function abiType(input: AbiInput): string {
+  if (input.type.startsWith('tuple')) {
+    const inner = (input.components ?? []).map(abiType).join(',');
+    return `(${inner})${input.type.slice('tuple'.length)}`;
+  }
+  return input.type;
+}
 
 /**
- * Where the router's indexing begins — separately, because the router was
- * redeployed 2026-09-09 (WP-10, real CCTP transport;
- * contracts/broadcast/DeployCctpRouter.s.sol/<chainId>/run-latest.json) and the
- * vault/receiver were not. Indexing the new router from the old block would
- * replay the retired router's history under the new address, which never
- * existed there — nothing would match, but it costs real sync time to find
- * that out on every deploy.
+ * The manifest form of an event signature, e.g.
+ * `IntentCreated(indexed bytes32,indexed address,...)` — exactly what graph-node matches
+ * against the ABI, derived from that same ABI so it cannot drift.
  */
-export const ROUTER_START_BLOCKS: Record<ChainKey, number> = {
-  'ethereum-sepolia': 11_667_863,
-  'arc-testnet': 61_236_176,
-};
+export function eventSignature(abi: readonly unknown[], name: string): string {
+  const item = (abi as readonly AbiItem[]).find((entry) => entry.type === 'event' && entry.name === name);
+  if (!item) throw new Error(`No event ${name} in ABI.`);
+  const params = (item.inputs ?? []).map((input) => `${input.indexed ? 'indexed ' : ''}${abiType(input)}`);
+  return `${name}(${params.join(',')})`;
+}
 
-/**
- * The settlement receiver retired by the 2026-09-10 redeploy (WP-12), kept as
- * a second, permanent `SettlementReceiver` data source — not swapped out the
- * way the pre-WP-10 router was.
- *
- * Found live: an intent created before the redeploy had its real
- * `RecipientPaidByFallback` land on *this* address, which the redeploy's own
- * `START_BLOCKS`/address bump made permanently invisible — the intent itself
- * stayed indexed (the router never moved), but its settlement vanished from
- * the subgraph's view even though it settled correctly onchain. One retired
- * data source, indexed from its own original 2026-09-08 deploy block, closes
- * that for every intent that ever existed against it — not just this one.
- */
-export const RETIRED_SETTLEMENT_RECEIVERS: Record<ChainKey, string> = {
-  'ethereum-sepolia': '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
-  'arc-testnet': '0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC',
-};
+function handlers(abi: readonly unknown[], pairs: ReadonlyArray<readonly [string, string]>): string {
+  return pairs
+    .map(([event, handler]) => `        - event: ${eventSignature(abi, event)}\n          handler: ${handler}`)
+    .join('\n');
+}
 
-export const RETIRED_SETTLEMENT_RECEIVER_START_BLOCKS: Record<ChainKey, number> = {
-  'ethereum-sepolia': 11_660_148,
-  'arc-testnet': 61_052_876,
-};
+const ROUTER_HANDLERS = handlers(ABIS.ArcaidiaIntentRouter, [['IntentCreated', 'handleIntentCreated']]);
+const FACTORY_HANDLERS = handlers(ABIS.ArcaidiaVaultFactory, [['VaultCreated', 'handleVaultCreated']]);
+const VAULT_HANDLERS = handlers(ABIS.ArcaidiaLiquidityVault, [
+  ['VaultInitialized', 'handleVaultInitialized'],
+  ['FastFilled', 'handleFastFilled'],
+  ['DeliveredViaSwap', 'handleDeliveredViaSwap'],
+  ['SwapFellBack', 'handleSwapFellBack'],
+  ['Deposit', 'handleDeposit'],
+  ['Withdraw', 'handleWithdraw'],
+  ['ReimbursementRecorded', 'handleReimbursement'],
+  ['FeesAccrued', 'handleFeesAccrued'],
+  ['PausedSet', 'handlePausedSet'],
+]);
+const RECEIVER_HANDLERS = handlers(ABIS.SettlementReceiver, [
+  ['LpReimbursed', 'handleLpReimbursed'],
+  ['RecipientPaidByFallback', 'handleRecipientPaidByFallback'],
+  ['HeldForVault', 'handleHeldForVault'],
+  ['SettledWithProof', 'handleSettledWithProof'],
+]);
 
 export function manifest(chain: ChainConfig): string {
   const contracts = deploymentFor(chain.key);
   const router = contracts.intentRouter ?? PLACEHOLDER;
-  const routerStartBlock = ROUTER_START_BLOCKS[chain.key];
-  const vault = contracts.liquidityVault ?? PLACEHOLDER;
+  const factory = contracts.vaultFactory ?? PLACEHOLDER;
   const receiver = contracts.settlementReceiver ?? PLACEHOLDER;
   const startBlock = START_BLOCKS[chain.key];
-  const retiredReceiver = RETIRED_SETTLEMENT_RECEIVERS[chain.key];
-  const retiredReceiverStartBlock = RETIRED_SETTLEMENT_RECEIVER_START_BLOCKS[chain.key];
 
   return `# GENERATED — do not edit. Run \`pnpm subgraph:generate\`.
 #
@@ -93,8 +111,12 @@ export function manifest(chain: ChainConfig): string {
 # somewhere the rest of the system does not. A subgraph indexing the wrong
 # address reports an empty world, which the solver reads as "no work" — a
 # failure indistinguishable from a quiet day.
+#
+# v2 (WP-27): three fixed data sources (router, vault factory, settlement
+# receiver) and one template — every vault the factory creates, the House
+# Vault included, is indexed from its own VaultCreated block on (D10).
 specVersion: 1.0.0
-description: Arcaidia intents, fills and canonical settlement on ${chain.name}.
+description: Arcaidia intents, vaults, fills and canonical settlement on ${chain.name}.
 repository: https://github.com/immaxkent/arcaidia
 schema:
   file: ./schema.graphql
@@ -106,7 +128,7 @@ dataSources:
     source:
       address: "${router}"
       abi: ArcaidiaIntentRouter
-      startBlock: ${routerStartBlock}
+      startBlock: ${startBlock}
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -117,38 +139,26 @@ dataSources:
         - name: ArcaidiaIntentRouter
           file: ./abis/ArcaidiaIntentRouter.json
       eventHandlers:
-        - event: IntentCreated(indexed bytes32,indexed address,indexed address,uint8,address,uint256,uint256,uint256,uint16,uint64,uint256,address,uint256,bytes32)
-          handler: handleIntentCreated
+${ROUTER_HANDLERS}
 
   - kind: ethereum
-    name: ArcaidiaLiquidityVault
+    name: ArcaidiaVaultFactory
     network: ${chain.graphNetwork}
     source:
-      address: "${vault}"
-      abi: ArcaidiaLiquidityVault
+      address: "${factory}"
+      abi: ArcaidiaVaultFactory
       startBlock: ${startBlock}
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
       language: wasm/assemblyscript
-      file: ./src/vault.ts
-      entities: [Intent, Fill, Vault, ProtocolState]
+      file: ./src/factory.ts
+      entities: [Vault, FeeSnapshot, ProtocolState]
       abis:
-        - name: ArcaidiaLiquidityVault
-          file: ./abis/ArcaidiaLiquidityVault.json
+        - name: ArcaidiaVaultFactory
+          file: ./abis/ArcaidiaVaultFactory.json
       eventHandlers:
-        - event: FastFilled(indexed bytes32,indexed address,indexed address,uint256,uint256,uint256)
-          handler: handleFastFilled
-        - event: Deposit(indexed address,indexed address,uint256,uint256)
-          handler: handleDeposit
-        - event: Withdraw(indexed address,indexed address,indexed address,uint256,uint256)
-          handler: handleWithdraw
-        - event: ReimbursementRecorded(indexed bytes32,uint256,uint256)
-          handler: handleReimbursement
-        - event: FeesAccrued(indexed bytes32,uint256,uint256)
-          handler: handleFeesAccrued
-        - event: PausedSet(bool)
-          handler: handlePausedSet
+${FACTORY_HANDLERS}
 
   - kind: ethereum
     name: SettlementReceiver
@@ -167,44 +177,35 @@ dataSources:
         - name: SettlementReceiver
           file: ./abis/SettlementReceiver.json
       eventHandlers:
-        - event: LpReimbursed(indexed bytes32,uint256)
-          handler: handleLpReimbursed
-        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
-          handler: handleRecipientPaidByFallback
+${RECEIVER_HANDLERS}
 
-  # Retired 2026-09-10 (WP-12) — kept indexed, permanently, so intents settled
-  # before the redeploy don't lose their real settlement history. Same
-  # mapping file and handlers; a settlement is a settlement regardless of
-  # which SettlementReceiver instance processed it.
-  - kind: ethereum
-    name: SettlementReceiverRetired
+templates:
+  - kind: ethereum/contract
+    name: ArcaidiaLiquidityVault
     network: ${chain.graphNetwork}
     source:
-      address: "${retiredReceiver}"
-      abi: SettlementReceiver
-      startBlock: ${retiredReceiverStartBlock}
+      abi: ArcaidiaLiquidityVault
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
       language: wasm/assemblyscript
-      file: ./src/settlement.ts
-      entities: [Intent, Settlement, ProtocolState]
+      file: ./src/vault.ts
+      entities: [Intent, Fill, Vault, FeeSnapshot, ProtocolState]
       abis:
-        - name: SettlementReceiver
-          file: ./abis/SettlementReceiver.json
+        - name: ArcaidiaLiquidityVault
+          file: ./abis/ArcaidiaLiquidityVault.json
       eventHandlers:
-        - event: LpReimbursed(indexed bytes32,uint256)
-          handler: handleLpReimbursed
-        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
-          handler: handleRecipientPaidByFallback
+${VAULT_HANDLERS}
 `;
 }
 
 // The ABIs the mappings decode against, taken from the same barrel every other
 // package uses.
+const ABI_FILES = ['ArcaidiaIntentRouter', 'ArcaidiaVaultFactory', 'ArcaidiaLiquidityVault', 'SettlementReceiver'] as const;
+
 function writeAbis(): void {
   mkdirSync(join(SUBGRAPH, 'abis'), { recursive: true });
-  for (const name of ['ArcaidiaIntentRouter', 'ArcaidiaLiquidityVault', 'SettlementReceiver']) {
+  for (const name of ABI_FILES) {
     const artifact = JSON.parse(
       readFileSync(join(ROOT, 'contracts', 'out', `${name}.sol`, `${name}.json`), 'utf8'),
     ) as { abi: unknown };
@@ -246,7 +247,7 @@ function runCli(): void {
     process.exit(1);
   }
 
-  console.log(check ? 'Subgraph manifests are up to date.' : `Wrote ${targets.length} manifests and 3 ABIs.`);
+  console.log(check ? 'Subgraph manifests are up to date.' : `Wrote ${targets.length} manifests and ${ABI_FILES.length} ABIs.`);
 }
 
 const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;

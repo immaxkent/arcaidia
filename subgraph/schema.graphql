@@ -1,4 +1,4 @@
-# Arcaidia subgraph schema.
+# Arcaidia subgraph schema — v2 (WP-27).
 #
 # One schema, deployed once per chain. Each deployment indexes the contracts on
 # its own chain; `GraphObservationProvider` queries both and merges on
@@ -10,21 +10,33 @@
 # package and the contracts: `fastStatus` and `canonicalStatus` are separate
 # fields. A single `status` enum would let a query answer "is this done?" — a
 # question that has no honest single answer.
+#
+# v2 additions: the intent's trade terms (schema v1.1, D5), per-vault fee policy
+# and its live tier (D7), factory-created vault discovery (D10), settlement from
+# attested bytes (D8), and `FeeSnapshot` — the fee-evolution series the market
+# intelligence surface (WP-33) charts without query-time recompute.
 
 "An intent as recorded by the source chain's router."
 type Intent @entity(immutable: false) {
   "The canonical intent id, identical on both chains."
   id: Bytes!
 
+  "Schema version stamped by the router (v1.1 = 1)."
+  intentVersion: Int!
   sender: Bytes!
   recipient: Bytes!
   inputToken: Bytes!
   amount: BigInt!
   sourceChainId: BigInt!
   destinationChainId: BigInt!
+  "The user's hard ceiling on the fast-fill fee — enforced on chain by the vault (D6)."
   maxFeeBps: Int!
   deadline: BigInt!
   nonce: BigInt!
+  "address(0) means the destination's USDC; anything else is a trade intent."
+  tokenOut: Bytes!
+  targetMinOut: BigInt!
+  isTradeIntent: Boolean!
 
   "Correlates this intent to its canonical settlement message."
   settlementRef: Bytes!
@@ -56,31 +68,60 @@ enum CanonicalStatus {
 enum CanonicalOutcome {
   LP_REIMBURSED
   RECIPIENT_FALLBACK
+  "Parked at the receiver for a winner whose reimbursement reverted; resolved by retryHeld."
+  HELD_FOR_VAULT
+}
+
+"How the recipient was paid on a fast fill."
+enum DeliveryPath {
+  USDC
+  SWAP
+  SWAP_FALLBACK
 }
 
 "An advance of LP capital, recorded by the destination chain's vault."
-type Fill @entity(immutable: true) {
+type Fill @entity(immutable: false) {
   id: Bytes!
   intentId: Bytes!
+  "The vault that won this intent."
+  vault: Vault!
   recipient: Bytes!
+  inputAmount: BigInt!
   "What actually left the vault: the input amount minus the fee."
   outputAmount: BigInt!
+  feeAmount: BigInt!
+  "The vault's posted tier at the moment of the fill (D7)."
+  feeBps: Int!
   "The agent authority whose signature authorised this."
   signer: Bytes!
+  "USDC unless a swap adapter delivered tokenOut (D9)."
+  deliveredVia: DeliveryPath!
+  tokenOut: Bytes
+  amountOut: BigInt
   blockNumber: BigInt!
   timestamp: BigInt!
   txHash: Bytes!
 }
 
 "Canonical settlement, recorded by the destination chain's receiver."
-type Settlement @entity(immutable: true) {
+type Settlement @entity(immutable: false) {
   id: Bytes!
   intentId: Bytes!
   outcome: CanonicalOutcome!
   amount: BigInt!
+  "True when routed from Circle-attested bytes (settleWithProof, D8); false for the reporter path."
+  viaProof: Boolean!
+  cctpNonce: Bytes
+  "The vault owed the funds while HELD_FOR_VAULT; null otherwise."
+  heldForVault: Bytes
   blockNumber: BigInt!
   timestamp: BigInt!
   txHash: Bytes!
+}
+
+"How a vault came to be known to this subgraph."
+enum VaultOrigin {
+  FACTORY
 }
 
 """
@@ -95,6 +136,23 @@ type Vault @entity(immutable: false) {
   id: Bytes!
   chainId: BigInt!
   asset: Bytes!
+  owner: Bytes!
+  label: String!
+  createdVia: VaultOrigin!
+  createdAtBlock: BigInt!
+  createdAtTimestamp: BigInt!
+
+  "Fee policy fixed at creation (D7)."
+  baseFeeBps: Int!
+  midFeeBps: Int!
+  highFeeBps: Int!
+  criticalFeeBps: Int!
+  midThresholdBps: Int!
+  highThresholdBps: Int!
+  criticalThresholdBps: Int!
+  reserveFloorBps: Int!
+  maxFillBps: Int!
+  maxExposureBps: Int!
 
   "Everything the contract holds, including protocol fees owed."
   liquidBalance: BigInt!
@@ -102,15 +160,35 @@ type Vault @entity(immutable: false) {
   outstandingExposure: BigInt!
   "Fees held for the treasury. Not LP capital."
   accruedProtocolFees: BigInt!
+  "outstandingExposure / (liquidBalance - accruedProtocolFees + outstandingExposure), in bps."
+  utilisationBps: Int!
+  "The tier the policy posts at the current utilisation — the same arithmetic as FeePolicyLib."
+  currentFeeBps: Int!
 
   totalDeposited: BigInt!
   totalWithdrawn: BigInt!
   fillCount: BigInt!
+  totalFeesEarned: BigInt!
   paused: Boolean!
 
   "The block this state was last written at, so consumers can see their own lag."
   updatedAtBlock: BigInt!
   updatedAtTimestamp: BigInt!
+
+  fills: [Fill!]! @derivedFrom(field: "vault")
+  feeSnapshots: [FeeSnapshot!]! @derivedFrom(field: "vault")
+}
+
+"One point of a vault's fee/utilisation series, written on every state change."
+type FeeSnapshot @entity(immutable: true) {
+  id: Bytes!
+  vault: Vault!
+  utilisationBps: Int!
+  feeBps: Int!
+  liquidBalance: BigInt!
+  outstandingExposure: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
 }
 
 """
@@ -125,9 +203,13 @@ type ProtocolState @entity(immutable: false) {
   id: String!
   chainId: BigInt!
 
+  vaultCount: BigInt!
   intentsCreated: BigInt!
+  tradeIntentsCreated: BigInt!
   intentsFilled: BigInt!
   intentsSettled: BigInt!
+  "Settled with nobody having fast-filled — the canonical-only rate's numerator."
+  intentsFallenBack: BigInt!
 
   "Advanced and not yet reimbursed."
   pendingSettlementValue: BigInt!

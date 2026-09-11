@@ -1,4 +1,4 @@
-import { BigInt } from '@graphprotocol/graph-ts';
+import { Address, BigInt } from '@graphprotocol/graph-ts';
 import { IntentCreated } from '../generated/ArcaidiaIntentRouter/ArcaidiaIntentRouter';
 import { Intent } from '../generated/schema';
 import { protocolState } from './shared';
@@ -16,6 +16,7 @@ const ONE = BigInt.fromI32(1);
 export function handleIntentCreated(event: IntentCreated): void {
   const intent = new Intent(event.params.intentId);
 
+  intent.intentVersion = event.params.intentVersion;
   intent.sender = event.params.sender;
   intent.recipient = event.params.recipient;
   intent.inputToken = event.params.inputToken;
@@ -25,6 +26,9 @@ export function handleIntentCreated(event: IntentCreated): void {
   intent.maxFeeBps = event.params.maxFeeBps;
   intent.deadline = event.params.deadline;
   intent.nonce = event.params.nonce;
+  intent.tokenOut = event.params.tokenOut;
+  intent.targetMinOut = event.params.targetMinOut;
+  intent.isTradeIntent = event.params.tokenOut.notEqual(Address.zero());
   intent.settlementRef = event.params.settlementRef;
 
   intent.fastStatus = 'PENDING';
@@ -39,5 +43,6 @@ export function handleIntentCreated(event: IntentCreated): void {
   const state = protocolState(event);
   state.chainId = event.params.sourceChainId;
   state.intentsCreated = state.intentsCreated.plus(ONE);
+  if (intent.isTradeIntent) state.tradeIntentsCreated = state.tradeIntentsCreated.plus(ONE);
   state.save();
 }

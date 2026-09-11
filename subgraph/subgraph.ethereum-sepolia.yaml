@@ -4,8 +4,12 @@
 # somewhere the rest of the system does not. A subgraph indexing the wrong
 # address reports an empty world, which the solver reads as "no work" — a
 # failure indistinguishable from a quiet day.
+#
+# v2 (WP-27): three fixed data sources (router, vault factory, settlement
+# receiver) and one template — every vault the factory creates, the House
+# Vault included, is indexed from its own VaultCreated block on (D10).
 specVersion: 1.0.0
-description: Arcaidia intents, fills and canonical settlement on Ethereum Sepolia.
+description: Arcaidia intents, vaults, fills and canonical settlement on Ethereum Sepolia.
 repository: https://github.com/immaxkent/arcaidia
 schema:
   file: ./schema.graphql
@@ -17,7 +21,7 @@ dataSources:
     source:
       address: "0x58868465d14e0694d033bD511588AE90482b21CC"
       abi: ArcaidiaIntentRouter
-      startBlock: 11667863
+      startBlock: 0
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -32,24 +36,75 @@ dataSources:
           handler: handleIntentCreated
 
   - kind: ethereum
+    name: ArcaidiaVaultFactory
+    network: sepolia
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: ArcaidiaVaultFactory
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/factory.ts
+      entities: [Vault, FeeSnapshot, ProtocolState]
+      abis:
+        - name: ArcaidiaVaultFactory
+          file: ./abis/ArcaidiaVaultFactory.json
+      eventHandlers:
+        - event: VaultCreated(indexed address,indexed address,string,(uint16,uint16,uint16,uint16,uint16,uint16,uint16),uint16,uint16,uint16)
+          handler: handleVaultCreated
+
+  - kind: ethereum
+    name: SettlementReceiver
+    network: sepolia
+    source:
+      address: "0x9a47a161ea8328b96Ad976264d42790881570E71"
+      abi: SettlementReceiver
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      file: ./src/settlement.ts
+      entities: [Intent, Settlement, ProtocolState]
+      abis:
+        - name: SettlementReceiver
+          file: ./abis/SettlementReceiver.json
+      eventHandlers:
+        - event: LpReimbursed(indexed bytes32,indexed address,uint256)
+          handler: handleLpReimbursed
+        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
+          handler: handleRecipientPaidByFallback
+        - event: HeldForVault(indexed bytes32,indexed address,uint256)
+          handler: handleHeldForVault
+        - event: SettledWithProof(indexed bytes32,uint8,uint256,bytes32)
+          handler: handleSettledWithProof
+
+templates:
+  - kind: ethereum/contract
     name: ArcaidiaLiquidityVault
     network: sepolia
     source:
-      address: "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1"
       abi: ArcaidiaLiquidityVault
-      startBlock: 11675651
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
       language: wasm/assemblyscript
       file: ./src/vault.ts
-      entities: [Intent, Fill, Vault, ProtocolState]
+      entities: [Intent, Fill, Vault, FeeSnapshot, ProtocolState]
       abis:
         - name: ArcaidiaLiquidityVault
           file: ./abis/ArcaidiaLiquidityVault.json
       eventHandlers:
-        - event: FastFilled(indexed bytes32,indexed address,indexed address,uint256,uint256,uint256)
+        - event: VaultInitialized(address,address,uint16)
+          handler: handleVaultInitialized
+        - event: FastFilled(indexed bytes32,indexed address,indexed address,uint256,uint256,uint256,uint16)
           handler: handleFastFilled
+        - event: DeliveredViaSwap(indexed bytes32,indexed address,uint256)
+          handler: handleDeliveredViaSwap
+        - event: SwapFellBack(indexed bytes32,indexed address,uint256)
+          handler: handleSwapFellBack
         - event: Deposit(indexed address,indexed address,uint256,uint256)
           handler: handleDeposit
         - event: Withdraw(indexed address,indexed address,indexed address,uint256,uint256)
@@ -60,51 +115,3 @@ dataSources:
           handler: handleFeesAccrued
         - event: PausedSet(bool)
           handler: handlePausedSet
-
-  - kind: ethereum
-    name: SettlementReceiver
-    network: sepolia
-    source:
-      address: "0x9a47a161ea8328b96Ad976264d42790881570E71"
-      abi: SettlementReceiver
-      startBlock: 11675651
-    mapping:
-      kind: ethereum/events
-      apiVersion: 0.0.7
-      language: wasm/assemblyscript
-      file: ./src/settlement.ts
-      entities: [Intent, Settlement, ProtocolState]
-      abis:
-        - name: SettlementReceiver
-          file: ./abis/SettlementReceiver.json
-      eventHandlers:
-        - event: LpReimbursed(indexed bytes32,uint256)
-          handler: handleLpReimbursed
-        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
-          handler: handleRecipientPaidByFallback
-
-  # Retired 2026-09-10 (WP-12) — kept indexed, permanently, so intents settled
-  # before the redeploy don't lose their real settlement history. Same
-  # mapping file and handlers; a settlement is a settlement regardless of
-  # which SettlementReceiver instance processed it.
-  - kind: ethereum
-    name: SettlementReceiverRetired
-    network: sepolia
-    source:
-      address: "0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC"
-      abi: SettlementReceiver
-      startBlock: 11660148
-    mapping:
-      kind: ethereum/events
-      apiVersion: 0.0.7
-      language: wasm/assemblyscript
-      file: ./src/settlement.ts
-      entities: [Intent, Settlement, ProtocolState]
-      abis:
-        - name: SettlementReceiver
-          file: ./abis/SettlementReceiver.json
-      eventHandlers:
-        - event: LpReimbursed(indexed bytes32,uint256)
-          handler: handleLpReimbursed
-        - event: RecipientPaidByFallback(indexed bytes32,indexed address,uint256)
-          handler: handleRecipientPaidByFallback

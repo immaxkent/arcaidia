@@ -1,35 +1,42 @@
 import { BigInt, Bytes, ethereum } from '@graphprotocol/graph-ts';
 import {
+  HeldForVault,
   LpReimbursed,
   RecipientPaidByFallback,
+  SettledWithProof,
 } from '../generated/SettlementReceiver/SettlementReceiver';
 import { Intent, Settlement } from '../generated/schema';
-import { eventId, protocolState } from './shared';
+import { protocolState } from './shared';
 
 const ONE = BigInt.fromI32(1);
 
 /**
  * Canonical settlement, recorded on the destination chain.
  *
- * Two events, two outcomes, indexed separately. Collapsing them would erase the
- * distinction between "the liquidity provider was repaid" and "nobody
- * fast-filled, so the user was paid directly" — opposite facts about whether
- * the fast path did anything at all.
+ * Three outcomes, indexed separately. Collapsing them would erase the
+ * distinction between "the liquidity provider was repaid", "nobody fast-filled,
+ * so the user was paid directly" and "the winner could not be reimbursed yet" —
+ * different facts about whether the fast path did anything at all.
+ *
+ * v2: `SettledWithProof` fires in the same transaction as one of the outcome
+ * events when settlement came from attested bytes (D8); it marks the record
+ * `viaProof` and carries the CCTP nonce. The reporter path emits only the
+ * outcome event.
  */
-function record(
-  id: Bytes,
-  intentId: Bytes,
-  outcome: string,
-  amount: BigInt,
-  event: ethereum.Event,
-): void {
-  const settlement = new Settlement(id);
-  settlement.intentId = intentId;
+function record(intentId: Bytes, outcome: string, amount: BigInt, event: ethereum.Event): void {
+  let settlement = Settlement.load(intentId);
+  const firstRecord = settlement == null;
+  if (settlement == null) {
+    settlement = new Settlement(intentId);
+    settlement.intentId = intentId;
+    settlement.viaProof = false;
+  }
   settlement.outcome = outcome;
   settlement.amount = amount;
   settlement.blockNumber = event.block.number;
   settlement.timestamp = event.block.timestamp;
   settlement.txHash = event.transaction.hash;
+  if (outcome != 'HELD_FOR_VAULT') settlement.heldForVault = null;
   settlement.save();
 
   // The intent lives on the other chain's deployment unless this chain created
@@ -41,15 +48,39 @@ function record(
     intent.save();
   }
 
-  const state = protocolState(event);
-  state.intentsSettled = state.intentsSettled.plus(ONE);
-  state.save();
+  if (firstRecord) {
+    const state = protocolState(event);
+    state.intentsSettled = state.intentsSettled.plus(ONE);
+    if (outcome == 'RECIPIENT_FALLBACK') state.intentsFallenBack = state.intentsFallenBack.plus(ONE);
+    state.save();
+  }
 }
 
 export function handleLpReimbursed(event: LpReimbursed): void {
-  record(eventId(event), event.params.intentId, 'LP_REIMBURSED', event.params.amount, event);
+  record(event.params.intentId, 'LP_REIMBURSED', event.params.amount, event);
 }
 
 export function handleRecipientPaidByFallback(event: RecipientPaidByFallback): void {
-  record(eventId(event), event.params.intentId, 'RECIPIENT_FALLBACK', event.params.amount, event);
+  record(event.params.intentId, 'RECIPIENT_FALLBACK', event.params.amount, event);
+}
+
+export function handleHeldForVault(event: HeldForVault): void {
+  record(event.params.intentId, 'HELD_FOR_VAULT', event.params.amount, event);
+  const settlement = Settlement.load(event.params.intentId);
+  if (settlement == null) return;
+  settlement.heldForVault = event.params.vault;
+  settlement.save();
+}
+
+/**
+ * Fires after the outcome event in the same transaction (`settleWithProof` routes first,
+ * then emits), so the record already exists; a missing one would mean an event ordering
+ * the contract cannot produce, and is left alone rather than fabricated.
+ */
+export function handleSettledWithProof(event: SettledWithProof): void {
+  const settlement = Settlement.load(event.params.intentId);
+  if (settlement == null) return;
+  settlement.viaProof = true;
+  settlement.cctpNonce = event.params.cctpNonce;
+  settlement.save();
 }

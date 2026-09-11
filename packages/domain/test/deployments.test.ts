@@ -57,6 +57,9 @@ describe('deployments', () => {
   it('is live on both chains, at the same address, since the 2026-09-08 deployment', () => {
     for (const name of PROTOCOL_CONTRACT_NAMES) {
       const deployed = deployedAddresses(name);
+      // The v2 additions (`intentMarket`, `vaultFactory`, WP-26) are unset until the
+      // coordinated redeploy (WP-31) — nowhere is fine; on one chain only is not.
+      if (deployed.length === 0) continue;
       expect(deployed.map((d) => d.chain).sort()).toEqual(['arc-testnet', 'ethereum-sepolia']);
       expect(new Set(deployed.map((d) => d.address.toLowerCase())).size).toBe(1);
     }

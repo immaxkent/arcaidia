@@ -42,8 +42,13 @@ export interface SettlementTransportConfig {
  */
 export interface ProtocolContracts {
   readonly intentRouter?: Address;
+  /** The House Vault — created through `vaultFactory` like any other participant's (D10). */
   readonly liquidityVault?: Address;
   readonly settlementReceiver?: Address;
+  /** v2 (WP-26): `ArcaidiaIntentMarket`, CREATE2, same address on every chain. */
+  readonly intentMarket?: Address;
+  /** v2 (WP-26): `ArcaidiaVaultFactory` — the vault directory's source of truth (D10). */
+  readonly vaultFactory?: Address;
   /**
    * The router's canonical settlement transport (WP-10). Deployed with a plain
    * `new`, not CREATE2 — nothing predicts or depends on its address the way

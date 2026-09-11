@@ -43,13 +43,16 @@ export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
 } as const;
 
 /**
- * The three protocol contracts, in the order they are deployed.
- * Used by the parity check below and by deployment tooling.
+ * The CREATE2-parity protocol contracts. `intentMarket`/`vaultFactory` are the v2
+ * additions (WP-26) and are unset until the coordinated redeploy (WP-31) commits them;
+ * the parity check below simply has nothing to compare until then.
  */
 export const PROTOCOL_CONTRACT_NAMES = [
   'intentRouter',
   'liquidityVault',
   'settlementReceiver',
+  'intentMarket',
+  'vaultFactory',
 ] as const;
 
 export type ProtocolContractName = (typeof PROTOCOL_CONTRACT_NAMES)[number];
