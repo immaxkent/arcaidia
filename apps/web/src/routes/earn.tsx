@@ -39,9 +39,8 @@ const STEPS = [
   { n: 1, label: "Choose chain" },
   { n: 2, label: "Create vault" },
   { n: 3, label: "Fund vault" },
-  { n: 4, label: "Configure economics" },
-  { n: 5, label: "Set up solver" },
-  { n: 6, label: "Go live" },
+  { n: 4, label: "Set up solver" },
+  { n: 5, label: "Go live" },
 ] as const;
 
 type SolverMode = "REFERENCE" | "EXTERNAL";
@@ -182,9 +181,9 @@ function EarnPage() {
   // A step is reachable by clicking its own tab only once every step before
   // it is satisfied — Back is always free, but skipping ahead of the
   // furthest-completed step is not, so a vault's name/economics are always
-  // captured before anything downstream (deploy, fund, authorise) can read
-  // them. `Next` and the tabs share this one gate.
-  const maxReachableStep = vaultNameValid ? 6 : 2;
+  // captured before anything downstream (fund, authorise) can read them.
+  // `Next` and the tabs share this one gate.
+  const maxReachableStep = vaultNameValid ? 5 : 2;
 
   const operatorValid = isAddressLike(solverOperator.trim());
 
@@ -287,7 +286,7 @@ function EarnPage() {
           {step === 2 ? (
             <Step
               title="Create vault"
-              hint="Deploys a standard ArcaidiaSolverVault from the supported factory template. No custom vault code."
+              hint="Configure your vault, then deploy it from the supported factory template in one transaction. No custom vault code — economics below are set at deploy time, not editable after."
             >
               <Field label="Vault name" id="vault-name">
                 <input
@@ -310,9 +309,51 @@ function EarnPage() {
                   v={connected && address ? truncateAddress(address) : "Connect wallet"}
                   tone={connected ? "text-text" : "text-warning"}
                 />
+              </dl>
+
+              {/* No per-vault fee to set — the intent market's one fixed fee
+                  ceiling applies under first-valid-fill. What you control
+                  here is risk exposure, and it's part of the same deploy
+                  transaction as the vault itself. */}
+              <div className="mt-5 space-y-4 border-t border-border/60 pt-4">
+                <p className="text-[11px] uppercase tracking-wide text-text-dim">Risk exposure</p>
+                <Field label={`Max single fill — ${formatBps(maxFillBps)} of available liquidity`} id="max-fill-bps">
+                  <input
+                    id="max-fill-bps"
+                    type="range"
+                    min={500}
+                    max={10_000}
+                    step={100}
+                    value={maxFillBps}
+                    onChange={(e) => setMaxFillBps(Number(e.target.value))}
+                    className="w-full accent-acid"
+                  />
+                </Field>
+                <p className="num text-[11px] text-text-dim">
+                  The largest share of your vault's *remaining* available liquidity any one fill may take.
+                </p>
+                <Field label={`Max utilisation — ${formatBps(maxExposureBps)}`} id="max-exposure-bps">
+                  <input
+                    id="max-exposure-bps"
+                    type="range"
+                    min={1_000}
+                    max={9_800}
+                    step={100}
+                    value={maxExposureBps}
+                    onChange={(e) => setMaxExposureBps(Number(e.target.value))}
+                    className="w-full accent-acid"
+                  />
+                </Field>
+                <p className="num text-[11px] text-text-dim">
+                  The most of your vault's capital that may be in flight (advanced, awaiting canonical
+                  settlement) at once.
+                </p>
+              </div>
+
+              <dl className="mt-4 space-y-1.5 text-sm">
                 <Row k="Vault" v={vaultAddress ? truncateAddress(vaultAddress) : "Not deployed yet"} />
               </dl>
-              {/* WIRE: factory deployment tx -> receipt -> vault address. */}
+              {/* WIRE: factory deployment tx (name + maxFillBps + maxExposureBps) -> receipt -> vault address. */}
               <button
                 type="button"
                 disabled={!connected || !factoryReady}
@@ -374,47 +415,6 @@ function EarnPage() {
           ) : null}
 
           {step === 4 ? (
-            <Step
-              title="Configure economics"
-              hint="No per-vault fee to set — the intent market's one fixed fee ceiling applies under first-valid-fill. What you control is risk exposure."
-            >
-              <div className="mt-3 space-y-4">
-                <Field label={`Max single fill — ${formatBps(maxFillBps)} of available liquidity`} id="max-fill-bps">
-                  <input
-                    id="max-fill-bps"
-                    type="range"
-                    min={500}
-                    max={10_000}
-                    step={100}
-                    value={maxFillBps}
-                    onChange={(e) => setMaxFillBps(Number(e.target.value))}
-                    className="w-full accent-acid"
-                  />
-                </Field>
-                <p className="num text-[11px] text-text-dim">
-                  The largest share of your vault's *remaining* available liquidity any one fill may take.
-                </p>
-                <Field label={`Max utilisation — ${formatBps(maxExposureBps)}`} id="max-exposure-bps">
-                  <input
-                    id="max-exposure-bps"
-                    type="range"
-                    min={1_000}
-                    max={9_800}
-                    step={100}
-                    value={maxExposureBps}
-                    onChange={(e) => setMaxExposureBps(Number(e.target.value))}
-                    className="w-full accent-acid"
-                  />
-                </Field>
-                <p className="num text-[11px] text-text-dim">
-                  The most of your vault's capital that may be in flight (advanced, awaiting canonical
-                  settlement) at once.
-                </p>
-              </div>
-            </Step>
-          ) : null}
-
-          {step === 5 ? (
             <Step
               title="Set up solver"
               hint="Arcaidia does not validate or trust a solver binary. It validates the solver operator address you authorise onchain for your vault."
@@ -586,7 +586,7 @@ function EarnPage() {
 
           ) : null}
 
-          {step === 6 ? (
+          {step === 5 ? (
             <Step title="Go live" hint="Review, then activate. You can pause the vault at any time.">
               <dl className="mt-3 space-y-1.5 text-sm">
                 <Row k="Name" v={vaultNameValid ? vaultName.trim() : NOT_AVAILABLE} />
