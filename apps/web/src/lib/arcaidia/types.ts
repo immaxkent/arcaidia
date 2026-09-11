@@ -144,7 +144,7 @@ export interface FillRow {
 export type SolverKind = "REFERENCE" | "EXTERNAL";
 export type SolverAuthState = "UNAUTHORISED" | "PENDING_SIGNATURE" | "AUTHORISED" | "REVOKED";
 export type SolverRuntimeStatus = "ONLINE" | "OFFLINE" | "PAUSED";
-export type SolverDeployTarget = "DOCKER" | "VPS" | "LOCAL" | "KUBERNETES";
+export type SolverDeployTarget = "DOCKER" | "NODE";
 
 /** Informational (solver telemetry) vs onchain-confirmed (RPC / contract / Subgraph). */
 export type SolverStageSource = "TELEMETRY" | "ONCHAIN";
