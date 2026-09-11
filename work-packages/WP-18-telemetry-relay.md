@@ -7,6 +7,11 @@ republishes them per-vault over SSE for the frontend to watch live.
 **Depends on:** WP-17 (the sidecar it receives from). **Blocks:** WP-19. **Stack:** a small HTTP
 service, new package (`packages/relay` or hosted alongside `packages/telemetry`).
 
+**Co-located with, but functionally separate from, WP-21** (Substreams-backed vault flow
+observability from the ERC-4626 module the parallel Graph-P1 fork published). Same physical
+service, different data source and different job — solver lifecycle telemetry here, cross-chain
+vault deposit/withdraw history there. Do not merge their scopes or acceptance gates.
+
 ## Sub-tasks
 
 - [ ] **18.1 `pair`.** A solver's telemetry sidecar proves possession of its operator key by
