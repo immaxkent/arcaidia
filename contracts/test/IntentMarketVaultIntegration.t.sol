@@ -6,6 +6,7 @@ import {NeverSettledCheck} from "./base/VaultFixture.sol";
 import {VaultHarness} from "./harness/VaultHarness.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
+import {SettlementReceiver} from "../src/SettlementReceiver.sol";
 import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
 import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
 
@@ -158,5 +159,73 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
         assertEq(signer, agentA);
         assertEq(asset.balanceOf(recipient), 9_900e6);
         assertEq(vaultA.outstandingExposure(), 9_900e6);
+    }
+
+    // -----------------------------------------------------------------------
+    // WP-16.3: reimbursement follows the market's winner, not one fixed vault
+    // -----------------------------------------------------------------------
+
+    function _standUpReceiver() internal returns (SettlementReceiver receiver, address reporter) {
+        address receiverOwner = makeAddr("receiverOwner");
+        reporter = makeAddr("reporter");
+
+        receiver = new SettlementReceiver();
+        receiver.initialize(receiverOwner, address(asset), address(market));
+
+        vm.prank(receiverOwner);
+        receiver.setReporter(reporter, true);
+
+        // Each vault only accepts reimbursement calls from its own configured receiver —
+        // independent of which one the market itself happens to be paired with.
+        vm.prank(_ownerOf(vaultA));
+        vaultA.setSettlementReceiver(address(receiver));
+        vm.prank(_ownerOf(vaultB));
+        vaultB.setSettlementReceiver(address(receiver));
+    }
+
+    /// The core WP-16.3 proof: two vaults race, vaultB wins, and canonical settlement
+    /// reimburses vaultB specifically — never vaultA, which never advanced anything.
+    function test_settlementReimbursesWhicheverVaultActuallyWon() public {
+        (SettlementReceiver receiver, address reporter) = _standUpReceiver();
+
+        bytes32 intentId = keccak256("reimbursement-intent");
+        FillAuthorization memory auth = _authorization(intentId, 10_000e6, 100e6);
+
+        address signer = vaultB.fastFill(auth, _sign(vaultB, auth, agentBKey));
+        assertEq(signer, agentB);
+        assertEq(market.filledBy(intentId), address(vaultB));
+        // Captured *after* the fill's own outflow (9,900e6 left for the recipient), so the
+        // reimbursement's effect below is isolated to canonical settlement, not the fill itself.
+        uint256 vaultBLiquidAfterFill = vaultB.liquidBalance();
+
+        asset.mint(address(receiver), 10_000e6);
+        vm.prank(reporter);
+        SettlementReceiver.Outcome outcome = receiver.settle(intentId, recipient, 10_000e6);
+
+        assertEq(uint256(outcome), uint256(SettlementReceiver.Outcome.LP_REIMBURSED));
+        assertEq(
+            vaultB.liquidBalance(), vaultBLiquidAfterFill + 10_000e6, "vaultB, the winner, is reimbursed"
+        );
+        assertEq(vaultB.outstandingExposure(), 0, "vaultB's receivable is cleared");
+        // vaultA never advanced anything for this intent and must be completely untouched.
+        assertEq(vaultA.outstandingExposure(), 0, "vaultA never participated in this intent");
+    }
+
+    /// The fallback invariant still holds with a market in the picture: nobody won,
+    /// so settlement pays the recipient directly, and neither vault is touched.
+    function test_unfilledIntentStillFallsBackWithAMarketWired() public {
+        (SettlementReceiver receiver, address reporter) = _standUpReceiver();
+
+        bytes32 intentId = keccak256("never-filled-intent");
+        assertEq(market.filledBy(intentId), address(0));
+
+        asset.mint(address(receiver), 10_000e6);
+        vm.prank(reporter);
+        SettlementReceiver.Outcome outcome = receiver.settle(intentId, recipient, 10_000e6);
+
+        assertEq(uint256(outcome), uint256(SettlementReceiver.Outcome.RECIPIENT_FALLBACK));
+        assertEq(asset.balanceOf(recipient), 10_000e6);
+        assertEq(vaultA.outstandingExposure(), 0);
+        assertEq(vaultB.outstandingExposure(), 0);
     }
 }

@@ -41,15 +41,29 @@ charges the ceiling.
       vault-local purpose (`isFilled`/`advancedPrincipal` accounting) exactly as before, now simply
       redundant-but-harmless as a second replay guard — the same "two independent checks" pattern
       already established here for `ISettlementCheck`. No code change beyond 16.1 needed.
-- [ ] **16.3 `SettlementReceiver.settle()` reads `market.filledBy(intentId)`** instead of one
+- [x] **16.3 `SettlementReceiver.settle()` reads `market.filledBy(intentId)`** instead of one
       hardcoded `IFillRegistry vault` reference, so it can reimburse whichever vault actually won,
-      not a single fixed one.
-- [ ] **16.4 Deploy script.** `DeployIntentMarket.s.sol`: deploys `ArcaidiaIntentMarket`, points the
-      existing vault(s) and `SettlementReceiver` at it. New addresses recorded in
-      `packages/domain/src/config/deployments.ts` and this branch's own deployments note (not
-      merged into the frozen V1 table in `README.md`).
-- [ ] **16.5 Regenerate ABIs.** `pnpm abi:generate` after the interface/contract changes — the
-      exact class of staleness caught during WP-13's regression.
+      not a single fixed one. `initialize()` now takes `market_` in place of `vault_` (a real
+      breaking change to this contract, fine — new deployment either way, no upgrade path exists).
+      `IIntentMarket` extended with a `filledBy` view alongside `claimIntent`, bundled the same way
+      `IFillRegistry` already bundles everything `SettlementReceiver` needs from a vault.
+      `LpReimbursed` gained an `indexed vault` field for off-chain observability.
+- [x] **16.4 Deploy wiring — the library half done, the standalone live-broadcast script not yet.**
+      Both `ArcaidiaDeployment.deployAll` (fresh-from-scratch) and
+      `deployReplacementVaultAndReceiver` (the V2-era redeploy path) now also deploy
+      `ArcaidiaIntentMarket` and wire `vault.setMarket(...)` — new `MARKET_SALT`/`MARKET_V2_SALT`.
+      Resolved the receiver/market circular dependency the same way both times: deploy the
+      receiver's code without initializing (its own creation code takes no constructor args, so
+      its address is fixed immediately), deploy the market against that now-known receiver
+      address, then call `initialize` on the receiver with the market's address. Mirrored in
+      `tests/e2e/src/deploy.ts` (the hand-written TS deploy harness) — same ordering, same
+      circular-dependency fix. **Not done:** an actual `forge script` entrypoint for broadcasting
+      this to a live chain — the deploy *logic* is tested and correct; nothing runs it against a
+      real RPC yet. Needed before WP-20's live acceptance gate, not before.
+- [x] **16.5 Regenerate ABIs.** `pnpm abi:generate` after the interface/contract changes.
+      `ArcaidiaIntentMarket` was missing from `scripts/generate-abis.mjs`'s own contract list
+      entirely (a gap from WP-15, only surfaced now) — added, 7 ABIs became 8. `abis.test.ts`
+      extended with its own describe block, matching the existing per-contract pattern.
 
 ## Tests
 
@@ -67,3 +81,15 @@ charges the ceiling.
 Two mock vaults, same market, same `SettlementReceiver`: first-valid-fill is enforced end to end,
 reimbursement reaches the correct winner, and every existing WP-02/05/06/10 contract test still
 passes unmodified.
+
+**Gate met 2026-09-11.** `test/IntentMarketVaultIntegration.t.sol` proves it end to end through
+real `ArcaidiaLiquidityVault` and `SettlementReceiver` instances (not mocks): two independently-
+deployed, independently-funded vaults race for one intent, exactly one wins, and canonical
+settlement reimburses that one specifically — `vaultA` is left completely untouched when `vaultB`
+wins. The fallback path (nobody fills) still pays the recipient directly with a market wired in.
+Full monorepo regression green: domain 104, mcp 4, agent 269, settlement 132, contracts 299×2
+(both directions), e2e 21 — 830 tests total, 0 failures. Two real downstream breaks found and
+fixed while closing this out, both legitimate consequences of the `SettlementReceiver`/event
+changes, not scope creep: `packages/settlement`'s `LpReimbursed` topic-selector decoding (hardcoded
+event signature string, now stale) and the e2e deploy harness (never wired to a market at all,
+so every real `fastFill` in that suite started reverting).

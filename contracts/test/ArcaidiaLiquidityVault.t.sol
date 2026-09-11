@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {VaultFixture} from "./base/VaultFixture.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
+import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {VaultHarness} from "./harness/VaultHarness.sol";
 
 contract ArcaidiaLiquidityVaultTest is VaultFixture {
@@ -316,11 +317,17 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
     }
 
     /// An intent may be filled at most once. This is the vault's replay key.
+    /// Same as the real fastFill path: the market claims first, so a replay is now caught one
+    /// layer earlier — by ArcaidiaIntentMarket, not the vault's own intentFilled mapping.
     function test_sameIntentCannotBeFilledTwice() public {
         _deposit(lpAlice, 100_000e6);
         bytes32 intentId = _advance(501, 1_000e6);
 
-        vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.IntentAlreadyFilled.selector, intentId));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ArcaidiaIntentMarket.IntentAlreadyClaimed.selector, intentId, address(vault)
+            )
+        );
         vault.advanceForTest(intentId, recipient, 1_000e6);
     }
 

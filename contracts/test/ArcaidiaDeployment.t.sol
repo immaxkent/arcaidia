@@ -138,10 +138,10 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         assertEq(ArcaidiaLiquidityVault(d.vault).settlementReceiver(), d.settlementReceiver);
     }
 
-    function test_receiverKnowsItsVault() public {
+    function test_receiverKnowsItsMarket() public {
         ArcaidiaDeployment.Deployment memory d =
             ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
-        assertEq(address(SettlementReceiver(d.settlementReceiver).vault()), d.vault);
+        assertEq(address(SettlementReceiver(d.settlementReceiver).market()), d.market);
     }
 
     function test_treasuryAndFeeSplitAreConfigured() public {
@@ -497,7 +497,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             ArcaidiaDeployment.deployReplacementVaultAndReceiver(deployer, _v2Config(address(0), address(0)));
 
         assertEq(ArcaidiaLiquidityVault(d.vault).settlementReceiver(), d.settlementReceiver);
-        assertEq(address(SettlementReceiver(d.settlementReceiver).vault()), d.vault);
+        assertEq(address(SettlementReceiver(d.settlementReceiver).market()), d.market);
     }
 
     function test_replacementSolverSignerIsAuthorisedWhenProvided() public {

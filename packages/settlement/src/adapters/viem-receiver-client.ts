@@ -92,7 +92,7 @@ export class ViemSettlementReceiverClient implements SettlementReceiverClient {
  * That is silent and total — every fallback would be recorded as an LP
  * reimbursement.
  */
-const LP_REIMBURSED_TOPIC = toEventSelector('LpReimbursed(bytes32,uint256)');
+const LP_REIMBURSED_TOPIC = toEventSelector('LpReimbursed(bytes32,address,uint256)');
 const RECIPIENT_FALLBACK_TOPIC = toEventSelector(
   'RecipientPaidByFallback(bytes32,address,uint256)',
 );

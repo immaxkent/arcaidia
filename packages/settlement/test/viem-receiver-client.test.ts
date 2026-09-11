@@ -8,6 +8,7 @@ const RECEIVER = '0x6666666666666666666666666666666666666666' as const;
 const OTHER = '0x9999999999999999999999999999999999999999' as const;
 const INTENT = `0x${'ab'.repeat(32)}` as const;
 const RECIPIENT = '0x2222222222222222222222222222222222222222' as const;
+const VAULT = '0x7777777777777777777777777777777777777777' as const;
 
 type Log = { address: Address; topics: readonly `0x${string}`[]; data: `0x${string}` };
 
@@ -18,7 +19,7 @@ function lpReimbursedLog(emitter: Address = RECEIVER): Log {
     topics: encodeEventTopics({
       abi: ABIS.SettlementReceiver as readonly unknown[],
       eventName: 'LpReimbursed',
-      args: { intentId: INTENT },
+      args: { intentId: INTENT, vault: VAULT },
     }) as readonly `0x${string}`[],
     data: encodeAbiParameters([{ type: 'uint256' }], [USDC(1_000)]),
   };
@@ -68,7 +69,7 @@ describe('ViemSettlementReceiverClient', () => {
   });
 
   it('distinguishes the two events by topic', () => {
-    expect(toEventSelector('LpReimbursed(bytes32,uint256)')).not.toBe(
+    expect(toEventSelector('LpReimbursed(bytes32,address,uint256)')).not.toBe(
       toEventSelector('RecipientPaidByFallback(bytes32,address,uint256)'),
     );
   });

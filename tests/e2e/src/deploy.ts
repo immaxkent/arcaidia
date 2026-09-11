@@ -8,7 +8,9 @@
  */
 
 import {
+  concatHex,
   createWalletClient,
+  encodeAbiParameters,
   encodeFunctionData,
   http,
   type Address,
@@ -82,16 +84,30 @@ export async function deployProtocol(
     }),
   );
 
+  // Deployed without initializing yet — `initialize` now needs the market's address, and the
+  // market needs the receiver's, same ordering as the production Solidity deploy library.
   const settlementReceiver = await send.create2(
     deployerContract,
     SALTS.receiver,
     ARTIFACTS.SettlementReceiver.bytecode,
-    encodeFunctionData({
-      abi: ARTIFACTS.SettlementReceiver.abi,
-      functionName: 'initialize',
-      args: [account.address, usdc, vault],
-    }),
+    '0x',
   );
+
+  const market = await send.create2(
+    deployerContract,
+    SALTS.market,
+    concatHex([
+      ARTIFACTS.ArcaidiaIntentMarket.bytecode,
+      encodeAbiParameters([{ type: 'address' }], [settlementReceiver]),
+    ]),
+    '0x',
+  );
+
+  await send.call(settlementReceiver, ARTIFACTS.SettlementReceiver.abi, 'initialize', [
+    account.address,
+    usdc,
+    market,
+  ]);
 
   const router = await send.create2(
     deployerContract,

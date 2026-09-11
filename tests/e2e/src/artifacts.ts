@@ -53,6 +53,7 @@ export const SALTS = {
   vault: keccakConstant('arcaidia.v1.liquidity-vault'),
   receiver: keccakConstant('arcaidia.v1.settlement-receiver'),
   router: keccakConstant('arcaidia.v1.intent-router'),
+  market: keccakConstant('arcaidia.v1.intent-market'),
 } as const;
 
 // Imported lazily to keep this module's surface small.

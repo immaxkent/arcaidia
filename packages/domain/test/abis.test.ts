@@ -103,12 +103,32 @@ describe('generated ABI barrel', () => {
       expect(functions).toContain('outcomeOf');
     });
 
+    /// WP-16.3: reimbursement is market-driven, not a fixed vault reference.
+    it('reads the winner from the market, not a hardcoded vault', () => {
+      const functions = names(ABIS.SettlementReceiver, 'function');
+      expect(functions).toContain('market');
+      expect(functions).not.toContain('vault');
+    });
+
     /// Both branches are separately indexed, because the two settlement
     /// outcomes are independently observable facts.
     it('emits a distinct event per settlement outcome', () => {
       const events = names(ABIS.SettlementReceiver, 'event');
       expect(events).toContain('LpReimbursed');
       expect(events).toContain('RecipientPaidByFallback');
+    });
+  });
+
+  describe('ArcaidiaIntentMarket', () => {
+    it('exposes first-valid-fill claiming and who won', () => {
+      const functions = names(ABIS.ArcaidiaIntentMarket, 'function');
+      expect(functions).toContain('claimIntent');
+      expect(functions).toContain('filledBy');
+      expect(functions).toContain('MAX_FEE_BPS');
+    });
+
+    it('emits IntentClaimed for off-chain observers', () => {
+      expect(names(ABIS.ArcaidiaIntentMarket, 'event')).toContain('IntentClaimed');
     });
   });
 

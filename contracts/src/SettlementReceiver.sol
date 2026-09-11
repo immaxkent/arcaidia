@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IFillRegistry} from "./interfaces/IFillRegistry.sol";
+import {IIntentMarket} from "./interfaces/IIntentMarket.sol";
 
 /// @title SettlementReceiver
 /// @notice Destination-side terminus of canonical settlement: receives canonical
@@ -12,21 +13,28 @@ import {IFillRegistry} from "./interfaces/IFillRegistry.sol";
 ///
 /// @dev Two branches, and exactly one of them runs per intent:
 ///
-///      - the intent was fast-filled, so the LP advanced the money and canonical
-///        funds reimburse the vault;
+///      - the intent was fast-filled, so *some* LP advanced the money and canonical
+///        funds reimburse whichever vault the market says actually won it;
 ///      - nobody fast-filled, so canonical funds pay the recipient directly.
 ///
 ///      The second branch is the fallback invariant: Arcaidia is an acceleration
 ///      layer, not a dependency. If no solver participates, the user still gets
 ///      paid and funds are never trapped here.
 ///
+///      **Post-intent-market: reimbursement is market-driven, not vault-fixed.**
+///      A single hardcoded `vault` reference cannot answer "who actually won this
+///      fill" once many independently-deployed vaults compete for the same
+///      intent — only `ArcaidiaIntentMarket.filledBy` can. This contract asks the
+///      market, then reimburses whichever address it names, via the shared
+///      `IFillRegistry` interface every conforming vault implements.
+///
 ///      **V1 trust assumption.** `settle` is restricted to allowlisted reporters
 ///      rather than proved against the canonical message. Verifying a CCTP
 ///      message onchain would let this contract derive the amount and recipient
 ///      itself; V1 does not do that, so an operator supplies them. This is the
 ///      same disclosed authorised-operator model the vault uses for fills, and
-///      it is bounded by the fact that funds can only go to the vault or to the
-///      recipient named for an unfilled intent — never to the reporter.
+///      it is bounded by the fact that funds can only go to the winning vault or
+///      to the recipient named for an unfilled intent — never to the reporter.
 ///
 ///      Constructor takes no arguments, so init code and therefore the CREATE2
 ///      address are identical on both chains.
@@ -45,7 +53,7 @@ contract SettlementReceiver is ReentrancyGuard {
     bool public initialized;
 
     IERC20 public asset;
-    IFillRegistry public vault;
+    IIntentMarket public market;
 
     /// @notice Operators permitted to report canonical settlement.
     mapping(address => bool) public isReporter;
@@ -56,9 +64,9 @@ contract SettlementReceiver is ReentrancyGuard {
     /// @notice Canonical amount recorded per intent.
     mapping(bytes32 => uint256) public settledAmount;
 
-    event ReceiverInitialized(address owner, address asset, address vault);
+    event ReceiverInitialized(address owner, address asset, address market);
     event ReporterSet(address indexed reporter, bool allowed);
-    event LpReimbursed(bytes32 indexed intentId, uint256 amount);
+    event LpReimbursed(bytes32 indexed intentId, address indexed vault, uint256 amount);
     event RecipientPaidByFallback(bytes32 indexed intentId, address indexed recipient, uint256 amount);
 
     error AlreadyInitialized();
@@ -79,16 +87,18 @@ contract SettlementReceiver is ReentrancyGuard {
         _;
     }
 
-    function initialize(address owner_, address asset_, address vault_) external {
+    function initialize(address owner_, address asset_, address market_) external {
         if (initialized) revert AlreadyInitialized();
-        if (owner_ == address(0) || asset_ == address(0) || vault_ == address(0)) revert ZeroAddress();
+        if (owner_ == address(0) || asset_ == address(0) || market_ == address(0)) {
+            revert ZeroAddress();
+        }
 
         initialized = true;
         owner = owner_;
         asset = IERC20(asset_);
-        vault = IFillRegistry(vault_);
+        market = IIntentMarket(market_);
 
-        emit ReceiverInitialized(owner_, asset_, vault_);
+        emit ReceiverInitialized(owner_, asset_, market_);
     }
 
     function setReporter(address reporter, bool allowed) external onlyOwner {
@@ -128,7 +138,10 @@ contract SettlementReceiver is ReentrancyGuard {
         uint256 held = asset.balanceOf(address(this));
         if (amount > held) revert InsufficientCanonicalFunds(amount, held);
 
-        bool filled = vault.isFilled(intentId);
+        // The market, not any one vault, is authoritative for "who won" — a fixed vault
+        // reference cannot answer this once many independently-deployed vaults compete.
+        address winner = market.filledBy(intentId);
+        bool filled = winner != address(0);
 
         // Effects before interactions: the outcome is recorded before any funds
         // move, so a token callback cannot re-enter and settle twice.
@@ -137,10 +150,11 @@ contract SettlementReceiver is ReentrancyGuard {
         settledAmount[intentId] = amount;
 
         if (filled) {
-            asset.forceApprove(address(vault), amount);
+            IFillRegistry vault = IFillRegistry(winner);
+            asset.forceApprove(winner, amount);
             vault.recordReimbursement(intentId, amount);
-            asset.forceApprove(address(vault), 0);
-            emit LpReimbursed(intentId, amount);
+            asset.forceApprove(winner, 0);
+            emit LpReimbursed(intentId, winner, amount);
         } else {
             if (fallbackRecipient == address(0)) revert ZeroAddress();
             asset.safeTransfer(fallbackRecipient, amount);
