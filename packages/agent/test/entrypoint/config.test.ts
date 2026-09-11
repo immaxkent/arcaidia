@@ -57,6 +57,56 @@ describe('loadSolverConfig', () => {
     expect(sepolia?.rpcUrl).toMatch(/^https?:\/\//);
   });
 
+  // -----------------------------------------------------------------------
+  // WP-17.1: the vault address is genuinely per-instance config, not
+  // compiled into the committed deployment table — the whole premise of a
+  // distributable reference runtime any operator can point at their own vault.
+  // -----------------------------------------------------------------------
+
+  it('honours a liquidity vault override without needing one', () => {
+    const ownVault = '0x9999999999999999999999999999999999999999';
+    const config = loadSolverConfig({ ...baseEnv(), ETHEREUM_SEPOLIA_LIQUIDITY_VAULT: ownVault });
+    const sepolia = config.chains.find((c) => c.chainId === 11_155_111);
+    expect(sepolia?.liquidityVault).toBe(ownVault);
+  });
+
+  it('falls back to the committed House Vault when no override is set', () => {
+    const config = loadSolverConfig(baseEnv());
+    const sepolia = config.chains.find((c) => c.chainId === 11_155_111);
+    expect(sepolia?.liquidityVault).toBe(VAULT_SEPOLIA);
+  });
+
+  it('rejects a malformed vault override rather than silently ignoring it', () => {
+    expect(() =>
+      loadSolverConfig({ ...baseEnv(), ETHEREUM_SEPOLIA_LIQUIDITY_VAULT: 'not-an-address' }),
+    ).toThrow(ConfigError);
+  });
+
+  /// The acceptance-gate scenario, at the config layer: two operators running
+  /// the same container image, pointed at different vaults, must never leak
+  /// state into each other — each call to loadSolverConfig is independent.
+  it('two configs built from different vault overrides stay fully independent', () => {
+    const vaultA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const vaultB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    const configA = loadSolverConfig({ ...baseEnv(), ETHEREUM_SEPOLIA_LIQUIDITY_VAULT: vaultA });
+    const configB = loadSolverConfig({ ...baseEnv(), ETHEREUM_SEPOLIA_LIQUIDITY_VAULT: vaultB });
+
+    const sepoliaA = configA.chains.find((c) => c.chainId === 11_155_111);
+    const sepoliaB = configB.chains.find((c) => c.chainId === 11_155_111);
+    expect(sepoliaA?.liquidityVault).toBe(vaultA);
+    expect(sepoliaB?.liquidityVault).toBe(vaultB);
+    // Building configB must not have mutated configA's already-returned object.
+    expect(sepoliaA?.liquidityVault).toBe(vaultA);
+  });
+
+  it('overriding the vault on one chain leaves the other chain unaffected', () => {
+    const ownVault = '0x9999999999999999999999999999999999999999';
+    const config = loadSolverConfig({ ...baseEnv(), ETHEREUM_SEPOLIA_LIQUIDITY_VAULT: ownVault });
+    const arc = config.chains.find((c) => c.chainId === 5_042_002);
+    expect(arc?.liquidityVault).toBe(VAULT_ARC);
+  });
+
   it('honours poll interval and TTL overrides', () => {
     const config = loadSolverConfig({
       ...baseEnv(),

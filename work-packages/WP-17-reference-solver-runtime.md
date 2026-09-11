@@ -9,10 +9,16 @@ entirely without stopping a single fill.
 
 ## Sub-tasks
 
-- [ ] **17.1 `arcaidia-solver` container.** Same `processIntent` / `ObservationProvider` /
-      `SettlementAdapter` / `AgentAuthority` code that runs today — no new decision logic — made
-      parametric on `VAULT_ADDRESS` via env config rather than a compiled-in constant. One image,
-      any vault.
+- [x] **17.1 Vault address is genuinely per-instance config now.** Found while starting this WP:
+      `packages/agent/src/entrypoint/config.ts` read `liquidityVault` exclusively from
+      `packages/domain/src/config/deployments.ts` — the committed House Vault address, with no way
+      for a third-party operator to point the same container at their own vault. That was the
+      actual gap "parametric on `VAULT_ADDRESS`" needed to close, not a packaging concern.
+      `{PREFIX}_LIQUIDITY_VAULT` (e.g. `ETHEREUM_SEPOLIA_LIQUIDITY_VAULT`) now overrides per chain,
+      same override-with-fallback shape already used for `{PREFIX}_RPC_URL` — unset, the House
+      Solver gets the committed default unchanged; malformed-but-present still fails loudly
+      (`ConfigError`), never silently ignored. Container packaging itself (a Dockerfile for
+      `arcaidia-solver`) is still open — tracked below, no longer blocked on this.
 - [ ] **17.2 `arcaidia-telemetry` sidecar.** New, separate package. Forwards lifecycle events
       (`tx_submitted`, `fill_won`, `fill_lost`, ...) and a heartbeat to the Relay (WP-18) over
       outbound HTTPS only — no inbound port, no custody, cannot move funds by construction.
@@ -27,8 +33,11 @@ entirely without stopping a single fill.
 
 ## Tests
 
-- `arcaidia-solver` against two different `VAULT_ADDRESS` values in the same test run produces
-  correctly independent behaviour (no shared state leaking between "instances").
+- [x] Config-layer proof, `test/entrypoint/config.test.ts`: two `loadSolverConfig` calls with
+      different vault overrides stay fully independent, an override on one chain doesn't leak to
+      the other, and a malformed override fails loudly rather than falling back silently.
+- [ ] Container-level version of the same claim, once 17.1's Dockerfile exists: two actual
+      `arcaidia-solver` containers, two `VAULT_ADDRESS` values, no shared state.
 - Telemetry sidecar: a forwarded event's HTTP call failing or timing out never blocks or delays
   the solver's own decision/submission path.
 - Kill-the-Relay: full golden-run-equivalent lifecycle, Relay never started, solver completes

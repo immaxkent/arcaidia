@@ -58,6 +58,20 @@ function requireHex(env: Env, key: string): `0x${string}` {
   return value as `0x${string}`;
 }
 
+/**
+ * Unset means "use the committed default" — a malformed value present still fails loudly, the
+ * same as `requireHex`. WP-17.1: this is what makes the vault address genuinely per-instance
+ * config rather than compiled into `packages/domain`'s committed deployment table, which is
+ * exactly what a third-party operator running this same container needs and the House Solver
+ * (nothing set) never notices.
+ */
+function optionalHex(env: Env, key: string): `0x${string}` | undefined {
+  const value = env[key];
+  if (!value) return undefined;
+  if (!/^0x[0-9a-fA-F]+$/.test(value)) throw new ConfigError(`${key} is not a 0x-prefixed hex value.`);
+  return value as `0x${string}`;
+}
+
 function requireUrl(env: Env, key: string): string {
   const value = env[key];
   if (!value) {
@@ -80,9 +94,23 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
   const chain = CHAINS[key];
   const contracts = deploymentFor(key);
 
-  if (!contracts.intentRouter || !contracts.liquidityVault) {
+  if (!contracts.intentRouter) {
     throw new ConfigError(
-      `${chain.name} has no deployed IntentRouter/LiquidityVault in packages/domain/src/config/deployments.ts.`,
+      `${chain.name} has no deployed IntentRouter in packages/domain/src/config/deployments.ts. ` +
+        'The router is shared protocol infrastructure, not per-operator config — it cannot be ' +
+        'overridden the way the vault below can.',
+    );
+  }
+
+  // WP-17.1: an independent operator running this same container points it at their own vault
+  // via {PREFIX}_LIQUIDITY_VAULT; the House Solver, with nothing set, gets the committed default
+  // unchanged. Same override-with-fallback shape as the RPC URL just below.
+  const liquidityVault =
+    optionalHex(env, `${prefix}_LIQUIDITY_VAULT`) ?? contracts.liquidityVault;
+  if (!liquidityVault) {
+    throw new ConfigError(
+      `No liquidity vault for ${chain.name}: set ${prefix}_LIQUIDITY_VAULT, or deploy the House ` +
+        'Vault and commit its address to packages/domain/src/config/deployments.ts.',
     );
   }
 
@@ -90,7 +118,7 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
     chainId: chain.chainId,
     rpcUrl: env[`${prefix}_RPC_URL`] || chain.rpcUrl,
     intentRouter: contracts.intentRouter,
-    liquidityVault: contracts.liquidityVault,
+    liquidityVault,
     subgraphUrl: requireUrl(env, `SUBGRAPH_URL_${prefix}`),
   };
 }
