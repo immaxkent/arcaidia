@@ -46,6 +46,9 @@ function health(overrides: Partial<SettlementHealth> = {}): SettlementHealth {
 
 function intent(overrides: Partial<Intent> = {}): Intent {
   return {
+    intentVersion: 1,
+    tokenOut: '0x0000000000000000000000000000000000000000',
+    targetMinOut: 0n,
     intentId: `0x${'ab'.repeat(32)}`,
     sender: '0x1111111111111111111111111111111111111111',
     recipient: '0x2222222222222222222222222222222222222222',

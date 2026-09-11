@@ -10,7 +10,8 @@
  * agent wallet must be an EOA for `ecrecover` to work.
  */
 
-import type { Address, Bytes32 } from './types/primitives.js';
+import type { Address, Bytes32, UnixSeconds } from './types/primitives.js';
+import type { EcosystemIntelligence } from './types/intelligence.js';
 import type { Intent } from './types/intent.js';
 import type { FillAuthorization, SignedFillAuthorization } from './types/fill.js';
 import type { SettlementHealth, SettlementReference, SettlementState, VaultState } from './types/settlement.js';
@@ -68,4 +69,35 @@ export interface SettlementAdapter {
   complete(reference: SettlementReference): Promise<SettlementState>;
   /** Transport reachability and progress, for the risk engine. */
   health(): Promise<SettlementHealth>;
+}
+
+/**
+ * Destination-side swap quoting (DECISIONS.md D9, WP-24). The solver only ever
+ * *reads* through this — "could my vault's USDC output be turned into what the
+ * user asked for?" — to decide fill or ignore on a trade intent. Execution
+ * happens inside the vault, through the Solidity `ISwapAdapter` the vault
+ * owner has set. No implementation exists until Line 1 (Uniswap) lands; the
+ * baseline solver runs with this port absent and declines every trade intent.
+ */
+export interface SwapAdapter {
+  quote(chainId: number, tokenIn: Address, tokenOut: Address, amountIn: bigint): Promise<bigint>;
+  canSatisfy(
+    chainId: number,
+    tokenIn: Address,
+    tokenOut: Address,
+    amountIn: bigint,
+    minOut: bigint,
+  ): Promise<boolean>;
+}
+
+/**
+ * Optional ecosystem intelligence (WP-33; paid via Hedera x402 in WP-35).
+ *
+ * Strictly advisory. `processIntent` may consult it and record the answer in
+ * a decision's `narrative`; it can never be the ACCEPT/REJECT gate (working
+ * agreement rule 4), and a solver runs identically with it absent, failing or
+ * lying. The protocol never depends on it.
+ */
+export interface IntelligenceProvider {
+  ecosystem(asOf: UnixSeconds): Promise<EcosystemIntelligence>;
 }

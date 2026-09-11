@@ -28,6 +28,7 @@
 import {
   ABIS,
   FastStatus,
+  LEGACY_V1_INTENT_FIELDS,
   type Bytes32,
   type Intent,
   type ObservationProvider,
@@ -324,6 +325,9 @@ function toIntent(row: RawPendingIntentRow, nonces: ReadonlyMap<string, bigint>)
   }
 
   return {
+    // The live v1 router emits no trade fields; these are what its event means
+    // by construction. Replaced by real columns in WP-27/28.
+    ...LEGACY_V1_INTENT_FIELDS,
     intentId: row.id as `0x${string}`,
     sender: row.sender as `0x${string}`,
     recipient: row.recipient as `0x${string}`,

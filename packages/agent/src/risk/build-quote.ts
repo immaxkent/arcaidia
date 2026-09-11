@@ -19,7 +19,17 @@
  * under this id.
  */
 
-import type { Address, AgentDecision, Bytes32, Intent, ObservationProvider, RiskPolicy, UnixSeconds } from '@arcaidia/domain';
+import {
+  INTENT_VERSION,
+  USDC_TOKEN_OUT,
+  type Address,
+  type AgentDecision,
+  type Bytes32,
+  type Intent,
+  type ObservationProvider,
+  type RiskPolicy,
+  type UnixSeconds,
+} from '@arcaidia/domain';
 import { evaluateIntent } from './evaluate-intent.js';
 import { requiredConfirmations } from './confirmations.js';
 
@@ -34,6 +44,9 @@ export interface QuoteRequest {
   readonly maxFeeBps: number;
   readonly sourceChainId: number;
   readonly destinationChainId: number;
+  /** Trade-intent fields (schema v1.1). Omitted means a plain USDC transfer. Priced in WP-28. */
+  readonly tokenOut?: Address;
+  readonly targetMinOut?: bigint;
 }
 
 export class InvalidQuoteRequestError extends Error {}
@@ -64,6 +77,9 @@ export async function buildQuote(request: QuoteRequest, deps: QuoteDependencies)
   const now = deps.clock();
 
   const intent: Intent = {
+    intentVersion: INTENT_VERSION,
+    tokenOut: request.tokenOut ?? USDC_TOKEN_OUT,
+    targetMinOut: request.targetMinOut ?? 0n,
     intentId: ZERO_BYTES32,
     sender: ZERO_ADDRESS,
     recipient: ZERO_ADDRESS,

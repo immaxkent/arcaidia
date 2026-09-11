@@ -1,6 +1,8 @@
 import {
   CanonicalStatus,
   FastStatus,
+  INTENT_VERSION,
+  USDC_TOKEN_OUT,
   type Intent,
   type SettlementHealth,
   type VaultState,
@@ -18,6 +20,9 @@ export { CanonicalStatus, FastStatus, DEFAULT_RISK_POLICY };
 
 export function intent(overrides: Partial<Intent> = {}): Intent {
   return {
+    intentVersion: INTENT_VERSION,
+    tokenOut: USDC_TOKEN_OUT,
+    targetMinOut: 0n,
     intentId: '0x'.padEnd(66, 'a') as `0x${string}`,
     sender: '0x1111111111111111111111111111111111111111',
     recipient: '0x2222222222222222222222222222222222222222',

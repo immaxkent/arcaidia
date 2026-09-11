@@ -101,6 +101,9 @@ describe('deriveSettlementHealth', () => {
 
 describe('the risk engine reacts to derived health', () => {
   const intent = {
+    intentVersion: 1,
+    tokenOut: '0x0000000000000000000000000000000000000000' as const,
+    targetMinOut: 0n,
     intentId: `0x${'a'.repeat(64)}` as `0x${string}`,
     sender: '0x1111111111111111111111111111111111111111' as const,
     recipient: RECIPIENT,

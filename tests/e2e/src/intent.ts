@@ -9,7 +9,7 @@
 
 import { createWalletClient, decodeEventLog, http, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { Intent } from '@arcaidia/domain';
+import { LEGACY_V1_INTENT_FIELDS, type Intent } from '@arcaidia/domain';
 import { ARTIFACTS } from './artifacts.js';
 import type { AnvilChain } from './anvil.js';
 import type { ChainDeployment } from './deploy.js';
@@ -85,6 +85,8 @@ export async function createIntent(
       };
 
       return {
+        // The router's v1 event carries no trade fields yet (WP-25 adds them).
+        ...LEGACY_V1_INTENT_FIELDS,
         intentId: args.intentId,
         sender: args.sender,
         recipient: args.recipient,

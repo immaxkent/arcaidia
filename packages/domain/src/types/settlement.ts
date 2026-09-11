@@ -7,7 +7,7 @@
  * directly. Nothing above the adapter boundary knows Circle exists.
  */
 
-import type { Address, Bytes32, TxHash, UnixSeconds } from './primitives.js';
+import type { Address, Bytes32, Hex, TxHash, UnixSeconds } from './primitives.js';
 
 /**
  * The lifecycle of one canonical settlement message.
@@ -60,6 +60,12 @@ export interface SettlementReference {
   readonly messageRef: Bytes32;
   /** Transport nonce, when the transport exposes one. */
   readonly messageNonce?: bigint;
+  /**
+   * The intent hook carried in the canonical message (`intent-hook.ts`,
+   * D8) — `encodeIntentHook({ intentId, recipient })`. Present for v2
+   * commitments; absent for v1 in-flight ones, which settle by the reporter path.
+   */
+  readonly hookData?: Hex;
   readonly initiatedAt: UnixSeconds;
 }
 

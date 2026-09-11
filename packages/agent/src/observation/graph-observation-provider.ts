@@ -27,6 +27,7 @@
 import {
   ABIS,
   FastStatus,
+  LEGACY_V1_INTENT_FIELDS,
   type Bytes32,
   type Intent,
   type ObservationProvider,
@@ -360,6 +361,9 @@ export class GraphObservationProvider implements ObservationProvider {
 
 function toIntent(raw: RawIntent): Intent {
   return {
+    // The live v1 router emits no trade fields; these are what its event means
+    // by construction. Replaced by real columns in WP-27/28.
+    ...LEGACY_V1_INTENT_FIELDS,
     intentId: raw.id as `0x${string}`,
     sender: raw.sender as `0x${string}`,
     recipient: raw.recipient as `0x${string}`,

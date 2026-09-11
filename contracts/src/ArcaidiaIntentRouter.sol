@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Intent} from "./libraries/ArcaidiaTypes.sol";
+import {Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "./libraries/ArcaidiaTypes.sol";
 import {IntentLib} from "./libraries/IntentLib.sol";
 import {ISettlementInitiator} from "./interfaces/ISettlementInitiator.sol";
 
@@ -236,7 +236,10 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         uint256 newInFlight = totalInFlight + amount;
         if (newInFlight > maxInFlightValue) revert InFlightCapExceeded(newInFlight, maxInFlightValue);
 
+        // WP-24: schema v1.1 struct, USDC-only terms until WP-25 exposes
+        // `tokenOut`/`targetMinOut` on `createIntent` itself.
         Intent memory intent = Intent({
+            intentVersion: INTENT_VERSION,
             sender: msg.sender,
             recipient: recipient,
             inputToken: address(settlementAsset),
@@ -245,7 +248,9 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
             destinationChainId: destinationChainId,
             maxFeeBps: maxFeeBps,
             deadline: deadline,
-            nonce: nonce
+            nonce: nonce,
+            tokenOut: USDC_TOKEN_OUT,
+            targetMinOut: 0
         });
 
         intentId = intent.computeIntentId();
@@ -295,6 +300,7 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
     ) external view returns (bytes32) {
         return IntentLib.computeIntentId(
             Intent({
+                intentVersion: INTENT_VERSION,
                 sender: sender,
                 recipient: recipient,
                 inputToken: address(settlementAsset),
@@ -303,7 +309,9 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
                 destinationChainId: destinationChainId,
                 maxFeeBps: maxFeeBps,
                 deadline: deadline,
-                nonce: nonce
+                nonce: nonce,
+                tokenOut: USDC_TOKEN_OUT,
+                targetMinOut: 0
             })
         );
     }

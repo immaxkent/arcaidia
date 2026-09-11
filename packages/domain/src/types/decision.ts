@@ -54,6 +54,18 @@ export const DecisionReason = {
   ALREADY_FILLED: 'ALREADY_FILLED',
   SOURCE_VERIFICATION_FAILED: 'SOURCE_VERIFICATION_FAILED',
   OBSERVATION_STALE: 'OBSERVATION_STALE',
+  /**
+   * The intent wants a non-USDC `tokenOut` and this solver has no swap adapter,
+   * or the adapter cannot meet `targetMinOut` right now. Canonical settlement
+   * still delivers USDC to the recipient — nothing is stranded.
+   */
+  TRADE_NOT_SUPPORTED: 'TRADE_NOT_SUPPORTED',
+  /**
+   * The fee this solver would need exceeds the vault's own posted tier
+   * (`currentFeeBps`). The vault would revert such a fill; the solver never
+   * signs it.
+   */
+  FEE_ABOVE_VAULT_POLICY: 'FEE_ABOVE_VAULT_POLICY',
 } as const;
 export type DecisionReason = (typeof DecisionReason)[keyof typeof DecisionReason];
 

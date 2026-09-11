@@ -2,19 +2,31 @@
 pragma solidity 0.8.28;
 
 import {ChainFixture} from "./base/ChainFixture.sol";
-import {Intent} from "../src/libraries/ArcaidiaTypes.sol";
+import {Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "../src/libraries/ArcaidiaTypes.sol";
 import {IntentLib} from "../src/libraries/IntentLib.sol";
 
-/// @notice Cross-language identity tests for `intentId`.
-/// @dev The differential test below is the contract between this repository's
-///      Solidity and its TypeScript. If it fails, the agent, the subgraph and
-///      the vault have stopped agreeing on what identifies an intent.
+/// @notice Cross-language identity tests for `intentId` — schema v1.1 (WP-24).
+/// @dev The differential vectors below are the contract between this repository's
+///      Solidity and its TypeScript (`packages/domain/test/intent-id.test.ts`). If
+///      one fails, the agent, the indexer, the vault's on-chain `maxFeeBps` check
+///      (D6) and the CCTP hook (D8) have stopped agreeing on what identifies an intent.
 contract IntentIdTest is ChainFixture {
     using IntentLib for Intent;
 
     address internal constant ALICE = 0x1111111111111111111111111111111111111111;
     address internal constant BOB = 0x2222222222222222222222222222222222222222;
+    address internal constant MOCK_ETH = 0x3333333333333333333333333333333333333333;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
+
+    // Shared with `packages/domain/test/fixtures.ts` — same literal values, same expected ids.
+    bytes32 internal constant VECTOR_USDC_ONLY =
+        0x96a1a2a472816b5990818f5a89d5361bf32bf255bcad23bf64f22e7237948058;
+    bytes32 internal constant VECTOR_TRADE =
+        0xa8d935eff12a337ede5edcee94b93b4a9e756b9a905b1e36bbd034cdf0847f69;
+    bytes32 internal constant VECTOR_MIRRORED =
+        0xb6997a5c7162d9164d132aaa1880e73da582684ff1fbe10ee3b8875e084d1cf2;
+    bytes32 internal constant VECTOR_MAX_WIDTH =
+        0x68544c72f88d746145b4da20edb9affbd08cee1680c9b93f442d20ecd3461e39;
 
     function setUp() public {
         _configureDirection();
@@ -25,6 +37,7 @@ contract IntentIdTest is ChainFixture {
     ///      TypeScript fixture is pinned that way too.
     function _tsFixtureIntent() internal pure returns (Intent memory) {
         return Intent({
+            intentVersion: INTENT_VERSION,
             sender: ALICE,
             recipient: BOB,
             inputToken: SEPOLIA_USDC,
@@ -33,7 +46,9 @@ contract IntentIdTest is ChainFixture {
             destinationChainId: 5042002,
             maxFeeBps: 30,
             deadline: 1_800_000_000,
-            nonce: 7
+            nonce: 7,
+            tokenOut: USDC_TOKEN_OUT,
+            targetMinOut: 0
         });
     }
 
@@ -48,6 +63,7 @@ contract IntentIdTest is ChainFixture {
     ///      and every mutation test would compare a value against itself.
     function _copy(Intent memory intent) internal pure returns (Intent memory) {
         return Intent({
+            intentVersion: intent.intentVersion,
             sender: intent.sender,
             recipient: intent.recipient,
             inputToken: intent.inputToken,
@@ -56,22 +72,45 @@ contract IntentIdTest is ChainFixture {
             destinationChainId: intent.destinationChainId,
             maxFeeBps: intent.maxFeeBps,
             deadline: intent.deadline,
-            nonce: intent.nonce
+            nonce: intent.nonce,
+            tokenOut: intent.tokenOut,
+            targetMinOut: intent.targetMinOut
         });
     }
 
     // ---------------------------------------------------------------------
-    // Cross-language agreement
+    // Cross-language agreement — four vectors, literal on both sides
     // ---------------------------------------------------------------------
 
-    /// Locked against `packages/domain/test/intent-id.test.ts`. Both languages
-    /// assert the same constant, so a drift in either fails both suites.
-    function test_matchesTypeScriptFixture() public pure {
-        assertEq(
-            IntentLib.computeIntentId(_tsFixtureIntent()),
-            0xfdff8f70cfc4383e7ce72d188c0ada07df4fefc52fbee57ce54349c621dbb9c8,
-            "Solidity and TypeScript intent ids have diverged"
-        );
+    function test_vector_usdcOnlyMatchesTypeScript() public pure {
+        assertEq(IntentLib.computeIntentId(_tsFixtureIntent()), VECTOR_USDC_ONLY, "usdc-only vector diverged");
+    }
+
+    function test_vector_tradeIntentMatchesTypeScript() public pure {
+        Intent memory intent = _tsFixtureIntent();
+        intent.tokenOut = MOCK_ETH;
+        intent.targetMinOut = 250_000_000_000_000_000; // 0.25 MockETH at 18 decimals
+        assertEq(IntentLib.computeIntentId(intent), VECTOR_TRADE, "trade vector diverged");
+    }
+
+    function test_vector_mirroredDirectionMatchesTypeScript() public pure {
+        Intent memory intent = _tsFixtureIntent();
+        intent.sourceChainId = 5042002;
+        intent.destinationChainId = 11155111;
+        assertEq(IntentLib.computeIntentId(intent), VECTOR_MIRRORED, "mirrored vector diverged");
+    }
+
+    /// Every width-sensitive field at its maximum: proves the uint widths in the
+    /// typehash (uint8 / uint16 / uint64 / uint256) are what both sides encode.
+    function test_vector_maxWidthMatchesTypeScript() public pure {
+        Intent memory intent = _tsFixtureIntent();
+        intent.amount = type(uint256).max;
+        intent.nonce = type(uint256).max;
+        intent.tokenOut = MOCK_ETH;
+        intent.targetMinOut = type(uint256).max;
+        intent.maxFeeBps = 10_000;
+        intent.deadline = 9007199254740991; // JS Number.MAX_SAFE_INTEGER — the TS side's exact ceiling
+        assertEq(IntentLib.computeIntentId(intent), VECTOR_MAX_WIDTH, "max-width vector diverged");
     }
 
     /// The typehash string must match the TypeScript constant character for
@@ -79,10 +118,38 @@ contract IntentIdTest is ChainFixture {
     function test_typehashMatchesTypeScript() public pure {
         assertEq(
             IntentLib.INTENT_TYPEHASH,
+            0x2c6674d90e5d54fba3347fed0eff5641e7395a761cecbf27dfe3d41b36fa413e,
+            "typehash diverged from packages/domain/src/intent-id.ts"
+        );
+        assertEq(
+            IntentLib.INTENT_TYPEHASH,
             keccak256(
-                "Intent(address sender,address recipient,address inputToken,uint256 amount,uint256 sourceChainId,uint256 destinationChainId,uint16 maxFeeBps,uint64 deadline,uint256 nonce)"
+                "Intent(uint8 intentVersion,address sender,address recipient,address inputToken,uint256 amount,uint256 sourceChainId,uint256 destinationChainId,uint16 maxFeeBps,uint64 deadline,uint256 nonce,address tokenOut,uint256 targetMinOut)"
             )
         );
+    }
+
+    /// The two-`abi.encode` concatenation in `IntentLib` must equal one flat encode.
+    function test_concatenatedEncodingEqualsSingleEncode() public pure {
+        Intent memory i = _tsFixtureIntent();
+        bytes32 flat = keccak256(
+            abi.encode(
+                IntentLib.INTENT_TYPEHASH,
+                i.intentVersion,
+                i.sender,
+                i.recipient,
+                i.inputToken,
+                i.amount,
+                i.sourceChainId,
+                i.destinationChainId,
+                i.maxFeeBps,
+                i.deadline,
+                i.nonce,
+                i.tokenOut,
+                i.targetMinOut
+            )
+        );
+        assertEq(IntentLib.computeIntentId(i), flat);
     }
 
     // ---------------------------------------------------------------------
@@ -107,6 +174,13 @@ contract IntentIdTest is ChainFixture {
             IntentLib.computeIntentId(forward) != IntentLib.computeIntentId(reverse),
             "mirrored intents must not share an id"
         );
+    }
+
+    function test_intentVersionChangesTheId() public view {
+        Intent memory a = _intentForDirection();
+        Intent memory b = _copy(a);
+        b.intentVersion = a.intentVersion + 1;
+        assertTrue(IntentLib.computeIntentId(a) != IntentLib.computeIntentId(b));
     }
 
     function test_senderChangesTheId() public view {
@@ -155,6 +229,26 @@ contract IntentIdTest is ChainFixture {
         Intent memory a = _intentForDirection();
         Intent memory b = _copy(a);
         b.nonce = a.nonce + 1;
+        assertTrue(IntentLib.computeIntentId(a) != IntentLib.computeIntentId(b));
+    }
+
+    /// A trade intent is a different intent from the USDC-only transfer of the
+    /// same amount: the vault's on-chain check (D6) relies on `tokenOut` and
+    /// `targetMinOut` being bound into the id, not carried loose beside it.
+    function test_tokenOutChangesTheId() public view {
+        Intent memory a = _intentForDirection();
+        Intent memory b = _copy(a);
+        b.tokenOut = MOCK_ETH;
+        b.targetMinOut = 1;
+        assertTrue(IntentLib.computeIntentId(a) != IntentLib.computeIntentId(b));
+    }
+
+    function test_targetMinOutChangesTheId() public view {
+        Intent memory a = _intentForDirection();
+        a.tokenOut = MOCK_ETH;
+        a.targetMinOut = 100;
+        Intent memory b = _copy(a);
+        b.targetMinOut = 101;
         assertTrue(IntentLib.computeIntentId(a) != IntentLib.computeIntentId(b));
     }
 
