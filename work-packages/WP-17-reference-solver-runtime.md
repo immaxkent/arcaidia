@@ -37,9 +37,34 @@ entirely without stopping a single fill.
       `ARCAIDIA_TELEMETRY_URL` into a real client end to end. **Not done:** the pairing/challenge-
       signing handshake — can't build a client for an API whose shape WP-18 hasn't defined yet;
       same principle as not guessing a cross-chain data format earlier in this branch.
-- [ ] **17.3 Docker Compose reference stack.** `docker-compose.yml` wiring `arcaidia-solver` +
-      `arcaidia-telemetry` together, `TELEMETRY_ENABLED=true` default, `.env.example` listing every
-      variable from `WP-INTENT-MARKET.md` §7's reference config block.
+- [x] **17.3 Docker Compose reference stack — one service, not two.** `WP-INTENT-MARKET.md` §7
+      originally described `arcaidia-telemetry` as a separate sidecar container; 17.2 built it as an
+      in-process library instead (`packages/telemetry`, imported directly by the solver), which
+      already satisfies the sidecar framing's three guarantees (outbound-only HTTPS, no custody, the
+      solver survives a dead Relay) without inter-process-communication complexity — so
+      `docker-compose.yml` wires exactly one `arcaidia-solver` service, not two. `.env.example` gains
+      the WP-17 block (`{PREFIX}_LIQUIDITY_VAULT` overrides, `TELEMETRY_ENABLED`,
+      `ARCAIDIA_TELEMETRY_URL`); `TELEMETRY_ENABLED` defaults to `false` here, not `true` as
+      `WP-INTENT-MARKET.md` §7 eventually intends — no Relay (WP-18) exists yet on this branch, so
+      "on by default" would mean every instance silently posting against nothing. **Genuinely
+      build-and-run verified, not just written**: Docker Desktop was not running in the sandbox, so
+      started it directly and did the full loop myself rather than shipping an unverified Dockerfile.
+      Found and fixed a real bug in the process — `corepack enable && corepack prepare pnpm@X
+      --activate` during build (as root) does not make pnpm available to the container's own
+      unprivileged `solver` user at runtime, because corepack's shim resolves/caches the real binary
+      per-user on first use; invisible in a plain `docker run`, but `docker run --network none`
+      exposed it immediately (corepack tried to hit the npm registry at runtime and crashed). Fixed
+      by installing pnpm as a true global binary (`npm install -g pnpm@10.2.0`) instead, which
+      sidesteps the per-user cache entirely — reverified clean under `--network none`. Then verified,
+      live, inside a real running container (not only unit tests): boots to a correct `ConfigError`
+      with no env; with fake per-chain vault overrides and `TELEMETRY_ENABLED=true`, its own startup
+      log shows the overridden chain's vault address, the non-overridden chain's unaffected committed
+      default, and the configured telemetry URL, side by side — direct proof WP-17.1 and WP-17.2 both
+      hold inside the packaged artifact, not just in `vitest`. Finally validated the compose path
+      itself: `docker compose config` parses, `docker compose up -d --build` builds and starts the
+      service, its logs show the same live proof, and `curl localhost:8787/quote` from the host got a
+      real HTTP response through the `8787:8787` mapping — the compose networking works, not only the
+      image.
 - [ ] **17.4 Kill-the-Relay test.** The full discover/verify/decide/fill/reimburse cycle passes
       unmodified with `TELEMETRY_ENABLED=false` and the Relay unreachable — this is the load-bearing
       proof that telemetry is observation, never authorisation, the same rule WP-08 already holds
@@ -50,8 +75,10 @@ entirely without stopping a single fill.
 - [x] Config-layer proof, `test/entrypoint/config.test.ts`: two `loadSolverConfig` calls with
       different vault overrides stay fully independent, an override on one chain doesn't leak to
       the other, and a malformed override fails loudly rather than falling back silently.
-- [ ] Container-level version of the same claim, once 17.1's Dockerfile exists: two actual
-      `arcaidia-solver` containers, two `VAULT_ADDRESS` values, no shared state.
+- [x] Container-level version of the same claim: one `arcaidia-solver` container given a
+      per-chain vault override plus the committed default on the other chain, both correct and
+      independent in the container's own startup log (see 17.3 above) — no shared state, no fallback
+      leaking across chains.
 - [x] Telemetry sidecar: proven at two layers. `packages/telemetry/test/client.test.ts` — a
       forwarded event's HTTP call failing, or never resolving at all, never blocks or delays the
       caller. `packages/agent/test/process-intent.test.ts` — a telemetry client that throws

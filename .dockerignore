@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+contracts/out
+contracts/cache
+contracts/broadcast
+subgraph/generated
+subgraph/build
+apps/web/.output
+apps/web/.nitro
+*.log
+.env
