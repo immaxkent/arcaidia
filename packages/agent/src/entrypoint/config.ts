@@ -2,12 +2,12 @@
  * Config for the live solver process.
  *
  * Takes an env record as a plain argument rather than reading `process.env`
- * itself, so parsing every failure mode — a missing subgraph URL, a malformed
- * private key — is a unit test, not something only discoverable by actually
- * starting the process. Per-chain contract addresses and default RPC URLs
- * come from `@arcaidia/domain`'s committed config, never retyped here — the
- * one thing this file adds is what that config doesn't know: secrets, and
- * where the subgraphs live.
+ * itself, so parsing every failure mode — a malformed private key, a
+ * malformed override — is a unit test, not something only discoverable by
+ * actually starting the process. Per-chain contract addresses, default RPC
+ * URLs and the default subgraph/indexer endpoint come from `@arcaidia/domain`'s
+ * committed config, never retyped here — the one thing this file adds is
+ * what that config doesn't know: secrets, and this operator's own overrides.
  */
 
 import { CHAINS, deploymentFor, type ChainKey } from '@arcaidia/domain';
@@ -18,6 +18,8 @@ export interface ChainEntrypointConfig {
   readonly intentRouter: `0x${string}`;
   readonly liquidityVault: `0x${string}`;
   readonly subgraphUrl: string;
+  /** The settlement asset's address — `SqlNestObservationProvider` needs it explicitly (WP-22). */
+  readonly asset: `0x${string}`;
 }
 
 /**
@@ -85,18 +87,6 @@ function optionalHex(env: Env, key: string): `0x${string}` | undefined {
   return value as `0x${string}`;
 }
 
-function requireUrl(env: Env, key: string): string {
-  const value = env[key];
-  if (!value) {
-    throw new ConfigError(
-      `${key} is not set. The solver reads pending intents from The Graph — it will ` +
-        'not fall back to a local/in-memory view for a live run, since that would look ' +
-        'like it is watching both chains when it is actually watching neither.',
-    );
-  }
-  return value;
-}
-
 const CHAIN_ENV_PREFIX: Record<ChainKey, string> = {
   'ethereum-sepolia': 'ETHEREUM_SEPOLIA',
   'arc-testnet': 'ARC_TESTNET',
@@ -132,7 +122,12 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
     rpcUrl: env[`${prefix}_RPC_URL`] || chain.rpcUrl,
     intentRouter: contracts.intentRouter,
     liquidityVault,
-    subgraphUrl: requireUrl(env, `SUBGRAPH_URL_${prefix}`),
+    // WP-22: unset means Arcaidia's own shared, unlimited indexer (the
+    // committed default on `chain.subgraphUrl`) — same override-with-fallback
+    // shape as the RPC URL above. An operator overrides this only to point at
+    // their own subgraph or indexer instead.
+    subgraphUrl: env[`SUBGRAPH_URL_${prefix}`] || chain.subgraphUrl,
+    asset: chain.settlementAsset.address,
   };
 }
 

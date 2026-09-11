@@ -19,7 +19,8 @@ const SEPOLIA_CHAIN = {
   rpcUrl: 'https://sepolia.example/rpc',
   intentRouter: '0x1111111111111111111111111111111111111111' as const,
   liquidityVault: '0x2222222222222222222222222222222222222222' as const,
-  subgraphUrl: 'https://api.studio.thegraph.com/query/sepolia',
+  subgraphUrl: 'https://nest.example/arcaidia-sepolia',
+  asset: '0x6666666666666666666666666666666666666666' as const,
 };
 
 const ARC_CHAIN = {
@@ -27,7 +28,8 @@ const ARC_CHAIN = {
   rpcUrl: 'https://arc.example/rpc',
   intentRouter: '0x3333333333333333333333333333333333333333' as const,
   liquidityVault: '0x4444444444444444444444444444444444444444' as const,
-  subgraphUrl: 'https://api.studio.thegraph.com/query/arc',
+  subgraphUrl: 'https://nest.example/arcaidia-arc',
+  asset: '0x7777777777777777777777777777777777777777' as const,
 };
 
 function config(): SolverEntrypointConfig {

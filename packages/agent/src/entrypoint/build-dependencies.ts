@@ -16,11 +16,11 @@ import {
   buildCircleSigningClient,
   CircleAgentWalletSigner,
   DEFAULT_RISK_POLICY,
-  FetchGraphQueryClient,
-  GraphObservationProvider,
+  FetchNestQueryClient,
   InMemorySubmissionJournal,
   LocalAgentSigner,
   RandomNonceSource,
+  SqlNestObservationProvider,
   ViemFillSubmitter,
   ViemSourceChainReader,
   type DecisionLog,
@@ -180,13 +180,16 @@ export function buildSolverDependencies(
   const authority = buildAuthority(config.signerAuthority);
   const submitterAccount = privateKeyToAccount(config.submitterPrivateKey);
 
-  const observation = new GraphObservationProvider({
-    client: new FetchGraphQueryClient(),
+  // WP-22: Arcaidia's shared, unlimited indexer by default — see
+  // ChainEntrypointConfig.subgraphUrl's own doc comment for the override.
+  const observation = new SqlNestObservationProvider({
+    client: new FetchNestQueryClient(),
     readClients: buildContractReadClients(config.chains),
     sources: config.chains.map((chain) => ({
       chainId: chain.chainId,
       endpoint: chain.subgraphUrl,
       vault: chain.liquidityVault,
+      asset: chain.asset,
     })),
   });
 

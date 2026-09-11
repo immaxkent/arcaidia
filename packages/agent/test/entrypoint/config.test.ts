@@ -137,16 +137,42 @@ describe('loadSolverConfig', () => {
     expect(() => loadSolverConfig({ ...baseEnv(), LOCAL_AGENT_PRIVATE_KEY: 'not-hex' })).toThrow(ConfigError);
   });
 
-  it('refuses a missing subgraph URL — never silently falls back to a local view', () => {
-    const env = baseEnv();
-    delete (env as Partial<typeof env>).SUBGRAPH_URL_ETHEREUM_SEPOLIA;
-    expect(() => loadSolverConfig(env)).toThrow(/SUBGRAPH_URL_ETHEREUM_SEPOLIA/);
+  // -----------------------------------------------------------------------
+  // WP-22: the subgraph/indexer URL is override-with-fallback, same shape as
+  // the RPC URL above — unset means Arcaidia's own shared, unlimited Nest,
+  // not a thrown ConfigError. An operator with nothing set to look at is a
+  // gap the whole point of WP-22 was to close, not a case to keep refusing.
+  // -----------------------------------------------------------------------
+
+  it('honours a subgraph URL override without needing one', () => {
+    const config = loadSolverConfig({
+      ...baseEnv(),
+      SUBGRAPH_URL_ETHEREUM_SEPOLIA: 'https://my-own-indexer.example/sepolia',
+    });
+    const sepolia = config.chains.find((c) => c.chainId === 11_155_111);
+    expect(sepolia?.subgraphUrl).toBe('https://my-own-indexer.example/sepolia');
   });
 
-  it('refuses a missing subgraph URL for the other chain too', () => {
+  it('falls back to the committed default Nest URL when no override is set for either chain', () => {
     const env = baseEnv();
+    delete (env as Partial<typeof env>).SUBGRAPH_URL_ETHEREUM_SEPOLIA;
     delete (env as Partial<typeof env>).SUBGRAPH_URL_ARC_TESTNET;
-    expect(() => loadSolverConfig(env)).toThrow(/SUBGRAPH_URL_ARC_TESTNET/);
+
+    const config = loadSolverConfig(env);
+    const sepolia = config.chains.find((c) => c.chainId === 11_155_111);
+    const arc = config.chains.find((c) => c.chainId === 5_042_002);
+
+    expect(sepolia?.subgraphUrl).toMatch(/^https:\/\//);
+    expect(arc?.subgraphUrl).toMatch(/^https:\/\//);
+    // An override on one chain must never leak to the other — same rule
+    // WP-17.1 already holds for the vault address override.
+    expect(sepolia?.subgraphUrl).not.toBe(arc?.subgraphUrl);
+  });
+
+  it("carries each chain's settlement asset address through for the Nest provider (WP-22)", () => {
+    const config = loadSolverConfig(baseEnv());
+    const sepolia = config.chains.find((c) => c.chainId === 11_155_111);
+    expect(sepolia?.asset).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
   it('refuses a chain with no deployed contracts', () => {

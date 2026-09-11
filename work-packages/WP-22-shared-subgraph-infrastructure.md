@@ -20,72 +20,89 @@ capped key at all.
 running more than one solver against Arc testnet today; WP-19 (the solver console needs to know
 what `GRAPH_ENDPOINT` value to hand a newly-onboarded operator).
 
-**Stack:** `graph-node` + Postgres + IPFS (the reference `graphprotocol/graph-node` Docker Compose
-stack), one publicly-reachable host per chain. **Not** a new package in this repo — this is
-infrastructure Arcaidia operates, plus a small config change to how solvers find it.
-
-## Split: infra (not built in this repo) vs. code (built here)
-
-Provisioning a VPS and running a server is not something a commit can do. This WP is split
-accordingly — 22.1/22.2 are operational and tracked here only as a checklist; 22.3–22.6 are real
-code with tests, same as every other WP.
+**Stack, as actually built (revised 2026-09-11):** the original plan below was a self-hosted
+`graph-node` + Postgres + IPFS stack we would provision. Instead, the Graph rep hosted two
+purpose-built indexers ("Nests") himself — one per chain, no key, no limit, CORS open — queried
+over **SQL-over-HTTP, not GraphQL**: `GET {endpoint}/sql?q=<SELECT ...>`, with the same entities
+`GraphObservationProvider` already reads exposed as SQL views (`pending_intents`, `vault`,
+`fills`, `protocol_state`). This is a materially different transport, not a hosting-location
+detail, so it gets its own provider (`SqlNestObservationProvider`) rather than pointing
+`GraphObservationProvider` at a new URL — see "What got built" below.
 
 ## Sub-tasks
 
-- [ ] **22.1 Provision the two self-hosted nodes.** Arc: the Graph rep's own offer — hand him the
-      contract addresses + chain info already compiled (chain `5042002`, the three live
-      contracts and their start blocks, from `subgraph/subgraph.arc-testnet.yaml`); he hosts and
-      operates it. Sepolia: Arcaidia's own equivalent — deploy the reference `graph-node` +
-      Postgres + IPFS compose stack to a VPS, pointed at an `ETHEREUM_SEPOLIA_RPC_URL`, and
-      `graph deploy` the already-committed, already-generated
-      `subgraph/subgraph.ethereum-sepolia.yaml` to it instead of Studio. Not code; tracked here so
-      the gate below has something to point at.
-- [ ] **22.2 Public reachability + minimal hardening, on both nodes.** HTTPS (matches the
-      outbound-only-HTTPS convention already used everywhere else — WP-17.2's telemetry client, the
-      settlement adapter), because solvers connect from arbitrary third-party machines, not just
-      Arcaidia's own. Firewall each node's admin/deploy port to Arcaidia-only IPs; leave the
-      GraphQL query port open with no auth — it's read-only and reveals nothing a public subgraph
-      query couldn't already answer, the same reasoning `quote-server.ts` already documents for
-      `POST /quote`'s open CORS.
-- [ ] **22.3 Committed default subgraph URLs, override-with-fallback — the actual code fix.**
-      `packages/domain/src/config/chains.ts` gains a committed `subgraphUrl` per chain (Arcaidia's
-      hosted endpoints from 22.1), read by `packages/agent/src/entrypoint/config.ts` with
-      `SUBGRAPH_URL_{PREFIX}` as an optional override — the exact shape WP-17.1 already built for
-      `{PREFIX}_LIQUIDITY_VAULT`: unset means "use Arcaidia's hosted, uncapped endpoint," present
-      overrides it for an operator who wants their own subgraph, malformed still fails loudly.
-      Today `SUBGRAPH_URL_{PREFIX}` is `requireUrl` — **required**, no fallback — so this sub-task
-      is what actually removes the "you must already have a subgraph" barrier to running a solver
-      at all, not just a config nicety.
-- [ ] **22.4 `.env.example` and the reference-runtime docs reflect the new default.** Delete the
-      implication that an operator needs their own Graph account: state plainly that
-      `SUBGRAPH_URL_*` is optional and, unset, points at Arcaidia's own uncapped endpoints; keep it
-      settable for anyone who wants to self-host or use their own Studio/Gateway key instead.
-- [ ] **22.5 A basic external healthcheck, not a dashboard.** One scheduled check per node:
-      query `_meta { block { timestamp } }` and alert if the indexing head is stale beyond a
-      threshold, or the endpoint is unreachable. The point is that Arcaidia notices an outage
-      before a demo solver silently halts (per WP-08's own rule: the provider throws rather than
-      reporting an empty world — which means "the solver stopped" is the *first* signal today,
-      with nobody watching for it upstream of that).
-- [ ] **22.6 WP-17's onboarding docs get one sentence added.** An independent operator (ETHGlobal
-      included) following the Docker Compose reference runtime should see, explicitly: no Graph
-      account is required to run this; `SUBGRAPH_URL_*` only needs setting if you want to point at
-      your own indexer instead of Arcaidia's.
+- [x] **22.1 The two nests are live.** Both hosted by the Graph rep, seeded from this repo's own
+      ABIs, addresses and start blocks — verified live, 2026-09-11:
+      `https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia` and `.../arcaidia-arc`. `/ready`
+      on both returns `ready: true` with a `last_block` matching each chain's real current head.
+- [x] **22.2 Public reachability confirmed.** HTTPS, no key, CORS open (queryable straight from a
+      browser) — confirmed by direct `curl` against both endpoints, not assumed from the rep's own
+      description of them.
+- [x] **22.3 Committed default endpoint URLs, override-with-fallback.**
+      `packages/domain/src/config/chains.ts`'s `ChainConfig` gains a committed `subgraphUrl` per
+      chain (the two Nest URLs above), same override-with-fallback shape WP-17.1 already built for
+      `{PREFIX}_LIQUIDITY_VAULT`: `SUBGRAPH_URL_{PREFIX}` unset means the committed Nest URL, set
+      overrides it for an operator pointing at their own subgraph/indexer instead.
+      `packages/agent/src/entrypoint/config.ts`'s `requireUrl`-and-throw for a missing
+      `SUBGRAPH_URL_{PREFIX}` is gone — that was the actual "you must already have a subgraph"
+      barrier this sub-task closes. `build-dependencies.ts` now wires `SqlNestObservationProvider`
+      (below) as the live entrypoint's default observation provider, in place of
+      `GraphObservationProvider`.
+- [x] **22.4 `.env.example` reflects the new default** — states plainly that `SUBGRAPH_URL_*` is
+      optional and unset means Arcaidia's own uncapped indexer.
+- [ ] **22.5 A basic external healthcheck, not a dashboard.** Still open: poll each Nest's
+      `/ready` and alert if `ready` goes false or the endpoint is unreachable — the point being
+      that Arcaidia notices an outage before a demo solver silently halts (WP-08's rule: the
+      provider throws rather than reporting an empty world, so today "the solver stopped" is the
+      *first* signal, with nobody watching for it upstream).
+- [ ] **22.6 WP-17's onboarding docs get one sentence added** — still open, small: an independent
+      operator should see explicitly that no Graph account is required to run the reference
+      runtime.
+
+### What got built: `SqlNestObservationProvider` (`packages/agent/src/observation/`)
+
+Same `ObservationProvider` contract, same rules as `GraphObservationProvider` (two chains merged
+on `intentId`, `observedAt` from the indexer's own freshness signal — here, `/ready`'s
+`last_poll_unixtime` — never the local clock, failures throw rather than reporting an empty
+world), SQL-over-HTTP instead of GraphQL. `pendingIntents()`'s fill-check is batched one query per
+chain regardless of candidate count, same fix and same reasoning as the GraphQL provider's own
+2026-09-11 batching fix.
+
+**A real bug found and worked around, not papered over.** `pending_intents`/`intents`' `nonce`
+column returns `NULL` on every row — confirmed live: the raw underlying event table
+(`intent_router__intent_created`) carries the correct value, so the authored view's mapping is
+dropping it (best guess: it's reading the `_dec` decimal companion, which the Nest's own schema
+docs say overflows to `NULL` above 38 digits — Arcaidia's nonces are full-width random uint256s,
+always over that). This matters because `verify-source.ts` independently re-checks `intent.nonce`
+against the real onchain event before ever signing a fill (WP-04.9's rule) — a null nonce here
+would make every intent fail that check and get silently declined, indistinguishable from "no
+work today." Reported to the Nest operator (fix in progress on his end); not blocked on it —
+`SqlNestObservationProvider` fetches `nonce` from the raw event table directly, batched by
+intentId, same pattern as the fill-check batching. Safe to delete once the view itself is fixed.
 
 ## Tests
 
-- [ ] Config-layer proof, mirroring `test/entrypoint/config.test.ts`'s existing pattern for
-      17.1: `SUBGRAPH_URL_ETHEREUM_SEPOLIA` unset resolves to the committed default; set,
-      overrides it; malformed-but-present still fails loudly via `requireUrl` rather than silently
-      falling back.
-- [ ] A live, network-touching smoke test — outside `test:global`, same category as the existing
-      `test:chains` live-network script — that runs `GraphObservationProvider` against the real
-      hosted endpoint once 22.1 exists, and confirms it returns a real vault state, not just that
-      the URL resolves.
+- [x] `packages/agent/test/sql-nest-observation-provider.test.ts` (22 tests): the cross-chain
+      merge, batching (one fills query and one nonce-lookup query per chain regardless of
+      candidate count, zero of either when there are no candidates), the nonce workaround itself
+      (including a hostile "no nonce found" case, which throws rather than defaulting), truncated
+      and degraded responses refused, vault/settlement-health reads, `/ready`-sourced staleness,
+      SQL-injection-shaped input refused before ever reaching a query string, failure/recovery.
+- [x] `test/entrypoint/config.test.ts`: `SUBGRAPH_URL_{PREFIX}` unset resolves to the committed
+      Nest default (and the two chains' defaults are confirmed distinct — an override on one must
+      never leak to the other); set, overrides it.
+- [x] **Live-verified against the real, running Nests, not only mocks** — the bar this whole
+      session holds every deliverable to: `SqlNestObservationProvider` run directly against both
+      hosted endpoints correctly discovered a real pending intent and correctly excluded another
+      that a fill already existed for; `vaultState`/`settlementHealth` run against the real Nest
+      plus a real Sepolia RPC read back correct, real vault figures. Then the full live entrypoint
+      (`main.ts`), with **zero** `SUBGRAPH_URL_*` set, booted, logged the two committed Nest URLs
+      it defaulted to, discovered that same real pending intent through the entire production
+      wiring path, and reported a real decision (`UNVERIFIED`) — not a crash, not an empty world.
 
 ## Acceptance gate
 
-Three solvers running concurrently against Arc testnet — the House Solver and two Arcaidia-run
-demo instances — with zero `SUBGRAPH_URL_ARC_TESTNET` configured on any of them, complete the
-demo window with no query-cap error from any instance. A fourth, independently-run solver (not
-Arcaidia's) started the same way, with the same zero configuration, discovers and fills an intent
-against the same shared endpoint.
+Any solver operator — House, an Arcaidia-run demo instance, or an independent one (ETHGlobal
+included) — starts `arcaidia-solver` with zero `SUBGRAPH_URL_*` configured and discovers real
+pending intents against Arcaidia's shared, unlimited indexer. **Met**, live-verified above, for
+both chains. Open: 22.5's healthcheck, so an outage is noticed before a demo solver goes quiet.
