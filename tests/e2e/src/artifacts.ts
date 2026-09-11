@@ -42,6 +42,10 @@ export const ARTIFACTS = {
     bytecode: bytecodeOf('ArcaidiaLiquidityVault'),
   },
   SettlementReceiver: { abi: ABIS.SettlementReceiver, bytecode: bytecodeOf('SettlementReceiver') },
+  ArcaidiaIntentMarket: {
+    abi: ABIS.ArcaidiaIntentMarket,
+    bytecode: bytecodeOf('ArcaidiaIntentMarket'),
+  },
 } as const;
 
 /** Salts must be identical on every chain; they are half of what fixes the addresses. */

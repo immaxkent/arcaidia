@@ -1229,6 +1229,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "market",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "maxDeposit",
       "inputs": [
         {
@@ -1642,6 +1655,19 @@ export const ABIS = {
           "name": "maxFeeBps_",
           "type": "uint16",
           "internalType": "uint16"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setMarket",
+      "inputs": [
+        {
+          "name": "market_",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "outputs": [],
@@ -2119,6 +2145,19 @@ export const ABIS = {
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MarketConfigured",
+      "inputs": [
+        {
+          "name": "market",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
         }
       ],
       "anonymous": false
@@ -2648,6 +2687,11 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "NoMarketConfigured",
+      "inputs": []
+    },
+    {
+      "type": "error",
       "name": "NotOwner",
       "inputs": []
     },
@@ -3120,6 +3164,161 @@ export const ABIS = {
       "type": "error",
       "name": "ZeroAmount",
       "inputs": []
+    }
+  ] as const,
+  ArcaidiaIntentMarket: [
+    {
+      "type": "constructor",
+      "inputs": [
+        {
+          "name": "settlementCheck_",
+          "type": "address",
+          "internalType": "contract ISettlementCheck"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "MAX_FEE_BPS",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "claimIntent",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "outputAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "filledBy",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "settlementCheck",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract ISettlementCheck"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "IntentClaimed",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "vault",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "outputAmount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "FeeAboveUniversalCeiling",
+      "inputs": [
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "ceiling",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "IntentAlreadyClaimed",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "claimedBy",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "IntentAlreadySettledCanonically",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
     }
   ] as const,
   ArcaidiaDeployer: [

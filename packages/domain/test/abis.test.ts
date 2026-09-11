@@ -25,6 +25,7 @@ describe('generated ABI barrel', () => {
   it('exports every contract downstream packages consume', () => {
     expect(Object.keys(ABIS).sort()).toEqual([
       'ArcaidiaDeployer',
+      'ArcaidiaIntentMarket',
       'ArcaidiaIntentRouter',
       'ArcaidiaLiquidityVault',
       'CircleCCTPInitiator',

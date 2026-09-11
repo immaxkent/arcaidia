@@ -28,6 +28,7 @@ export interface ChainDeployment {
   readonly router: Address;
   readonly vault: Address;
   readonly settlementReceiver: Address;
+  readonly market: Address;
   readonly wallet: WalletClient;
   readonly owner: Address;
 }
@@ -109,12 +110,24 @@ export async function deployProtocol(
     }),
   );
 
+  // WP-16.1: the vault refuses every fastFill outright (`NoMarketConfigured`)
+  // until this is set — plain `new`, not CREATE2. Its one constructor arg
+  // (this chain's own SettlementReceiver) already differs from a wallet-nonce
+  // standpoint even when the address itself matches across chains, and
+  // nothing elsewhere in this harness predicts or hardcodes the market's own
+  // address the way it does for vault/router/receiver, so there is no address
+  // parity to preserve here.
+  const market = await send.deploy(ARTIFACTS.ArcaidiaIntentMarket.abi, ARTIFACTS.ArcaidiaIntentMarket.bytecode, [
+    settlementReceiver,
+  ]);
+
   // --- wiring -------------------------------------------------------------
 
   const vaultCall = (functionName: string, args: readonly unknown[]) =>
     send.call(vault, ARTIFACTS.ArcaidiaLiquidityVault.abi, functionName, args);
 
   await vaultCall('setSettlementReceiver', [settlementReceiver]);
+  await vaultCall('setMarket', [market]);
   await vaultCall('setFillLimits', [options.maxFillBps, options.maxExposureBps, options.maxFeeBps]);
   await vaultCall('setAuthorisedSigner', [options.agentSigner, true]);
   await vaultCall('setTreasury', [options.treasury]);
@@ -138,6 +151,7 @@ export async function deployProtocol(
     router,
     vault,
     settlementReceiver,
+    market,
     wallet,
     owner: account.address,
   };
@@ -171,8 +185,16 @@ function sender(client: PublicClient, wallet: WalletClient) {
   };
 
   return {
-    async deploy(abi: readonly unknown[], bytecode: Hex): Promise<Address> {
-      const hash = await wallet.deployContract({ abi: abi as never, bytecode } as never);
+    async deploy(
+      abi: readonly unknown[],
+      bytecode: Hex,
+      args: readonly unknown[] = [],
+    ): Promise<Address> {
+      const hash = await wallet.deployContract({
+        abi: abi as never,
+        bytecode,
+        args: args as never,
+      } as never);
       const receipt = await confirm(hash);
       if (!receipt.contractAddress) throw new Error('Deployment produced no address.');
       return receipt.contractAddress;
