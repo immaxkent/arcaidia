@@ -78,3 +78,92 @@ predicted deterministic addresses are the evidence for "deployment-ready" either
 - **CCTP forwarding service** — whether it can deliver straight to
   `SettlementReceiver`. WP-01 spike.
 - **Q9 confirmation policy** and **Q10 fee split**.
+
+---
+
+## D5 — Intent schema is versioned in the preimage; v1.1 adds `tokenOut`/`targetMinOut`
+**Date:** 2026-09-11 · **Status:** accepted · **Affects:** WP-24, WP-25, WP-27, WP-28, WP-30
+
+`intentVersion` (uint8, = 1) is the first field of the `Intent` struct and of the `intentId`
+preimage; `tokenOut` (address(0) = destination settlement asset) and `targetMinOut` (0 unless
+`tokenOut` set) are appended. One typehash string, one Solidity and one TypeScript
+implementation, shared fixtures.
+
+**Why:** the brief wants no second cross-chain metadata migration when Uniswap lands. Reserving
+the fields *and* the version now means Line 1 merges with zero schema change, and any future
+layout can be told apart by its first byte.
+
+**Risk accepted:** v1 and v1.1 ids differ for the same economic terms. Acceptable because the
+router is redeployed and the old one only ever settles its own in-flight intents.
+
+## D6 — The user's `maxFeeBps` is enforced on chain by recomputing the intent id
+**Date:** 2026-09-11 · **Status:** accepted · **Affects:** WP-26, WP-28 · **Supersedes:** WP-INTENT-MARKET.md §6 (2026-09-11) "deliberately not built"
+
+`fastFill(Intent intent, FillAuthorization auth, bytes sig)`: the vault recomputes
+`IntentLib.computeIntentId(intent)`, requires it to equal `auth.intentId`, and enforces
+`feeAmount <= amount * intent.maxFeeBps / 1e4` plus consistency (`recipient`, `amount`,
+`sourceChainId`, `destinationChainId == block.chainid`, `deadline`).
+
+**Why:** the id is what the signed authorization, the market claim and the CCTP hook all bind
+to. A solver that lies about `maxFeeBps` changes the id, which then matches no real intent and
+is never reimbursed. `FillAuthorization` stays byte-identical (EIP-712 lock kept; Circle Agent
+Wallet untouched).
+
+**What this is not:** a proof the intent exists on the source chain. That remains the
+verified-observation trust model (`README.md`, "Trust assumption").
+
+## D7 — Vault fee policy: four utilisation tiers, set at initialize, immutable, enforced on chain
+**Date:** 2026-09-11 · **Status:** accepted · **Affects:** WP-26, WP-28, WP-30, WP-32
+
+`FeePolicy {base, mid, high, critical fee bps; mid, high, critical threshold bps}`, validated at
+`initialize`, no setter. `currentFeeBps()` / `quoteFee(amount)` views. `fastFill` requires
+`feeAmount <= amount * currentFeeBps() / 1e4` at pre-fill utilisation. The solver's `RiskPolicy`
+stops pricing; it reads the vault.
+
+**Why:** the brief: the vault, not the solver, is the source of truth for fees; two vaults may
+differ; fees must be observable and deterministic. Step tiers are explainable to an LP and a judge.
+
+**Consequence:** the vault's `maxFeeBps` fill limit is removed (the policy's `criticalFeeBps` is
+the ceiling, bounded by the market's universal 150 bps). `maxFillBps`/`maxExposureBps` move to
+`initialize` too, but stay owner-adjustable as pure risk knobs.
+
+## D8 — Canonical association via CCTP V2 `hookData`; receiver is the `destinationCaller`
+**Date:** 2026-09-11 · **Status:** accepted · **Affects:** WP-25, WP-26, WP-28, WP-31
+
+Router → `ISettlementInitiator.initiateSettlement(..., hookData)` with
+`hookData = abi.encode(uint8 1, bytes32 intentId, address recipient)`; `CircleCCTPInitiator`
+uses `depositForBurnWithHook` and sets `destinationCaller = destinationReceiver`.
+`SettlementReceiver.settleWithProof(message, attestation)` (permissionless) calls
+`receiveMessage` itself and routes by the attested `intentId`/`recipient`.
+
+**Why:** the attestation covers `hookData`, so the destination association is cryptographic, not
+reporter-asserted; setting `destinationCaller` removes the "someone else called
+`receiveMessage` first" race and makes settlement one transaction. Verified against
+`circlefin/evm-cctp-contracts` (`BurnMessageV2` hookData offset 228; `MessageV2` body offset 148).
+
+**Risk accepted:** only our receiver can mint. Mitigated by `settleWithProof` needing no key, by
+keeping reporter `settle` as an owner recovery path, and by parking funds (`HELD_FOR_VAULT`) if
+a winning vault's `recordReimbursement` reverts.
+
+## D9 — Destination-trade execution is a vault seam, not a vault redeploy
+**Date:** 2026-09-11 · **Status:** accepted · **Affects:** WP-26, WP-34, Line 1
+
+The v2 vault carries an owner-settable `ISwapAdapter swapAdapter` (default `address(0)`). On a
+fill with `intent.tokenOut != 0` and an adapter set, the vault approves and calls
+`swapExactInput(usdc, tokenOut, outputAmount, targetMinOut, recipient)` in `try/catch`; on
+revert or no adapter it delivers USDC to `recipient` (the brief's fallback). Interface frozen in
+WP-24; implementation delivered by Line 1.
+
+**Why:** avoids a second vault redeploy when Uniswap merges; keeps Uniswap out of the canonical
+settlement path; core never learns Uniswap internals.
+
+## D10 — Vaults are created through `ArcaidiaVaultFactory`; the directory is its events
+**Date:** 2026-09-11 · **Status:** accepted · **Affects:** WP-26, WP-27, WP-30, WP-31
+
+`createVault(owner, salt, reserveFloorBps, maxFillBps, maxExposureBps, FeePolicy, label)` deploys
+the standard vault via CREATE2 (salted by `owner`+`salt`), wires the chain's market and receiver,
+transfers ownership, emits `VaultCreated`. The House Vault is created the same way. The subgraph
+gains a factory data source + vault template; the frontend's "derive vaults from fills" hack goes.
+
+**Why:** the Earn page already assumes exactly this; multi-vault indexing needs a discovery
+event; independent operators need no Arcaidia key at any step (WP-20.4).

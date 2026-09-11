@@ -144,3 +144,25 @@ frontend does not start before its backend exists — there is nothing to wire a
 artefact that proves it and the work package that produces it. It is the checklist WP-12's gate is
 scored against; consult it when a work package's scope is in question, because several requirements
 are only satisfiable if the right evidence is captured while the work is being done.
+
+## V2/V3 phase — intent v1.1, vault fee policies, CCTP metadata, Uniswap, Hedera (2026-09-11)
+
+Plan of record: [V2-MIGRATION-PLAN.md](V2-MIGRATION-PLAN.md) (repo audit, breaking changes,
+dependency order, branch plan, what needs the owner). Line 1 handoff:
+[LINE-1-UNISWAP-INTERFACE.md](LINE-1-UNISWAP-INTERFACE.md). Decisions D5–D10 in
+[DECISIONS.md](DECISIONS.md). Branch `v2-core`; `main` untouched until the integration gate.
+
+| WP | Title | Depends on | Gate in one line |
+| --- | --- | --- | --- |
+| [24](WP-24-freeze-domain-v1.1.md) | Freeze domain v1.1 (intent, hash, fee policy, swap adapter, hook) | main | Same four `intentId`s from Solidity and TS; Line 1 interface landed. |
+| [25](WP-25-router-cctp-hook.md) | Router v2 + CCTP hook metadata | 24 | Every burn carries `(intentId, recipient)`; event has every solver field. |
+| [26](WP-26-vault-fee-policy-factory-receiver.md) | Vault fee policy, on-chain maxFee, factory, receiver proof | 24 (25) | Vault rejects fees above user ceiling or posted tier; `settleWithProof` routes from attested bytes. |
+| [27](WP-27-indexing-migration.md) | Subgraph/Nest migration | 25, 26 | Enriched `Intent`, dynamic vault discovery, re-seed request complete. |
+| [28](WP-28-solver-settlement-migration.md) | Solver + settlement migration | 24–27 | Solver prices from its vault; two instances fill independently. |
+| [29](WP-29-integration-gate.md) | Local integration gate | 25–28 | Seven v2 scenarios both directions; `test:global` green. |
+| [30](WP-30-frontend-migration.md) | Frontend migration | 26, 27, 29 | Explicit max fee on chain; vault created with its own policy. |
+| [31](WP-31-coordinated-redeploy.md) | Coordinated redeploy + 3 vaults + 3 solvers | 29, 30, owner | Live market with heterogeneous vaults; closes WP-16/20. |
+| [32](WP-32-market-activity-loadgen.md) | Automated market activity | 24 (write) / 31 (run) | ~20% organic scarcity, configurable. |
+| [33](WP-33-ecosystem-intelligence-surface.md) | Ecosystem intelligence surface | 27 | Real metric set served; baseline solver unchanged without it. |
+| [34](WP-34-uniswap-execution-merge.md) | Uniswap execution merge | 31 + Line 1 | Trade intents deliver `tokenOut`, no redeploy. |
+| [35](WP-35-hedera-x402-gateway.md) | Hedera x402 gateway (outline) | 33 | Paid intelligence optional; protocol unchanged. |
