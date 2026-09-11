@@ -13,7 +13,15 @@
  * proves — only the console's live view degrades.
  */
 
-import { RelayStore, startHeartbeatSweeper, startRelayServer } from '../index.js';
+import {
+  FetchNestQueryClient,
+  FixtureVaultFlowSource,
+  ParticipantRegistry,
+  RelayStore,
+  VaultFlowsService,
+  startHeartbeatSweeper,
+  startRelayServer,
+} from '../index.js';
 import { ConfigError, loadRelayConfig } from './config.js';
 
 async function main(): Promise<void> {
@@ -39,7 +47,19 @@ async function main(): Promise<void> {
     `[relay] heartbeat timeout ${config.heartbeatTimeoutSeconds}s, swept every ${config.heartbeatSweepIntervalMs}ms`,
   );
 
-  const server = await startRelayServer(store, { port: config.port });
+  const vaultFlows = config.vaultFlows
+    ? new VaultFlowsService(
+        new ParticipantRegistry(config.vaultFlows.nestEndpoint, new FetchNestQueryClient()),
+        new FixtureVaultFlowSource(config.vaultFlows.fixturePath),
+      )
+    : undefined;
+  console.log(
+    vaultFlows
+      ? `[relay] vault flows -> fixture ${config.vaultFlows!.fixturePath}, participants from ${config.vaultFlows!.nestEndpoint}`
+      : '[relay] vault flows  disabled (WP-21 — no live Substreams subscriber wired yet)',
+  );
+
+  const server = await startRelayServer(store, { port: config.port, vaultFlows });
   console.log(`[relay] listening on http://0.0.0.0:${server.port}`);
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {

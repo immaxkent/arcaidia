@@ -14,10 +14,13 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { RelayStore } from './store.js';
 import type { VaultKey, VaultTelemetryState } from './types.js';
+import type { VaultFlowsService } from './vault-flows/service.js';
 
 export interface RelayServerOptions {
   readonly port: number;
   readonly host?: string;
+  /** WP-21.4 — when omitted, `/v1/vault-flows/{vault}` reports 501, plainly, rather than 404. */
+  readonly vaultFlows?: VaultFlowsService | undefined;
 }
 
 export interface RelayServerHandle {
@@ -31,9 +34,15 @@ const CORS_HEADERS = {
   'access-control-allow-headers': 'content-type',
 } as const;
 
+/**
+ * `VaultFlowEvent`'s `assets`/`shares` are `bigint` — plain `JSON.stringify`
+ * throws on those (`TypeError: Do not know how to serialize a BigInt`), so
+ * every response here goes through the same bigint-to-string replacer
+ * `quote-server.ts` already uses for the same reason.
+ */
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { ...CORS_HEADERS, 'content-type': 'application/json' });
-  res.end(JSON.stringify(body));
+  res.end(JSON.stringify(body, (_key, value) => (typeof value === 'bigint' ? value.toString() : value)));
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -85,6 +94,13 @@ function vaultKeyFromBody(body: Record<string, unknown>): VaultKey {
   };
 }
 
+/** `/v1/vault-flows/<vaultAddress>` (WP-21.4) — Ethereum-only (WP-21.5); no chainId segment. */
+function parseVaultFlowsPath(pathname: string): `0x${string}` | null {
+  const segments = pathname.split('/').filter((s) => s.length > 0);
+  if (segments.length !== 3 || segments[0] !== 'v1' || segments[1] !== 'vault-flows') return null;
+  return segments[2]!.toLowerCase() as `0x${string}`;
+}
+
 /** `/v1/telemetry/vault/<chainId>/<vaultAddress>/stream` — the only path with segments in it. */
 function parseStreamPath(pathname: string): VaultKey | null {
   const segments = pathname.split('/').filter((s) => s.length > 0);
@@ -104,7 +120,7 @@ function parseStreamPath(pathname: string): VaultKey | null {
 
 export function startRelayServer(store: RelayStore, options: RelayServerOptions): Promise<RelayServerHandle> {
   const server = createServer((req, res) => {
-    void handleRequest(req, res, store);
+    void handleRequest(req, res, store, options.vaultFlows);
   });
 
   return new Promise((resolve) => {
@@ -128,7 +144,12 @@ export function startRelayServer(store: RelayStore, options: RelayServerOptions)
   });
 }
 
-async function handleRequest(req: IncomingMessage, res: ServerResponse, store: RelayStore): Promise<void> {
+async function handleRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  store: RelayStore,
+  vaultFlows: VaultFlowsService | undefined,
+): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://relay.local');
   const pathname = url.pathname;
 
@@ -147,6 +168,11 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, store: R
     const streamKey = parseStreamPath(pathname);
     if (streamKey) {
       handleStream(req, res, store, streamKey);
+      return;
+    }
+    const vaultFlowAddress = parseVaultFlowsPath(pathname);
+    if (vaultFlowAddress) {
+      await handleVaultFlows(res, vaultFlowAddress, vaultFlows);
       return;
     }
   }
@@ -240,6 +266,30 @@ async function handleEvent(req: IncomingMessage, res: ServerResponse, store: Rel
   }
   res.writeHead(204, CORS_HEADERS);
   res.end();
+}
+
+/**
+ * WP-21.4. No live Substreams subscriber exists yet (see
+ * `vault-flows/fixture-source.ts`'s own doc comment) — `vaultFlows` is
+ * `undefined` unless the entrypoint was explicitly configured with one, and
+ * that absence is reported as 501, not a bare 404 that reads as "wrong
+ * URL" when the real story is "not wired up yet".
+ */
+async function handleVaultFlows(
+  res: ServerResponse,
+  vaultAddress: `0x${string}`,
+  vaultFlows: VaultFlowsService | undefined,
+): Promise<void> {
+  if (!vaultFlows) {
+    send(res, 501, { error: 'Vault flows are not configured on this Relay instance yet.' });
+    return;
+  }
+  try {
+    const events = await vaultFlows.vaultFlowsFor(vaultAddress);
+    send(res, 200, { vault: vaultAddress, events });
+  } catch (error) {
+    send(res, 500, { error: error instanceof Error ? error.message : 'Internal error.' });
+  }
 }
 
 function handleStream(req: IncomingMessage, res: ServerResponse, store: RelayStore, key: VaultKey): void {

@@ -19,7 +19,12 @@ describe('loadRelayConfig', () => {
       RELAY_HEARTBEAT_TIMEOUT_SECONDS: '60',
       RELAY_HEARTBEAT_SWEEP_INTERVAL_MS: '1000',
     });
-    expect(config).toEqual({ port: 9090, heartbeatTimeoutSeconds: 60, heartbeatSweepIntervalMs: 1_000 });
+    expect(config).toEqual({
+      port: 9090,
+      heartbeatTimeoutSeconds: 60,
+      heartbeatSweepIntervalMs: 1_000,
+      vaultFlows: null,
+    });
   });
 
   it('fails loudly on a non-numeric override rather than silently falling back', () => {
@@ -37,5 +42,28 @@ describe('loadRelayConfig', () => {
 
   it('treats an empty-string override the same as unset', () => {
     expect(loadRelayConfig({ RELAY_PORT: '' }).port).toBe(8090);
+  });
+
+  it('defaults vaultFlows to null — 501, not a silently-fabricated live feed (WP-21)', () => {
+    expect(loadRelayConfig({}).vaultFlows).toBeNull();
+  });
+
+  it('wires vaultFlows when both VAULT_FLOWS_* variables are set', () => {
+    const config = loadRelayConfig({
+      VAULT_FLOWS_NEST_ENDPOINT: 'https://nest.example/arcaidia-sepolia',
+      VAULT_FLOWS_FIXTURE_PATH: './fixture.json',
+    });
+    expect(config.vaultFlows).toEqual({
+      nestEndpoint: 'https://nest.example/arcaidia-sepolia',
+      fixturePath: './fixture.json',
+    });
+  });
+
+  it('rejects VAULT_FLOWS_NEST_ENDPOINT set without VAULT_FLOWS_FIXTURE_PATH', () => {
+    expect(() => loadRelayConfig({ VAULT_FLOWS_NEST_ENDPOINT: 'https://nest.example/x' })).toThrow(ConfigError);
+  });
+
+  it('rejects VAULT_FLOWS_FIXTURE_PATH set without VAULT_FLOWS_NEST_ENDPOINT', () => {
+    expect(() => loadRelayConfig({ VAULT_FLOWS_FIXTURE_PATH: './fixture.json' })).toThrow(ConfigError);
   });
 });

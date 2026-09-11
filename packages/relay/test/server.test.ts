@@ -3,6 +3,10 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { HttpTelemetryClient, pairWithRelay } from '@arcaidia/telemetry';
 import { RelayStore } from '../src/store.js';
 import { startRelayServer, type RelayServerHandle } from '../src/server.js';
+import { ParticipantRegistry } from '../src/participant-registry.js';
+import { VaultFlowsService } from '../src/vault-flows/service.js';
+import type { NestQueryClient, NestQueryResult } from '../src/nest-client.js';
+import type { VaultFlowEvent, VaultFlowSource } from '../src/vault-flows/types.js';
 
 /**
  * The real acceptance gate (`WP-18-telemetry-relay.md`): a real sidecar
@@ -167,5 +171,79 @@ describe('the Relay end to end, over real HTTP', () => {
     const response = await fetch(`${relayUrl}/health`);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: 'ok' });
+  });
+
+  it('GET /v1/vault-flows/{vault} reports 501 when no VaultFlowsService is configured (WP-21.4)', async () => {
+    const response = await fetch(`${relayUrl}/v1/vault-flows/${SEPOLIA_VAULT}`);
+    expect(response.status).toBe(501);
+    expect(await response.json()).toEqual({ error: 'Vault flows are not configured on this Relay instance yet.' });
+  });
+});
+
+/** WP-21.4, real HTTP: `/v1/vault-flows/{vault}` filters real events through a real service, not a mock of the route. */
+describe('GET /v1/vault-flows/{vault} (WP-21.4)', () => {
+  const KNOWN_VAULT = '0xc74e693938dfbf7c11b787ba27cdde4c0215aaf1' as const;
+  const STRANGER_VAULT = '0x753937137eb92871a6f3517514d4f1ee860e3fdf' as const;
+
+  class FakeNestClient implements NestQueryClient {
+    async query<T>(): Promise<NestQueryResult<T>> {
+      return { rows: [{ vault: KNOWN_VAULT }] as unknown as T[], count: 1, truncated: false, degraded: false };
+    }
+  }
+
+  function deposit(vault: `0x${string}`): VaultFlowEvent {
+    return {
+      kind: 'DEPOSIT',
+      vault,
+      sender: '0x538e5e9797fa86ee25e97289439b6a3aba0165b0',
+      owner: '0x538e5e9797fa86ee25e97289439b6a3aba0165b0',
+      assets: 1_000n,
+      shares: 1_000n,
+      txHash: '0xaa',
+      blockNumber: 1,
+      blockTimestamp: 1,
+      logIndex: 0,
+    };
+  }
+
+  class FakeVaultFlowSource implements VaultFlowSource {
+    async readVaultFlows(): Promise<readonly VaultFlowEvent[]> {
+      return [deposit(KNOWN_VAULT), deposit(STRANGER_VAULT)];
+    }
+  }
+
+  let flowsStore: RelayStore;
+  let flowsHandle: RelayServerHandle;
+  let flowsUrl: string;
+
+  beforeEach(async () => {
+    flowsStore = new RelayStore({ clock: () => 1_800_000_000 });
+    const vaultFlows = new VaultFlowsService(
+      new ParticipantRegistry('https://nest.example/x', new FakeNestClient()),
+      new FakeVaultFlowSource(),
+    );
+    flowsHandle = await startRelayServer(flowsStore, { port: 0, host: '127.0.0.1', vaultFlows });
+    flowsUrl = `http://127.0.0.1:${flowsHandle.port}`;
+  });
+
+  afterEach(async () => {
+    await flowsHandle.close();
+  });
+
+  it('returns only the requested, known-participant vault\'s events, serialized over real JSON', async () => {
+    const response = await fetch(`${flowsUrl}/v1/vault-flows/${KNOWN_VAULT}`);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { vault: string; events: unknown[] };
+    expect(body.vault).toBe(KNOWN_VAULT);
+    expect(body.events).toHaveLength(1);
+    // bigints serialize as strings over JSON — this is real wire behaviour, not an artifact of the fake.
+    expect(body.events[0]).toMatchObject({ kind: 'DEPOSIT', vault: KNOWN_VAULT, assets: '1000' });
+  });
+
+  it("returns an empty event list for a stranger's vault, even though it has real flow events elsewhere", async () => {
+    const response = await fetch(`${flowsUrl}/v1/vault-flows/${STRANGER_VAULT}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ vault: STRANGER_VAULT, events: [] });
   });
 });

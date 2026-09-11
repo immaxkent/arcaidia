@@ -17,6 +17,17 @@ export interface RelayEntrypointConfig {
   readonly heartbeatTimeoutSeconds: number;
   /** How often the sweep for timed-out heartbeats runs. */
   readonly heartbeatSweepIntervalMs: number;
+  /**
+   * WP-21. Both unset (the default) means `/v1/vault-flows/{vault}` reports
+   * 501 rather than serving anything — there is no live Substreams
+   * subscriber yet (see `vault-flows/fixture-source.ts`'s own doc comment),
+   * so this stays off by default instead of silently degrading to always
+   * returning the one committed fixture's data as if it were live.
+   */
+  readonly vaultFlows: null | {
+    readonly nestEndpoint: string;
+    readonly fixturePath: string;
+  };
 }
 
 function optionalPositiveInt(env: Env, key: string, fallback: number): number {
@@ -36,9 +47,18 @@ export function loadRelayConfig(env: Env): RelayEntrypointConfig {
     throw new ConfigError(`RELAY_PORT must be a valid port number; got ${port}.`);
   }
 
+  const nestEndpoint = env['VAULT_FLOWS_NEST_ENDPOINT'];
+  const fixturePath = env['VAULT_FLOWS_FIXTURE_PATH'];
+  if (Boolean(nestEndpoint) !== Boolean(fixturePath)) {
+    throw new ConfigError(
+      'VAULT_FLOWS_NEST_ENDPOINT and VAULT_FLOWS_FIXTURE_PATH must be set together, or neither at all.',
+    );
+  }
+
   return {
     port,
     heartbeatTimeoutSeconds: optionalPositiveInt(env, 'RELAY_HEARTBEAT_TIMEOUT_SECONDS', 30),
     heartbeatSweepIntervalMs: optionalPositiveInt(env, 'RELAY_HEARTBEAT_SWEEP_INTERVAL_MS', 5_000),
+    vaultFlows: nestEndpoint && fixturePath ? { nestEndpoint, fixturePath } : null,
   };
 }
