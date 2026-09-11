@@ -1,10 +1,55 @@
 # WP — ERC-4626 Substreams module (The Graph P1)
 
-**Status:** scoped, not started. **Targets:** The Graph P1 — Best Use of Composable or
-Standardized Graph Products, $5,000. **Deadline:** submission closes Sunday 2026-09-13,
-12:00pm EDT (verified against the live ETHGlobal rules page, not a secondhand date).
+**Status:** DONE. Published, live, verified. Branch `erc4626-substreams`. **Targets:** The Graph P1 — Best Use of
+Composable or Standardized Graph Products, $5,000. **Deadline:** submission closes Sunday
+2026-09-13, 12:00pm EDT (verified against the live ETHGlobal rules page, not a secondhand date).
 **Depends on:** nothing. **Runs in parallel with:** the intent market work (separate fork/agent) —
 confirmed no shared surface, see §1.
+
+## Progress (updated as it lands — see branch history for detail)
+
+- [x] §5.1–5.2 `map_vault_flows` — generic Deposit/Withdraw decoding, 20/20 tests including a
+      real fixture pulled from Arcaidia's own Sepolia vault via `cast logs`, plus full
+      block-aggregation-loop coverage (multiple vaults/transactions per block, reverted
+      transactions correctly excluded). Wasm build + pack both green.
+- [x] **§5.3 — fully done, both halves.** API key provisioned 2026-09-11
+      (`SUBSTREAMS_API_KEY` in `.env`). Ran `substreams run` against the real, live Ethereum
+      Sepolia Firehose endpoint, bounded to a single block (block 11675763 — the block containing
+      Arcaidia's own real deposit; 1.3 KiB egress, negligible usage). Result, saved permanently at
+      `erc4626-vault-flows/verification/sepolia-block-11675763.json`: the module decoded **four**
+      deposits in that one block — Arcaidia's own (values match the independent `cast call
+      totalSupply()` check exactly) and **three from vaults this project has never seen or
+      configured**. This is the strongest evidence yet for the WP §2 genericness bar: live, against
+      real strangers' vaults, not asserted or only exercised against a synthetic test address.
+- [x] **§5.4 — done. Published, live, public.** The registry token (from `https://substreams.dev/me`,
+      a separate credential from the Firehose `SUBSTREAMS_API_KEY`) needed an interactive terminal
+      form (`huh`) with no TTY available here — worked around cleanly with `expect` driving a real
+      pty (`~/.config/substreams/registry-token` also needed its parent directory created; the CLI
+      doesn't do this itself). Published, then republished once more as v0.1.1 after correcting the
+      README's `graph_out` section for §5.5's finding below (see that commit). Live at
+      **https://substreams.dev/packages/erc4626-vault-flows/v0.1.1** — public, under the user's own
+      account, zero Arcaidia-specific configuration required to run it.
+- [x] **§5.5 — the originally planned Studio-subgraph route is dead, decision made.** Studio
+      subgraph `arcaidia-vault-flows` was created via the dashboard 2026-09-11 and deploy was
+      attempted for real. Result: `Substreams-powered Subgraphs, originally intended for non-EVM
+      chains, are no longer supported.` **Not an EVM-vs-non-EVM issue** — confirmed against
+      graph-node's own NEWS.md that this integration was removed platform-wide, for every chain,
+      regardless of type; the error's wording about "originally intended for non-EVM chains"
+      describes the feature's *original* motivation, not a surviving EVM-only carve-out. No further
+      engineering on this repo fixes it. The code (`graph_out`, `vault-flows-subgraph/`) is real,
+      tested, and correct — kept in the repo as evidence it reached exactly the platform's removal,
+      not a bug.
+      **Decision (user, 2026-09-11): skip building a SQL-sink composability demo, rely on the
+      standalone-contribution route instead**, given the deadline. This is directly supported by the
+      prize text itself, not a stretch: *"Contributing a new composable Substreams module for an
+      emerging standard, such as ERC-4626 tokenized-vault flows, also counts."* §5.4's publish
+      satisfies exactly this — a genuinely generic, live-verified-against-strangers'-vaults,
+      published package. `BOUNTY-REQUIREMENTS.md` needs its Graph P1 row updated to reflect this is
+      no longer "fully unaddressed."
+- [x] §5.6 docs on what became easier — written into `erc4626-vault-flows/README.md`, grounded in
+      what actually happened building this (no per-vault mapping code, the same decoder proven
+      generic by a dedicated test, the whole integration reducing to vendoring one canonical
+      schema) — and now further reinforced by §5.3's live cross-vault evidence above.
 
 ## 1. Why this doesn't collide with the intent market work
 

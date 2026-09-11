@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+// Vendored verbatim from streamingfast/substreams-sink-entity-changes
+// (proto/sf/substreams/sink/entity/v1/entity.proto), not hand-derived from
+// its generated Rust bindings — a schema this widely relied on (graph-node's
+// own substreams/graph-entities sink reads it directly) is exactly the kind
+// of thing not worth risking a transcription error on. Vendored rather than
+// depended on via `substreams-entity-change` because that crate pins a
+// `substreams` version that collides with ours at wasm-link time; the
+// schema itself has no such constraint — it's just protobuf.
+
+package sf.substreams.sink.entity.v1;
+
+message EntityChanges {
+  repeated EntityChange entity_changes = 5;
+}
+
+message EntityChange {
+  string entity = 1;
+  string id = 2;
+  // Deprecated, this is not used within `graph-node`.
+  uint64 ordinal = 3;
+  enum Operation {
+    OPERATION_UNSPECIFIED = 0;
+    OPERATION_CREATE = 1;
+    OPERATION_UPDATE = 2;
+    OPERATION_DELETE = 3;
+    OPERATION_FINAL = 4;
+  }
+  Operation operation = 4;
+  repeated Field fields = 5;
+}
+
+message Value {
+  oneof typed {
+    int32 int32 = 1;
+    string bigdecimal = 2;
+    string bigint = 3;
+    string string = 4;
+    string bytes = 5;
+    bool bool = 6;
+    int64 timestamp = 7;
+    Array array = 10;
+  }
+}
+
+message Array {
+  repeated Value value = 1;
+}
+
+message Field {
+  string name = 1;
+  optional Value new_value = 3;
+  // Deprecated, this is not used within `graph-node`.
+  optional Value old_value = 5;
+}

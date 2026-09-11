@@ -1,0 +1,13 @@
+{
+  "name": "vault-flows-subgraph",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "graph build",
+    "deploy": "graph deploy --node https://api.studio.thegraph.com/deploy/ arcaidia-vault-flows",
+    "create-local": "graph create --node http://localhost:8020/ arcaidia-vault-flows",
+    "remove-local": "graph remove --node http://localhost:8020/ arcaidia-vault-flows",
+    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 arcaidia-vault-flows",
+    "test": "graph test"
+  },
+  "dependencies": { "@graphprotocol/graph-cli": "0.98.1" }
+}

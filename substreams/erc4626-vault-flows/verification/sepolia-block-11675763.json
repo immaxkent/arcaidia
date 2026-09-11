@@ -1,0 +1,80 @@
+TraceID: 3343e0c7aedb60bf6a2159ecd104dad6
+This request will be processed in a single stage
+Blocks to process in requested range: 1 (0 already cached)
+{
+  "@module": "map_vault_flows",
+  "@block": 11675763,
+  "@type": "erc4626.v1.VaultFlows",
+  "@data": {
+    "deposits": [
+      {
+        "vault": "0x753937137eb92871a6f3517514d4f1ee860e3fdf",
+        "sender": "0x2310f465ebe2e1add71deee7fe4a3933121c9064",
+        "owner": "0x2310f465ebe2e1add71deee7fe4a3933121c9064",
+        "assets": {
+          "bytes": "0x01e54784f0732000"
+        },
+        "shares": {
+          "bytes": "0x01d22371d40bbe57"
+        },
+        "txHash": "0x054ff83ce124a402c2401b93356c09cd5db1f425fbd3b11eba609dea4870e291",
+        "blockNumber": "11675763",
+        "blockTimestamp": "1789053528",
+        "logIndex": 2
+      },
+      {
+        "vault": "0x93083f60f1877a6ba974d5ed88bb74943deb8390",
+        "sender": "0x2a0f0f23035eb402f0a12544adf9de3e8097a367",
+        "owner": "0x2a0f0f23035eb402f0a12544adf9de3e8097a367",
+        "assets": {
+          "bytes": "0x01312d00"
+        },
+        "shares": {
+          "bytes": "0x01158e460913d00000"
+        },
+        "txHash": "0xb3e52d70670cfe3d465c3418409b40efaffff5c20e2a5b6551e60eea1d8659ac",
+        "blockNumber": "11675763",
+        "blockTimestamp": "1789053528",
+        "logIndex": 2
+      },
+      {
+        "vault": "0xc74e693938dfbf7c11b787ba27cdde4c0215aaf1",
+        "sender": "0x538e5e9797fa86ee25e97289439b6a3aba0165b0",
+        "owner": "0x538e5e9797fa86ee25e97289439b6a3aba0165b0",
+        "assets": {
+          "bytes": "0x05f5e100"
+        },
+        "shares": {
+          "bytes": "0x5af3107a4000"
+        },
+        "txHash": "0x03aba6621279c69d4ad41aa5e23d5cf6d8bf2f42ba8ab9be9f67015117f6bf51",
+        "blockNumber": "11675763",
+        "blockTimestamp": "1789053528",
+        "logIndex": 2
+      },
+      {
+        "vault": "0x93310a56147b1ea7486ab84f8d850fd0a216429b",
+        "sender": "0x9d1dc088d559c8daed1208c6fcdefc52812efef4",
+        "owner": "0x9d1dc088d559c8daed1208c6fcdefc52812efef4",
+        "assets": {
+          "bytes": "0x05d0cb"
+        },
+        "shares": {
+          "bytes": "0x04ac0f9d"
+        },
+        "txHash": "0x90fcba21303d9f608c765ad190035c4b277c292accebb6245d70b652c12582dd",
+        "blockNumber": "11675763",
+        "blockTimestamp": "1789053528",
+        "logIndex": 15
+      }
+    ]
+  }
+}
+
+
+📊 Usage Report
+ • Egress Bytes (uncompressed): 1.3 KiB
+ • Processed Blocks: 1 blocks
+ • Received Blocks: 1 blocks
+
+Completed successfully

@@ -136,10 +136,23 @@ explicitly in the submission.
 
 ### The Graph P1 — Composable/Standardized (optional upgrade)
 
-- [ ] Compose **two or more** Graph products, **or** build meaningfully on a standardized schema. **Still fully open** — no ERC-4626 conversion, no Subgraph MCP work has started.
-- [ ] Route A: subgraphs + **Subgraph MCP** for cross-protocol/natural-language access.
-- [ ] Route B: **ERC-4626 vault** + a contributed composable **Substreams module** for ERC-4626 vault flows — the example the prize text names.
-- [ ] **Make the standards leverage clear**: show what became *easier* because a shared schema or composed product was used.
+- [x] Compose **two or more** Graph products, **or** build meaningfully on a standardized schema →
+      **Route B shipped**, 2026-09-11: `ArcaidiaLiquidityVault` was already an ERC-4626-shaped
+      vault (this session's earlier cap redesign); contributed a genuinely generic, project-agnostic
+      Substreams module decoding standard EIP-4626 `Deposit`/`Withdraw` events, published live at
+      https://substreams.dev/packages/erc4626-vault-flows/v0.1.1 — exactly the prize text's own
+      named example (*"Contributing a new composable Substreams module for an emerging standard,
+      such as ERC-4626 tokenized-vault flows, also counts"*). Live-verified against real strangers'
+      vaults, not just Arcaidia's own or a synthetic test address — see
+      `work-packages/WP-ERC4626-SUBSTREAMS.md`.
+- [x] **Make the standards leverage clear**: what became *easier* — written into
+      `substreams/erc4626-vault-flows/README.md`, grounded in what actually happened building it
+      (zero per-vault mapping code, the same decoder proven generic by a dedicated test and by live
+      cross-vault evidence), not marketing copy.
+- Note: a second route (feeding a Studio subgraph directly, `substreams/graph-entities`) was built,
+  unit-tested, and verified end-to-end against a real deploy attempt — but Subgraph Studio has
+  since removed that integration path platform-wide, for every chain. Not pursued further; the
+  standalone-contribution route above already satisfies the prize text on its own.
 
 ### Privy P2 — Best Financial Flow
 

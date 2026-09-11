@@ -1,0 +1,49 @@
+specVersion: v0.1.0
+package:
+  name: erc4626_vault_flows
+  version: v0.1.1
+  url: https://github.com/immaxkent/arcaidia
+  description: >-
+    Generic ERC-4626 tokenized-vault Deposit/Withdraw flow indexing — decodes
+    the standard EIP-4626 event signatures from any conforming vault, not one
+    project's contracts. See README.md.
+
+network: sepolia
+
+protobuf:
+  files:
+    - erc4626/v1/erc4626.proto
+    - sf/substreams/sink/entity/v1/entity.proto
+  importPaths:
+    - ./proto
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/erc4626_vault_flows.wasm
+
+modules:
+  - name: map_vault_flows
+    kind: map
+    initialBlock: 0
+    inputs:
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:erc4626.v1.VaultFlows
+    doc: |
+      Every EIP-4626 Deposit/Withdraw event emitted by any address in this
+      block, decoded by event signature — not by an allowlisted address list.
+      The generic, reusable artifact — everything downstream is optional.
+
+  - name: graph_out
+    kind: map
+    initialBlock: 0
+    inputs:
+      - map: map_vault_flows
+    output:
+      type: proto:sf.substreams.sink.entity.v1.EntityChanges
+    doc: |
+      VaultFlows rendered as EntityChanges — the shape a
+      `substreams/graph-entities` subgraph data source consumes directly.
+      One specific consumer of map_vault_flows's output, not part of the
+      module's own generic contract.
