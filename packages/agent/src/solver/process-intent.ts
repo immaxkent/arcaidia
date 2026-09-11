@@ -103,6 +103,7 @@ export async function processIntent(
   const report = (stage: TelemetryStage) => {
     try {
       telemetry.reportStage({
+        chainId: intent.destinationChainId,
         stage,
         intentId: intent.intentId,
         vaultAddress: endpoints.destinationVault,

@@ -16,7 +16,7 @@
     "test:sc-eth": "cd contracts && ARCAIDIA_SOURCE=ethereum forge test -vv",
     "test:sc-arc": "cd contracts && ARCAIDIA_SOURCE=arc forge test -vv",
     "test:sc": "pnpm test:sc-eth && pnpm test:sc-arc",
-    "test:global": "pnpm contracts:build && pnpm abi:check && pnpm subgraph:check && pnpm typecheck && pnpm test:shared-domain && pnpm test:scripts && pnpm test:telemetry && pnpm test:agent && pnpm test:settlement && pnpm test:mcp && pnpm test:sc-eth && pnpm test:sc-arc && pnpm test:e2e",
+    "test:global": "pnpm contracts:build && pnpm abi:check && pnpm subgraph:check && pnpm typecheck && pnpm test:shared-domain && pnpm test:scripts && pnpm test:telemetry && pnpm test:relay && pnpm test:agent && pnpm test:settlement && pnpm test:mcp && pnpm test:sc-eth && pnpm test:sc-arc && pnpm test:e2e",
     "test": "pnpm test:global",
     "fmt": "cd contracts && forge fmt",
     "test:agent": "pnpm --filter @arcaidia/agent test",
@@ -30,9 +30,11 @@
     "subgraph:build": "pnpm subgraph:generate && pnpm subgraph:codegen && graph build subgraph/subgraph.ethereum-sepolia.yaml --output-dir subgraph/build",
     "test:mcp": "pnpm --filter @arcaidia/mcp test",
     "test:telemetry": "pnpm --filter @arcaidia/telemetry test",
+    "test:relay": "pnpm --filter @arcaidia/relay test",
     "test:scripts": "vitest run scripts",
     "solver:start": "tsx --env-file=.env packages/agent/src/entrypoint/main.ts",
-    "settlement:start": "tsx --env-file=.env packages/settlement/src/entrypoint/main.ts"
+    "settlement:start": "tsx --env-file=.env packages/settlement/src/entrypoint/main.ts",
+    "relay:start": "tsx --env-file=.env packages/relay/src/entrypoint/main.ts"
   },
   "devDependencies": {
     "@graphprotocol/graph-cli": "^0.98.1",

@@ -121,7 +121,7 @@ function EarnPage() {
   const factoryReady = chainConfig(chainId)?.vaultFactory !== null;
 
   const metrics = useSolverMetrics(chainId, vaultAddress);
-  const telemetry = useSolverTelemetry(vaultAddress);
+  const telemetry = useSolverTelemetry(chainId, vaultAddress);
   const fills = useVaultFills(chainId, vaultAddress);
 
   const authorised = metrics.status === "ready" && metrics.data.authState === "AUTHORISED";

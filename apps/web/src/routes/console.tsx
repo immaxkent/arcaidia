@@ -86,7 +86,7 @@ function ConsolePage() {
 
   const vault = rows[Math.min(selected, Math.max(0, rows.length - 1))] ?? null;
   const metrics = useSolverMetrics(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
-  const telemetry = useSolverTelemetry(vault?.vaultAddress ?? null);
+  const telemetry = useSolverTelemetry(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
   const fills = useVaultFills(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
   const activity = useVaultActivity(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
 

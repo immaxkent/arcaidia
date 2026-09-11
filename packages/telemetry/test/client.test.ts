@@ -5,6 +5,7 @@ import type { TelemetryHeartbeat, TelemetryStageEvent } from '../src/types.js';
 const NOW = 1_800_000_000;
 
 const stageEvent = (overrides: Partial<TelemetryStageEvent> = {}): TelemetryStageEvent => ({
+  chainId: 11155111,
   stage: 'INTENT_DISCOVERED',
   intentId: '0x'.padEnd(66, 'a') as `0x${string}`,
   vaultAddress: '0x1111111111111111111111111111111111111111',
@@ -13,6 +14,7 @@ const stageEvent = (overrides: Partial<TelemetryStageEvent> = {}): TelemetryStag
 });
 
 const heartbeat = (overrides: Partial<TelemetryHeartbeat> = {}): TelemetryHeartbeat => ({
+  chainId: 11155111,
   vaultAddress: '0x1111111111111111111111111111111111111111',
   operatorAddress: '0x2222222222222222222222222222222222222222',
   at: NOW,

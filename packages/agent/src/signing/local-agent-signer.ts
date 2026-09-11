@@ -47,4 +47,16 @@ export class LocalAgentSigner implements AgentAuthority {
 
     return { authorization, signature, signer: this.address };
   }
+
+  /**
+   * A plain EIP-191 personal-sign over an arbitrary string — used for
+   * Telemetry Relay pairing (WP-18.1), never for a `FillAuthorization`.
+   * Kept off the `AgentAuthority` interface deliberately: that port is
+   * settled (see `@arcaidia/domain`'s own doc comment on it) and pairing is
+   * not a fill-signing concern, so it lives here as an extra capability of
+   * the concrete local signer instead of growing the shared port.
+   */
+  async signMessage(message: string): Promise<Hex> {
+    return this.account.signMessage({ message });
+  }
 }

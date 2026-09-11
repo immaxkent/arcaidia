@@ -33,9 +33,18 @@ export interface SolverTelemetry {
   intentId: string | null;
 }
 
-export function useSolverTelemetry(vaultAddress: Address | null): DataState<SolverTelemetry> {
+export function useSolverTelemetry(
+  chainId: number,
+  vaultAddress: Address | null,
+): DataState<SolverTelemetry> {
   if (!vaultAddress) return unavailableState("Deploy vault first");
   if (!SERVICES.solverTelemetryUrl) return unavailableState("Telemetry unavailable");
-  // TODO(integration): subscribe to the telemetry WS/SSE feed for this vault.
+  // TODO(integration, WP-19): subscribe to the Relay's SSE feed for this vault —
+  // GET {solverTelemetryUrl}/v1/telemetry/vault/{chainId}/{vaultAddress}/stream
+  // (WP-18). `chainId` is required, not optional: Arcaidia deploys through
+  // CREATE2 with identical salts, so the same vault address is expected to
+  // recur across chains (the House Vault already has the identical address
+  // on both Ethereum Sepolia and Arc Testnet) — keying this stream on
+  // address alone would silently merge two different vaults' telemetry.
   return unavailableState("Telemetry unavailable");
 }

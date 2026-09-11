@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recoverTypedDataAddress } from 'viem';
+import { recoverMessageAddress, recoverTypedDataAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
   fillAuthorizationTypedData,
@@ -132,5 +132,35 @@ describe('LocalAgentSigner', () => {
     const a = await signer.signFillAuthorization(authorization, arcVault);
     const b = await other.signFillAuthorization(authorization, arcVault);
     expect(a.signature).not.toBe(b.signature);
+  });
+});
+
+/// WP-18.1: the Relay pairing handshake needs a plain personal-sign over an
+/// arbitrary challenge string, distinct from `signFillAuthorization`'s typed
+/// data — this is that capability, exercised the way the Relay itself will
+/// verify it (recovering the signer from the message and signature alone).
+describe('LocalAgentSigner.signMessage', () => {
+  it('produces a signature that recovers to the signer\'s own address', async () => {
+    const signature = await signer.signMessage('pair:11155111:0xVault:0xOperator');
+    const recovered = await recoverMessageAddress({
+      message: 'pair:11155111:0xVault:0xOperator',
+      signature,
+    });
+
+    expect(recovered).toBe(signer.address);
+  });
+
+  it('signs differently for a different message', async () => {
+    const a = await signer.signMessage('challenge-one');
+    const b = await signer.signMessage('challenge-two');
+
+    expect(a).not.toBe(b);
+  });
+
+  it('is a plain personal-sign, not the FillAuthorization typed-data signature', async () => {
+    const messageSignature = await signer.signMessage('challenge-one');
+    const { signature: typedDataSignature } = await signer.signFillAuthorization(authorization, arcVault);
+
+    expect(messageSignature).not.toBe(typedDataSignature);
   });
 });

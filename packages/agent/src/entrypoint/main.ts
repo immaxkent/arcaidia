@@ -14,7 +14,7 @@
 
 import { appendFileSync } from 'node:fs';
 import { JsonLinesDecisionLog, startSolverWorker, type SolverPassResult } from '../index.js';
-import { buildSolverDependencies } from './build-dependencies.js';
+import { buildSolverDependencies, pairAllVaultsInBackground } from './build-dependencies.js';
 import { ConfigError, loadSolverConfig } from './config.js';
 import { startQuoteServer } from './quote-server.js';
 
@@ -65,6 +65,10 @@ async function main(): Promise<void> {
       ? `[solver] telemetry  -> ${config.telemetry.relayUrl}`
       : '[solver] telemetry  disabled',
   );
+
+  // WP-18.1: fire-and-forget, never awaited — see this function's own doc
+  // comment for why pairing must not be able to delay the solver starting.
+  pairAllVaultsInBackground(config, deps.authority);
 
   const handle = startSolverWorker(deps, {
     pollIntervalMs: config.pollIntervalMs,

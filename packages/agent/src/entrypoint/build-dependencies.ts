@@ -10,7 +10,7 @@
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AgentAuthority } from '@arcaidia/domain';
-import { HttpTelemetryClient, NoopTelemetryClient, type TelemetryClient } from '@arcaidia/telemetry';
+import { HttpTelemetryClient, NoopTelemetryClient, pairWithRelay, type TelemetryClient } from '@arcaidia/telemetry';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
   buildCircleSigningClient,
@@ -119,6 +119,50 @@ function buildTelemetryClient(config: SolverEntrypointConfig['telemetry']): Tele
       console.warn(`[telemetry] ${context} failed:`, error);
     },
   });
+}
+
+/**
+ * WP-18.1: proves possession of the operator key to the Relay, once per
+ * configured chain, so the console can show `TELEMETRY PAIRED` for this
+ * vault. Deliberately NOT awaited by its caller (`main.ts`) — this makes a
+ * real network call, and pairing is exactly as non-load-bearing as every
+ * other telemetry call: a Relay that never responds must never delay, let
+ * alone block, the solver actually starting to fill (WP-17.4's own point,
+ * one layer up). Every failure is caught and logged here, never thrown.
+ *
+ * Only wired for `LocalAgentSigner` today: pairing needs a plain
+ * personal-sign over an arbitrary challenge, which `AgentAuthority` doesn't
+ * expose (deliberately — see that port's own doc comment) and Circle's
+ * Developer-Controlled Wallets signing surface this codebase talks to is
+ * `signTypedData` only. Wiring a Circle-backed pairing signer is real,
+ * separate work, not a gap in this call — see `WP-INTENT-MARKET.md` §7's own
+ * open question on whether Circle Agent Wallets become mandatory here.
+ */
+export function pairAllVaultsInBackground(
+  config: SolverEntrypointConfig,
+  authority: AgentAuthority,
+): void {
+  if (!config.telemetry.enabled) return;
+
+  if (!(authority instanceof LocalAgentSigner)) {
+    console.warn(
+      '[telemetry] pairing skipped: no personal-sign pairing path exists yet for ' +
+        `${config.signerAuthority.mode === 'circle' ? 'a Circle Agent Wallet' : 'this signer'}.`,
+    );
+    return;
+  }
+
+  for (const chain of config.chains) {
+    void pairWithRelay({
+      relayUrl: config.telemetry.relayUrl,
+      chainId: chain.chainId,
+      vaultAddress: chain.liquidityVault,
+      operatorAddress: authority.address,
+      signChallenge: (message) => authority.signMessage(message),
+    })
+      .then(() => console.log(`[telemetry] paired chain ${chain.chainId}, vault ${chain.liquidityVault}`))
+      .catch((error: unknown) => console.warn(`[telemetry] pairing failed for chain ${chain.chainId}:`, error));
+  }
 }
 
 export interface BuiltSolverDependencies {

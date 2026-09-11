@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerDeployment, resetDeployments } from '@arcaidia/domain';
 import { HttpTelemetryClient, NoopTelemetryClient } from '@arcaidia/telemetry';
@@ -7,6 +7,7 @@ import {
   buildReadClients,
   buildSolverDependencies,
   buildWriteClients,
+  pairAllVaultsInBackground,
 } from '../../src/entrypoint/build-dependencies.js';
 import type { SolverEntrypointConfig } from '../../src/entrypoint/config.js';
 
@@ -171,5 +172,95 @@ describe('buildSolverDependencies', () => {
       { log: new InMemoryDecisionLog() },
     );
     expect(deps.telemetry).toBeInstanceOf(HttpTelemetryClient);
+  });
+});
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+// ---------------------------------------------------------------------------
+// Pairing (WP-18.1)
+// ---------------------------------------------------------------------------
+
+describe('pairAllVaultsInBackground', () => {
+  beforeEach(() => {
+    registerDeployment('ethereum-sepolia', {
+      intentRouter: SEPOLIA_CHAIN.intentRouter,
+      liquidityVault: SEPOLIA_CHAIN.liquidityVault,
+    });
+    registerDeployment('arc-testnet', {
+      intentRouter: ARC_CHAIN.intentRouter,
+      liquidityVault: ARC_CHAIN.liquidityVault,
+    });
+  });
+
+  afterEach(() => {
+    resetDeployments();
+    vi.unstubAllGlobals();
+  });
+
+  const telemetryEnabledConfig = (): SolverEntrypointConfig => ({
+    ...config(),
+    telemetry: { enabled: true, relayUrl: 'https://relay.example' },
+  });
+
+  it('never touches the network at all when telemetry is disabled', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const { deps } = buildSolverDependencies(config(), { log: new InMemoryDecisionLog() });
+    pairAllVaultsInBackground(config(), deps.authority);
+    await flushMicrotasks();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('attempts pairing for every configured chain when telemetry is enabled with a local signer', async () => {
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.endsWith('/pair/challenge')) {
+        return new Response(JSON.stringify({ challenge: 'nonce', expiresAt: 1 }), { status: 200 });
+      }
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const built = telemetryEnabledConfig();
+    const { deps } = buildSolverDependencies(built, { log: new InMemoryDecisionLog() });
+    pairAllVaultsInBackground(built, deps.authority);
+    await flushMicrotasks();
+
+    const challengeCalls = fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/pair/challenge'));
+    expect(challengeCalls).toHaveLength(2); // one per configured chain
+  });
+
+  it('skips pairing entirely for a Circle Agent Wallet signer, without throwing', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const built = { ...circleConfig(), telemetry: { enabled: true as const, relayUrl: 'https://relay.example' } };
+    const { deps } = buildSolverDependencies(built, { log: new InMemoryDecisionLog() });
+
+    expect(() => pairAllVaultsInBackground(built, deps.authority)).not.toThrow();
+    await flushMicrotasks();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('a Relay that refuses every request does not throw synchronously, and does not affect the other chain', async () => {
+    const fetchSpy = vi.fn(async (_url: string) => new Response(null, { status: 503 }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const built = telemetryEnabledConfig();
+    const { deps } = buildSolverDependencies(built, { log: new InMemoryDecisionLog() });
+
+    expect(() => pairAllVaultsInBackground(built, deps.authority)).not.toThrow();
+    await flushMicrotasks();
+
+    // Both chains were still attempted independently.
+    const challengeCalls = fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/pair/challenge'));
+    expect(challengeCalls).toHaveLength(2);
   });
 });
