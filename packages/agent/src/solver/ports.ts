@@ -7,9 +7,16 @@
  * real CCTP arrive one at a time without the solver changing.
  */
 
-import type { Bytes32, SignedFillAuthorization, TxHash, UnixSeconds } from '@arcaidia/domain';
+import type { Bytes32, Intent, SignedFillAuthorization, TxHash, UnixSeconds } from '@arcaidia/domain';
 
-/** Submits a signed authorization to the destination vault. */
+/**
+ * Submits a signed authorization to the destination vault.
+ *
+ * v2 (WP-26, D6): the vault is handed the canonical `Intent` alongside the
+ * authorization and recomputes `intentId` from it, so the intent the solver
+ * verified against the source chain is exactly the one whose terms the vault
+ * enforces — the user's `maxFeeBps` above all.
+ */
 export interface FillSubmitter {
   /**
    * @returns the destination transaction hash.
@@ -18,6 +25,7 @@ export interface FillSubmitter {
   submitFastFill(
     chainId: number,
     vault: `0x${string}`,
+    intent: Intent,
     signed: SignedFillAuthorization,
   ): Promise<TxHash>;
 }

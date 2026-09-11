@@ -194,6 +194,7 @@ export async function processIntent(
     const txHash = await submitter.submitFastFill(
       route.destination.chainId,
       endpoints.destinationVault,
+      intent,
       signed,
     );
     return { kind: 'FILLED', decision, signed, txHash };

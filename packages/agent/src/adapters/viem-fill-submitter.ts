@@ -6,7 +6,7 @@
  * nothing beyond the ability to submit authorizations the agent already signed.
  */
 
-import { ABIS, type Address, type SignedFillAuthorization, type TxHash } from '@arcaidia/domain';
+import { ABIS, type Address, type Intent, type SignedFillAuthorization, type TxHash } from '@arcaidia/domain';
 import type { EvmWriteClient } from './evm-clients.js';
 import type { FillSubmitter } from '../solver/ports.js';
 
@@ -18,6 +18,7 @@ export class ViemFillSubmitter implements FillSubmitter {
   async submitFastFill(
     chainId: number,
     vault: Address,
+    intent: Intent,
     signed: SignedFillAuthorization,
   ): Promise<TxHash> {
     const client = this.clients.get(chainId);
@@ -30,6 +31,21 @@ export class ViemFillSubmitter implements FillSubmitter {
       abi: VAULT_ABI,
       functionName: 'fastFill',
       args: [
+        // The canonical intent, in preimage order (IntentParams) — the vault recomputes the id.
+        {
+          intentVersion: intent.intentVersion,
+          sender: intent.sender,
+          recipient: intent.recipient,
+          inputToken: intent.inputToken,
+          amount: intent.amount,
+          sourceChainId: BigInt(intent.sourceChainId),
+          destinationChainId: BigInt(intent.destinationChainId),
+          maxFeeBps: intent.maxFeeBps,
+          deadline: BigInt(intent.deadline),
+          nonce: intent.nonce,
+          tokenOut: intent.tokenOut,
+          targetMinOut: intent.targetMinOut,
+        },
         {
           intentId: authorization.intentId,
           sourceChainId: BigInt(authorization.sourceChainId),

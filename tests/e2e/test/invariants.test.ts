@@ -95,9 +95,9 @@ describe('global invariants', () => {
     const outcome = await processIntent(intent, {
       ...deps,
       submitter: {
-        submitFastFill: async (chainId, vault, signed) => {
+        submitFastFill: async (chainId, vault, canonicalIntent, signed) => {
           await world.advance(120); // well past the 45s expiry
-          return deps.submitter.submitFastFill(chainId, vault, signed);
+          return deps.submitter.submitFastFill(chainId, vault, canonicalIntent, signed);
         },
       },
     });

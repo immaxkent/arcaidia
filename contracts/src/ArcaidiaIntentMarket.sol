@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ISettlementCheck} from "./interfaces/ISettlementCheck.sol";
+import {IVaultRegistry} from "./interfaces/IVaultRegistry.sol";
 
 /// @title ArcaidiaIntentMarket
 /// @notice The on-chain arbitrator that lets many independently-owned, independently-funded
@@ -34,6 +35,13 @@ import {ISettlementCheck} from "./interfaces/ISettlementCheck.sol";
 ///      substitute once first-valid-fill is the selection mechanism: price isn't a winning
 ///      factor under it, so a rational vault always charges the ceiling, and a user's own lower
 ///      preference is already protected off-chain, before any agent signs a fill that violates it.
+///
+///      **Why claims are restricted to factory-created vaults (D11, WP-26).** `SettlementReceiver`
+///      reimburses the winner by approving it and calling `recordReimbursement`. A claim from an
+///      arbitrary contract would therefore let that contract pull the canonical funds when they
+///      land — and a claim from an EOA would leave those funds unroutable. Only a standard vault
+///      (whose `recordReimbursement` accepts funds solely for intents it actually paid) may win,
+///      and the factory is how anyone, permissionlessly, gets one.
 contract ArcaidiaIntentMarket {
     /// @notice The hard ceiling every claim must respect, in bps of `outputAmount + feeAmount`.
     ///         Not owner-configurable, not per-vault — the one number every user can rely on
@@ -57,6 +65,9 @@ contract ArcaidiaIntentMarket {
     /// @notice Where canonical settlement is checked before a claim is allowed.
     ISettlementCheck public immutable settlementCheck;
 
+    /// @notice Which claimants are standard vaults (D11).
+    IVaultRegistry public immutable vaultRegistry;
+
     event IntentClaimed(
         bytes32 indexed intentId, address indexed vault, uint256 outputAmount, uint256 feeAmount
     );
@@ -64,9 +75,11 @@ contract ArcaidiaIntentMarket {
     error IntentAlreadyClaimed(bytes32 intentId, address claimedBy);
     error IntentAlreadySettledCanonically(bytes32 intentId);
     error FeeAboveUniversalCeiling(uint256 feeAmount, uint256 ceiling);
+    error NotAFactoryVault(address claimant);
 
-    constructor(ISettlementCheck settlementCheck_) {
+    constructor(ISettlementCheck settlementCheck_, IVaultRegistry vaultRegistry_) {
         settlementCheck = settlementCheck_;
+        vaultRegistry = vaultRegistry_;
     }
 
     /// @notice Claim `intentId` for `msg.sender`. Reverts if anyone already won it, if canonical
@@ -74,6 +87,8 @@ contract ArcaidiaIntentMarket {
     ///         exceeds `MAX_FEE_BPS` of the total amount — regardless of what the calling vault's
     ///         own configured ceiling would otherwise allow.
     function claimIntent(bytes32 intentId, uint256 outputAmount, uint256 feeAmount) external {
+        if (!vaultRegistry.isFactoryVault(msg.sender)) revert NotAFactoryVault(msg.sender);
+
         address existing = filledBy[intentId];
         if (existing != address(0)) revert IntentAlreadyClaimed(intentId, existing);
 

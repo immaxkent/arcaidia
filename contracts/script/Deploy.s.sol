@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 import {ArcaidiaDeployer} from "../src/deploy/ArcaidiaDeployer.sol";
 import {ArcaidiaDeployment} from "../src/deploy/ArcaidiaDeployment.sol";
+import {FeePolicy} from "../src/libraries/ArcaidiaTypes.sol";
 
 /// @notice Deploys Arcaidia to whichever chain the RPC points at.
 ///
@@ -66,6 +67,24 @@ contract DeployScript is Script {
         return vm.envAddress("SETTLEMENT_INITIATOR");
     }
 
+    /// @dev Circle's CCTP V2 `MessageTransmitterV2` — identical on Ethereum Sepolia and Arc
+    ///      testnet (packages/domain/src/config/chains.ts, verified live 2026-09-04).
+    address internal constant CCTP_V2_MESSAGE_TRANSMITTER = 0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275;
+
+    /// @dev The House Vault's fee tiers (D7). Defaults are the plan's proposal for the House
+    ///      Vault: 10/25/60/120 bps at 50/75/90% utilisation.
+    function _feePolicyFromEnv() internal view returns (FeePolicy memory) {
+        return FeePolicy({
+            baseFeeBps: uint16(vm.envOr("FEE_BASE_BPS", uint256(10))),
+            midFeeBps: uint16(vm.envOr("FEE_MID_BPS", uint256(25))),
+            highFeeBps: uint16(vm.envOr("FEE_HIGH_BPS", uint256(60))),
+            criticalFeeBps: uint16(vm.envOr("FEE_CRITICAL_BPS", uint256(120))),
+            midThresholdBps: uint16(vm.envOr("FEE_MID_THRESHOLD_BPS", uint256(5_000))),
+            highThresholdBps: uint16(vm.envOr("FEE_HIGH_THRESHOLD_BPS", uint256(7_500))),
+            criticalThresholdBps: uint16(vm.envOr("FEE_CRITICAL_THRESHOLD_BPS", uint256(9_000)))
+        });
+    }
+
     function run() external {
         // Optional: only set when broadcasting with a plaintext key (CI, local
         // anvil runs). Left unset, --account/--sender on the forge CLI supplies
@@ -77,9 +96,14 @@ contract DeployScript is Script {
             owner: vm.envAddress("PROTOCOL_OWNER"),
             settlementAsset: vm.envOr("SETTLEMENT_ASSET", _defaultSettlementAsset(block.chainid)),
             settlementInitiator: _settlementInitiator(block.chainid),
+            messageTransmitter: vm.envOr("MESSAGE_TRANSMITTER", CCTP_V2_MESSAGE_TRANSMITTER),
             destinationChainId: vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid)),
             destinationSettlementReceiver: vm.envAddress("DESTINATION_SETTLEMENT_RECEIVER"),
             reserveFloorBps: uint16(vm.envUint("RESERVE_FLOOR_BPS")),
+            maxFillBps: uint16(vm.envOr("MAX_FILL_BPS", uint256(5_000))),
+            maxExposureBps: uint16(vm.envOr("MAX_EXPOSURE_BPS", uint256(8_000))),
+            feePolicy: _feePolicyFromEnv(),
+            houseVaultLabel: vm.envOr("HOUSE_VAULT_LABEL", string("Arcaidia House Vault")),
             treasury: vm.envAddress("PROTOCOL_TREASURY"),
             protocolFeeShareBps: uint16(vm.envUint("PROTOCOL_FEE_SHARE_BPS")),
             maxIntentAmount: vm.envUint("MAX_INTENT_AMOUNT"),
@@ -102,13 +126,15 @@ contract DeployScript is Script {
         }
 
         ArcaidiaDeployer deployer = _ensureDeployer();
-        ArcaidiaDeployment.Deployment memory predicted = ArcaidiaDeployment.predict(deployer);
+        ArcaidiaDeployment.Deployment memory predicted = ArcaidiaDeployment.predict(deployer, msg.sender);
 
         console.log("chain id                ", block.chainid);
         console.log("arcaidia deployer       ", address(deployer));
         console.log("predicted router        ", predicted.router);
         console.log("predicted vault         ", predicted.vault);
         console.log("predicted receiver      ", predicted.settlementReceiver);
+        console.log("predicted market        ", predicted.market);
+        console.log("predicted vault factory ", predicted.factory);
 
         ArcaidiaDeployment.Deployment memory deployment =
             ArcaidiaDeployment.deployAll(deployer, config, deployingAs);
@@ -120,11 +146,15 @@ contract DeployScript is Script {
         require(deployment.router == predicted.router, "router address mismatch");
         require(deployment.vault == predicted.vault, "vault address mismatch");
         require(deployment.settlementReceiver == predicted.settlementReceiver, "receiver address mismatch");
+        require(deployment.market == predicted.market, "market address mismatch");
+        require(deployment.factory == predicted.factory, "factory address mismatch");
 
         console.log("--- deployed ---");
         console.log("ArcaidiaIntentRouter    ", deployment.router);
         console.log("ArcaidiaLiquidityVault  ", deployment.vault);
         console.log("SettlementReceiver      ", deployment.settlementReceiver);
+        console.log("ArcaidiaIntentMarket    ", deployment.market);
+        console.log("ArcaidiaVaultFactory    ", deployment.factory);
         console.log("owner                   ", config.owner);
     }
 

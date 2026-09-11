@@ -1021,6 +1021,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "currentFeeBps",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "decimals",
       "inputs": [],
       "outputs": [
@@ -1073,6 +1086,73 @@ export const ABIS = {
       "type": "function",
       "name": "fastFill",
       "inputs": [
+        {
+          "name": "intent",
+          "type": "tuple",
+          "internalType": "struct Intent",
+          "components": [
+            {
+              "name": "intentVersion",
+              "type": "uint8",
+              "internalType": "uint8"
+            },
+            {
+              "name": "sender",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "recipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "inputToken",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "sourceChainId",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "destinationChainId",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "maxFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "deadline",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nonce",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "tokenOut",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "targetMinOut",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ]
+        },
         {
           "name": "authorization",
           "type": "tuple",
@@ -1139,6 +1219,49 @@ export const ABIS = {
         }
       ],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "feePolicy",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "baseFeeBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "midFeeBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "highFeeBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "criticalFeeBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "midThresholdBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "highThresholdBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "criticalThresholdBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -1224,6 +1347,58 @@ export const ABIS = {
           "name": "reserveFloorBps_",
           "type": "uint16",
           "internalType": "uint16"
+        },
+        {
+          "name": "maxFillBps_",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "maxExposureBps_",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "policy",
+          "type": "tuple",
+          "internalType": "struct FeePolicy",
+          "components": [
+            {
+              "name": "baseFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            }
+          ]
         }
       ],
       "outputs": [],
@@ -1360,19 +1535,6 @@ export const ABIS = {
     {
       "type": "function",
       "name": "maxExposureBps",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "uint16",
-          "internalType": "uint16"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "maxFeeBps",
       "inputs": [],
       "outputs": [
         {
@@ -1646,6 +1808,126 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "quote",
+      "inputs": [
+        {
+          "name": "intent",
+          "type": "tuple",
+          "internalType": "struct Intent",
+          "components": [
+            {
+              "name": "intentVersion",
+              "type": "uint8",
+              "internalType": "uint8"
+            },
+            {
+              "name": "sender",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "recipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "inputToken",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "sourceChainId",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "destinationChainId",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "maxFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "deadline",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "nonce",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "tokenOut",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "targetMinOut",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "feeBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "outputAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "canFill",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "quoteFee",
+      "inputs": [
+        {
+          "name": "inputAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "feeBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "recordReimbursement",
       "inputs": [
         {
@@ -1748,11 +2030,6 @@ export const ABIS = {
           "name": "maxExposureBps_",
           "type": "uint16",
           "internalType": "uint16"
-        },
-        {
-          "name": "maxFeeBps_",
-          "type": "uint16",
-          "internalType": "uint16"
         }
       ],
       "outputs": [],
@@ -1825,6 +2102,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "setSwapAdapter",
+      "inputs": [
+        {
+          "name": "adapter",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "setTreasury",
       "inputs": [
         {
@@ -1845,6 +2135,19 @@ export const ABIS = {
           "name": "",
           "type": "address",
           "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "swapAdapter",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract ISwapAdapter"
         }
       ],
       "stateMutability": "view"
@@ -2081,6 +2384,31 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "DeliveredViaSwap",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amountOut",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "Deposit",
       "inputs": [
         {
@@ -2149,6 +2477,62 @@ export const ABIS = {
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        },
+        {
+          "name": "feeBps",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FeePolicyConfigured",
+      "inputs": [
+        {
+          "name": "policy",
+          "type": "tuple",
+          "indexed": false,
+          "internalType": "struct FeePolicy",
+          "components": [
+            {
+              "name": "baseFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            }
+          ]
         }
       ],
       "anonymous": false
@@ -2209,12 +2593,6 @@ export const ABIS = {
         },
         {
           "name": "maxExposureBps",
-          "type": "uint16",
-          "indexed": false,
-          "internalType": "uint16"
-        },
-        {
-          "name": "maxFeeBps",
           "type": "uint16",
           "indexed": false,
           "internalType": "uint16"
@@ -2352,6 +2730,44 @@ export const ABIS = {
           "type": "address",
           "indexed": false,
           "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "SwapAdapterConfigured",
+      "inputs": [
+        {
+          "name": "swapAdapter",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "SwapFellBack",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "usdcDelivered",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         }
       ],
       "anonymous": false
@@ -2699,7 +3115,7 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "FeeAboveProtocolCeiling",
+      "name": "FeeAbovePolicy",
       "inputs": [
         {
           "name": "feeAmount",
@@ -2710,6 +3126,80 @@ export const ABIS = {
           "name": "ceiling",
           "type": "uint256",
           "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "FeePolicyAboveProtocolCeiling",
+      "inputs": [
+        {
+          "name": "criticalFeeBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "ceiling",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "FeePolicyFeesNotMonotonic",
+      "inputs": [
+        {
+          "name": "base",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "mid",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "high",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "critical",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "FeePolicyThresholdAboveDenominator",
+      "inputs": [
+        {
+          "name": "threshold",
+          "type": "uint16",
+          "internalType": "uint16"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "FeePolicyThresholdsNotAscending",
+      "inputs": [
+        {
+          "name": "mid",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "high",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "critical",
+          "type": "uint16",
+          "internalType": "uint16"
         }
       ]
     },
@@ -2769,6 +3259,38 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "IntentExpired",
+      "inputs": [
+        {
+          "name": "deadline",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "nowTimestamp",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "IntentMismatch",
+      "inputs": [
+        {
+          "name": "expected",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "actual",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "IntentNotFilled",
       "inputs": [
         {
@@ -2777,6 +3299,11 @@ export const ABIS = {
           "internalType": "bytes32"
         }
       ]
+    },
+    {
+      "type": "error",
+      "name": "IntentTermsInconsistent",
+      "inputs": []
     },
     {
       "type": "error",
@@ -2870,6 +3397,33 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "UnsupportedIntentVersion",
+      "inputs": [
+        {
+          "name": "version",
+          "type": "uint8",
+          "internalType": "uint8"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "UserFeeCeilingExceeded",
+      "inputs": [
+        {
+          "name": "feeAmount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "ceiling",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "VaultPaused",
       "inputs": []
     },
@@ -2911,6 +3465,25 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "heldFor",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "initialize",
       "inputs": [
         {
@@ -2925,6 +3498,11 @@ export const ABIS = {
         },
         {
           "name": "market_",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "messageTransmitter_",
           "type": "address",
           "internalType": "address"
         }
@@ -2998,6 +3576,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "messageTransmitter",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract IMessageTransmitterV2"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "outcomeOf",
       "inputs": [
         {
@@ -3027,6 +3618,19 @@ export const ABIS = {
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "retryHeld",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
     },
     {
       "type": "function",
@@ -3077,6 +3681,30 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "settleWithProof",
+      "inputs": [
+        {
+          "name": "message",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "attestation",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "outcome",
+          "type": "uint8",
+          "internalType": "enum SettlementReceiver.Outcome"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "settledAmount",
       "inputs": [
         {
@@ -3106,6 +3734,31 @@ export const ABIS = {
       ],
       "outputs": [],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "event",
+      "name": "HeldForVault",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "vault",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
     },
     {
       "type": "event",
@@ -3150,6 +3803,12 @@ export const ABIS = {
         },
         {
           "name": "market",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "messageTransmitter",
           "type": "address",
           "indexed": false,
           "internalType": "address"
@@ -3202,6 +3861,37 @@ export const ABIS = {
       "anonymous": false
     },
     {
+      "type": "event",
+      "name": "SettledWithProof",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "outcome",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "cctpNonce",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
       "type": "error",
       "name": "AlreadyInitialized",
       "inputs": []
@@ -3214,6 +3904,17 @@ export const ABIS = {
           "name": "intentId",
           "type": "bytes32",
           "internalType": "bytes32"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "CctpMessageTooShort",
+      "inputs": [
+        {
+          "name": "length",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ]
     },
@@ -3235,6 +3936,54 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "MalformedIntentHook",
+      "inputs": [
+        {
+          "name": "length",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "MessageNotAccepted",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "MessageNotForThisReceiver",
+      "inputs": [
+        {
+          "name": "recipient",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "mintRecipient",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "MintedAmountMismatch",
+      "inputs": [
+        {
+          "name": "expected",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "actual",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "NotOwner",
       "inputs": []
     },
@@ -3242,6 +3991,17 @@ export const ABIS = {
       "type": "error",
       "name": "NotReporter",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NothingHeld",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
     },
     {
       "type": "error",
@@ -3256,6 +4016,17 @@ export const ABIS = {
           "name": "token",
           "type": "address",
           "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "UnsupportedIntentHookVersion",
+      "inputs": [
+        {
+          "name": "version",
+          "type": "uint8",
+          "internalType": "uint8"
         }
       ]
     },
@@ -3278,6 +4049,11 @@ export const ABIS = {
           "name": "settlementCheck_",
           "type": "address",
           "internalType": "contract ISettlementCheck"
+        },
+        {
+          "name": "vaultRegistry_",
+          "type": "address",
+          "internalType": "contract IVaultRegistry"
         }
       ],
       "stateMutability": "nonpayable"
@@ -3346,6 +4122,19 @@ export const ABIS = {
           "name": "",
           "type": "address",
           "internalType": "contract ISettlementCheck"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "vaultRegistry",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract IVaultRegistry"
         }
       ],
       "stateMutability": "view"
@@ -3421,6 +4210,17 @@ export const ABIS = {
           "name": "intentId",
           "type": "bytes32",
           "internalType": "bytes32"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "NotAFactoryVault",
+      "inputs": [
+        {
+          "name": "claimant",
+          "type": "address",
+          "internalType": "address"
         }
       ]
     }
@@ -4525,6 +5325,886 @@ export const ABIS = {
     {
       "type": "error",
       "name": "ZeroAddress",
+      "inputs": []
+    }
+  ] as const,
+  ArcaidiaVaultFactory: [
+    {
+      "type": "function",
+      "name": "asset",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "createVault",
+      "inputs": [
+        {
+          "name": "salt",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "reserveFloorBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "maxFillBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "maxExposureBps",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "policy",
+          "type": "tuple",
+          "internalType": "struct FeePolicy",
+          "components": [
+            {
+              "name": "baseFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            }
+          ]
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "internalType": "string"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "vault",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "initialize",
+      "inputs": [
+        {
+          "name": "owner_",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "asset_",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "market_",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "settlementReceiver_",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "initialized",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "isFactoryVault",
+      "inputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "market",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "owner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "predictVault",
+      "inputs": [
+        {
+          "name": "creator",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "salt",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "settlementReceiver",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "transferOwnership",
+      "inputs": [
+        {
+          "name": "newOwner",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "vaultCount",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "vaults",
+      "inputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "FactoryInitialized",
+      "inputs": [
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "asset",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "market",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "settlementReceiver",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "OwnerTransferred",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "VaultCreated",
+      "inputs": [
+        {
+          "name": "vault",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "indexed": false,
+          "internalType": "string"
+        },
+        {
+          "name": "policy",
+          "type": "tuple",
+          "indexed": false,
+          "internalType": "struct FeePolicy",
+          "components": [
+            {
+              "name": "baseFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalFeeBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "midThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "highThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            },
+            {
+              "name": "criticalThresholdBps",
+              "type": "uint16",
+              "internalType": "uint16"
+            }
+          ]
+        },
+        {
+          "name": "reserveFloorBps",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
+        },
+        {
+          "name": "maxFillBps",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
+        },
+        {
+          "name": "maxExposureBps",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "AlreadyInitialized",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotOwner",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "VaultAddressMismatch",
+      "inputs": [
+        {
+          "name": "predicted",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "actual",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "ZeroAddress",
+      "inputs": []
+    }
+  ] as const,
+  MockSwapAdapter: [
+    {
+      "type": "function",
+      "name": "canSatisfy",
+      "inputs": [
+        {
+          "name": "tokenIn",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "amountIn",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "minOut",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "lastAmountIn",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "mode",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint8",
+          "internalType": "enum MockSwapAdapter.Mode"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "quote",
+      "inputs": [
+        {
+          "name": "tokenIn",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "amountIn",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "rate",
+      "inputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "setMode",
+      "inputs": [
+        {
+          "name": "value",
+          "type": "uint8",
+          "internalType": "enum MockSwapAdapter.Mode"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setRate",
+      "inputs": [
+        {
+          "name": "tokenIn",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "rate1e18",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "swapExactInput",
+      "inputs": [
+        {
+          "name": "tokenIn",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "amountIn",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "minOut",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "amountOut",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "error",
+      "name": "Broken",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InsufficientOutput",
+      "inputs": [
+        {
+          "name": "amountOut",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "minOut",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "UnsupportedPair",
+      "inputs": [
+        {
+          "name": "tokenIn",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    }
+  ] as const,
+  MockMessageTransmitterV2: [
+    {
+      "type": "constructor",
+      "inputs": [
+        {
+          "name": "asset_",
+          "type": "address",
+          "internalType": "contract MockUSDC"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "asset",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract MockUSDC"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "attest",
+      "inputs": [
+        {
+          "name": "message",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "encodeMessage",
+      "inputs": [
+        {
+          "name": "m",
+          "type": "tuple",
+          "internalType": "struct MockMessageTransmitterV2.MessageSpec",
+          "components": [
+            {
+              "name": "sourceDomain",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "destinationDomain",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "nonce",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "recipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "destinationCaller",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "burnToken",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "mintRecipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "feeExecuted",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "hookData",
+              "type": "bytes",
+              "internalType": "bytes"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "receiveMessage",
+      "inputs": [
+        {
+          "name": "message",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "attestation",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setShouldReject",
+      "inputs": [
+        {
+          "name": "value",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "shouldReject",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "usedNonces",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "error",
+      "name": "InvalidAttestation",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidCaller",
+      "inputs": [
+        {
+          "name": "expected",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "actual",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "NonceAlreadyUsed",
+      "inputs": [
+        {
+          "name": "nonce",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "Rejected",
       "inputs": []
     }
   ] as const,

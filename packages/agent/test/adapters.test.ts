@@ -282,7 +282,7 @@ describe('ViemFillSubmitter', () => {
     const client = new StubWriteClient();
     const submitter = new ViemFillSubmitter(new Map([[ARC, client]]));
 
-    const hash = await submitter.submitFastFill(ARC, VAULT, signed);
+    const hash = await submitter.submitFastFill(ARC, VAULT, source, signed);
 
     expect(hash).toBe(`0x${'cd'.repeat(32)}`);
     expect(client.calls).toHaveLength(1);
@@ -295,8 +295,28 @@ describe('ViemFillSubmitter', () => {
     const client = new StubWriteClient();
     const submitter = new ViemFillSubmitter(new Map([[ARC, client]]));
 
-    await submitter.submitFastFill(ARC, VAULT, signed);
-    const [authorization, signature] = client.calls[0]!.args as [Record<string, unknown>, string];
+    await submitter.submitFastFill(ARC, VAULT, source, signed);
+    const [intentArg, authorization, signature] = client.calls[0]!.args as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+      string,
+    ];
+
+    // The canonical intent travels with the authorization (D6), integer widths per the ABI.
+    expect(intentArg).toEqual({
+      intentVersion: source.intentVersion,
+      sender: source.sender,
+      recipient: source.recipient,
+      inputToken: source.inputToken,
+      amount: source.amount,
+      sourceChainId: BigInt(source.sourceChainId),
+      destinationChainId: BigInt(source.destinationChainId),
+      maxFeeBps: source.maxFeeBps,
+      deadline: BigInt(source.deadline),
+      nonce: source.nonce,
+      tokenOut: source.tokenOut,
+      targetMinOut: source.targetMinOut,
+    });
 
     expect(authorization).toEqual({
       intentId: signed.authorization.intentId,
@@ -314,7 +334,7 @@ describe('ViemFillSubmitter', () => {
 
   it('throws for an unconfigured chain', async () => {
     const submitter = new ViemFillSubmitter(new Map());
-    await expect(submitter.submitFastFill(ARC, VAULT, signed)).rejects.toThrow(
+    await expect(submitter.submitFastFill(ARC, VAULT, source, signed)).rejects.toThrow(
       /No write client configured/,
     );
   });
@@ -326,7 +346,7 @@ describe('ViemFillSubmitter', () => {
     client.failWith = new Error('replacement underpriced');
     const submitter = new ViemFillSubmitter(new Map([[ARC, client]]));
 
-    await expect(submitter.submitFastFill(ARC, VAULT, signed)).rejects.toThrow(
+    await expect(submitter.submitFastFill(ARC, VAULT, source, signed)).rejects.toThrow(
       'replacement underpriced',
     );
   });

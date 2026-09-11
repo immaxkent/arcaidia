@@ -8,10 +8,10 @@ WP-30, WP-31, WP-34. **Stack:** Foundry. **Decisions:** D6, D7, D8, D9, D10.
 
 ## Sub-tasks
 
-- [ ] **26.1 `ArcaidiaLiquidityVault.initialize(owner, asset, reserveFloorBps, maxFillBps, maxExposureBps, FeePolicy policy)`.**
+- [x] **26.1 `ArcaidiaLiquidityVault.initialize(owner, asset, reserveFloorBps, maxFillBps, maxExposureBps, FeePolicy policy)`.**
       Policy validated (`FeePolicyLib.validate`) and stored; no setter. `setFillLimits(maxFillBps, maxExposureBps)`
       loses `maxFeeBps`. Views: `feePolicy()`, `currentFeeBps()`, `quoteFee(uint256)`, `swapAdapter()`.
-- [ ] **26.2 `fastFill(Intent calldata intent, FillAuthorization calldata auth, bytes calldata sig)`.**
+- [x] **26.2 `fastFill(Intent calldata intent, FillAuthorization calldata auth, bytes calldata sig)`.**
       New checks, in this order, before the existing ones: `market.claimIntent` (unchanged first
       line) → `IntentLib.computeIntentId(intent) == auth.intentId` (`IntentMismatch`) →
       `intent.intentVersion == INTENT_VERSION` → `intent.destinationChainId == block.chainid` →
@@ -21,14 +21,20 @@ WP-30, WP-31, WP-34. **Stack:** Foundry. **Decisions:** D6, D7, D8, D9, D10.
       `feeAmount <= amount * currentFeeBps() / 1e4` (`FeeAbovePolicy`). Then today's expiry /
       amounts / caps / settlement-check / signer / nonce path unchanged. `FastFilled` v2 adds `feeBps`.
       `IArcaidiaSolverVault`: `quote(Intent) view returns (feeBps, feeAmount, outputAmount, canFill)`
-      implemented for real.
-- [ ] **26.3 Delivery seam (D9).** `setSwapAdapter(ISwapAdapter)` owner-only. In `_recordFastFill`:
+      implemented for real. **Order as built:** the chain-independent authorization checks
+      (paused, expiry, source ≠ this chain, amounts) run first, then `_enforceIntentTerms`
+      (D6 id match, version, chain, terms, deadline, user ceiling, policy ceiling), then caps.
+- [x] **26.3 Delivery seam (D9).** `setSwapAdapter(ISwapAdapter)` owner-only. In `_recordFastFill`:
       state first, then if `intent.tokenOut == 0 || swapAdapter == 0` → `safeTransfer(recipient, outputAmount)`;
       else `forceApprove(adapter, outputAmount)`; `try adapter.swapExactInput(asset, tokenOut, outputAmount, targetMinOut, recipient) returns (out)` →
       `DeliveredViaSwap(intentId, tokenOut, out)`; `catch` → approve 0, `safeTransfer(recipient, outputAmount)`,
       `SwapFellBack(intentId, tokenOut)`. `MockSwapAdapter` (success / revert / short-delivery modes) in `src/mocks`.
       Accounting is identical on both paths: `advancedPrincipal = outputAmount` in USDC.
-- [ ] **26.4 `ArcaidiaVaultFactory`.** `initialize(owner, asset, market, settlementReceiver)` (CREATE2,
+- [x] **26.4 `ArcaidiaVaultFactory`** — and, found while designing 26.5, **the market now only
+      admits factory-created vaults (D11)**: `ArcaidiaIntentMarket(settlementCheck, vaultRegistry)`,
+      `NotAFactoryVault` otherwise. The factory embeds the vault's init code (20.7 KB runtime,
+      3.9 KB under EIP-170 — the tightest contract; if the vault grows, switch to
+      calldata-supplied init code pinned by hash). **`ArcaidiaVaultFactory`.** `initialize(owner, asset, market, settlementReceiver)` (CREATE2,
       no ctor args). `createVault(salt, reserveFloorBps, maxFillBps, maxExposureBps, FeePolicy, string label)`:
       CREATE2 the vault with `keccak256(msg.sender, salt)`, `initialize` with the factory as
       temporary owner, `setMarket`, `setSettlementReceiver`, `transferOwnership(msg.sender)`,
@@ -36,7 +42,7 @@ WP-30, WP-31, WP-34. **Stack:** Foundry. **Decisions:** D6, D7, D8, D9, D10.
       `predictVault(owner, salt)`. `vaultCount`, `isFactoryVault(address)`.
       Vault `initialize` remains callable by anyone-once (unchanged model) but the factory is the
       only path deployment tooling uses; the House Vault goes through it too.
-- [ ] **26.5 `SettlementReceiver` v2.** `initialize(owner, asset, market, messageTransmitter)`.
+- [x] **26.5 `SettlementReceiver` v2.** `initialize(owner, asset, market, messageTransmitter)`.
       `settleWithProof(bytes message, bytes attestation)` permissionless, `nonReentrant`: parse
       per D8 (`MessageV2` recipient @76 == this; body @148; `BurnMessageV2` mintRecipient @36 == this,
       amount @68, feeExecuted @164, hookData @228 → `IntentHookLib.decode`), require
@@ -45,34 +51,33 @@ WP-30, WP-31, WP-34. **Stack:** Foundry. **Decisions:** D6, D7, D8, D9, D10.
       winner → `try recordReimbursement` (on revert: `outcome = HELD_FOR_VAULT`, `heldFor[intentId] = winner`,
       `claimHeld(intentId)` callable by that vault); else pay `recipient`. Reporter `settle` kept.
       `SettledWithProof(intentId, outcome, amount, nonce)`.
-- [ ] **26.6 `ArcaidiaDeployment.deployAllV2` + `predictV2`.** Salts `arcaidia.v2.{intent-router,
+- [x] **26.6 `deployAll` *is* v2 now** (no separate `deployAllV2`: nothing on this branch will
+      deploy the v1 shape again). Salts `arcaidia.v2.{intent-router, settlement-receiver,
+      intent-market, vault-factory}` + House Vault at the factory under `arcaidia.v2.house-vault`
+      salted by the deploying address. `deployReplacementVaultAndReceiver`/`DeployVaultV2.s.sol`
+      (WP-12) deleted; `Deploy.s.sol` reads the fee tiers/caps/transmitter from env with the
+      plan's House defaults. `ArcaidiaDeployment.deployAllV2` + `predictV2`.** Salts `arcaidia.v2.{intent-router,
       settlement-receiver, intent-market, vault-factory}`; House Vault via `factory.createVault`
       (salt `"house"`). `MARKET_V2` constructor arg = predicted receiver (same-address argument, D-note in file).
       `script/DeployV2.s.sol` (env-driven, prints predictions, asserts after). Not run yet.
-- [ ] **26.7 `pnpm abi:generate`** (+ `ArcaidiaVaultFactory`, `MockSwapAdapter`).
+- [x] **26.7 `pnpm abi:generate`** (+ `ArcaidiaVaultFactory`, `MockSwapAdapter`).
 
-## Tests (the brief's list, mapped)
+## Tests (the brief's list, mapped) — all green, both directions (365 contract tests)
 
-- [ ] maxFeeBps enforced by vault: fee one wei over `amount*maxFeeBps/1e4` reverts; equal passes.
-- [ ] solver cannot overcharge: `feeAmount` above `currentFeeBps()` reverts even when under user ceiling.
-- [ ] fee tier changes with utilisation: deposit, fill to 50/75/90%, `currentFeeBps` steps; fuzz over utilisation.
-- [ ] intent id mismatch: any single-field tamper of `intent` vs `auth.intentId` reverts (`IntentMismatch`).
-- [ ] insufficient liquidity cannot produce a fill (existing, re-run under v2 signature).
-- [ ] two vault/solver pairs with **different policies** race one intent; only one wins;
-      the loser gets `IntentAlreadyClaimed` (`IntentMarketVaultIntegration.t.sol` ported).
-- [ ] CCTP settlement restores capital: `settleWithProof` with a mock-transmitter message
-      (attestation accepted by `MockMessageTransmitterV2`) reimburses the winner; fallback pays recipient;
-      `HELD_FOR_VAULT` when reimbursement reverts, then `claimHeld` succeeds.
-- [ ] metadata → correct intent: message whose hook names intent A cannot settle intent B; wrong
-      `mintRecipient` reverts; replay reverts (`AlreadySettled`).
-- [ ] trade fields: `tokenOut != 0` with no adapter → USDC to recipient; with `MockSwapAdapter`
-      success → `DeliveredViaSwap`; adapter revert → `SwapFellBack` and USDC delivered; vault
-      accounting identical in all three.
-- [ ] factory: predicted == deployed; owner is `msg.sender`; wired to market/receiver; `VaultCreated`
-      fields; second vault, different policy; a non-factory vault can still `fastFill` (permissionless).
-- [ ] invariants (`VaultInvariants.t.sol`) + rounding + reentrancy suites re-run.
+- [x] maxFeeBps enforced by vault: `UserFeeCeilingExceeded` one wei over; equal passes (`FastFill.t.sol`, `VaultIntentTerms.t.sol`).
+- [x] solver cannot overcharge: `FeeAbovePolicy` above the posted tier even under the user's ceiling.
+- [x] fee tier changes with utilisation: 0/50/75/90% ladder + fuzz against `FeePolicyLib` at every utilisation.
+- [x] intent id mismatch / inconsistent terms / expired intent / wrong chain all refused (`IntentMismatch`, `IntentTermsInconsistent`, `IntentExpired`).
+- [x] insufficient liquidity cannot produce a fill (existing suite under the v2 signature).
+- [x] two vault/solver pairs race one intent; only one wins (`IntentMarketVaultIntegration.t.sol`, intent-aware).
+- [x] CCTP settlement restores capital from attested bytes: winner reimbursed, fallback pays the hook's recipient, `feeExecuted` honoured, `HELD_FOR_VAULT` → `retryHeld` (`SettlementReceiverProof.t.sol`).
+- [x] metadata → correct intent: A's message cannot settle B; wrong `mintRecipient`, malformed hook, unaccepted attestation, replay, reused CCTP nonce, front-run `receiveMessage` all refused.
+- [x] trade fields: no adapter → USDC; adapter → `DeliveredViaSwap`; unsatisfiable floor / broken adapter → USDC; plain transfers ignore the adapter; identical accounting on every path.
+- [x] factory: predicted == deployed; creator-owned; wired; `VaultCreated` fields; per-creator salts; invalid policy refused; market admits factory vaults only (`VaultFactory.t.sol`).
+- [x] invariants + rounding + reentrancy suites re-run under v2 (handler builds real intents).
+- [x] TS consumers: `FillSubmitter` carries the intent (agent 322 tests); e2e deploys the v2 shape through the factory and runs the golden lifecycle (24 tests).
 
-## Acceptance gate
+## Acceptance gate — met 2026-09-11
 
 `pnpm test:sc-eth && pnpm test:sc-arc` green; `ArcaidiaDeployment.t.sol` proves `deployAllV2`
 predicts and wires all five contracts + House Vault identically on both simulated chains.

@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {FastFillFixture} from "./base/FastFillFixture.sol";
+import {TestPolicies} from "./base/TestPolicies.sol";
+import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
 import {NeverSettledCheck} from "./base/VaultFixture.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
@@ -84,12 +86,14 @@ contract FastFillSettlementCheckTest is FastFillFixture {
     /// `setSettlementReceiver` itself refuses `address(0)`.
     function test_unsetSettlementReceiverDoesNotBlockFills() public {
         VaultHarness fresh = new VaultHarness();
-        fresh.initialize(vaultOwner, address(asset), RESERVE_FLOOR_BPS);
+        fresh.initialize(
+            vaultOwner, address(asset), RESERVE_FLOOR_BPS, DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, TestPolicies.permissive()
+        );
         ArcaidiaIntentMarket freshMarket =
-            new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())));
+            new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(registry)));
 
         vm.startPrank(vaultOwner);
-        fresh.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
+        fresh.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS);
         fresh.setAuthorisedSigner(agent, true);
         fresh.setMarket(address(freshMarket));
         vm.stopPrank();
@@ -102,7 +106,7 @@ contract FastFillSettlementCheckTest is FastFillFixture {
 
         FillAuthorization memory auth = _authorization(5, 10_000e6, 50e6);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(agentKey, fresh.hashFillAuthorization(auth));
-        address signer = fresh.fastFill(auth, abi.encodePacked(r, s, v));
+        address signer = fresh.fastFill(_intentOf(auth), auth, abi.encodePacked(r, s, v));
 
         assertEq(signer, agent);
         assertEq(asset.balanceOf(recipient), 9_950e6);

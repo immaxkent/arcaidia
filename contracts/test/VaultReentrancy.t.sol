@@ -8,7 +8,11 @@ import {ReentrantToken} from "../src/mocks/ReentrantToken.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
-import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
+import {FillAuthorization, Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "../src/libraries/ArcaidiaTypes.sol";
+import {IntentLib} from "../src/libraries/IntentLib.sol";
+import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
+import {MockVaultRegistry} from "./base/MockVaultRegistry.sol";
+import {TestPolicies} from "./base/TestPolicies.sol";
 
 /// @notice The vault against a hostile settlement asset.
 /// @dev Real USDC has no transfer hook. But the vault holds a configured IERC20
@@ -31,12 +35,17 @@ contract VaultReentrancyTest is ChainFixture {
 
         asset = new ReentrantToken();
         vault = new VaultHarness();
-        vault.initialize(vaultOwner, address(asset), 1_000);
+        vault.initialize(vaultOwner, address(asset), 1_000, 2_500, 10_000, TestPolicies.permissive());
 
         (agent, agentKey) = makeAddrAndKey("agent");
         vm.startPrank(vaultOwner);
-        vault.setFillLimits(2_500, 10_000, 100); // 25% fill cap, 100% exposure cap, 1% fee
-        vault.setMarket(address(new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())))));
+        vault.setMarket(
+            address(
+                new ArcaidiaIntentMarket(
+                    ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(new MockVaultRegistry()))
+                )
+            )
+        );
         vault.setAuthorisedSigner(agent, true);
         vault.setSettlementReceiver(address(this));
         vm.stopPrank();
@@ -57,13 +66,34 @@ contract VaultReentrancyTest is ChainFixture {
         return false;
     }
 
+    mapping(bytes32 => Intent) internal intents;
+
+    function _intentOf(FillAuthorization memory auth) internal view returns (Intent memory) {
+        return intents[auth.intentId];
+    }
+
     function _authorization(uint256 nonce, uint256 input, uint256 fee)
         internal
-        view
         returns (FillAuthorization memory)
     {
+        Intent memory intent = Intent({
+            intentVersion: INTENT_VERSION,
+            sender: lp,
+            recipient: recipient,
+            inputToken: address(asset),
+            amount: input,
+            sourceChainId: sourceChainId,
+            destinationChainId: block.chainid,
+            maxFeeBps: 100,
+            deadline: uint64(block.timestamp + 1 hours),
+            nonce: nonce,
+            tokenOut: USDC_TOKEN_OUT,
+            targetMinOut: 0
+        });
+        bytes32 intentId = IntentLib.computeIntentId(intent);
+        intents[intentId] = intent;
         return FillAuthorization({
-            intentId: keccak256(abi.encode("intent", nonce)),
+            intentId: intentId,
             sourceChainId: sourceChainId,
             sourceTxHash: keccak256(abi.encode("tx", nonce)),
             recipient: recipient,
@@ -90,9 +120,9 @@ contract VaultReentrancyTest is ChainFixture {
         FillAuthorization memory auth = _authorization(1, 10_000e6, 50e6);
         bytes memory signature = _sign(auth);
 
-        asset.arm(address(vault), abi.encodeCall(ArcaidiaLiquidityVault.fastFill, (auth, signature)));
+        asset.arm(address(vault), abi.encodeCall(ArcaidiaLiquidityVault.fastFill, (_intentOf(auth), auth, signature)));
 
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
 
         assertEq(asset.callbackCount(), 1, "callback did not fire; the test proves nothing");
         assertFalse(asset.lastCallSucceeded(), "reentrant fill must fail");
@@ -107,9 +137,9 @@ contract VaultReentrancyTest is ChainFixture {
         FillAuthorization memory second = _authorization(3, 5_000e6, 25e6);
         bytes memory secondSignature = _sign(second);
 
-        asset.arm(address(vault), abi.encodeCall(ArcaidiaLiquidityVault.fastFill, (second, secondSignature)));
+        asset.arm(address(vault), abi.encodeCall(ArcaidiaLiquidityVault.fastFill, (_intentOf(second), second, secondSignature)));
 
-        vault.fastFill(first, _sign(first));
+        vault.fastFill(_intentOf(first), first, _sign(first));
 
         assertEq(asset.callbackCount(), 1);
         assertFalse(asset.lastCallSucceeded(), "a nested fill must be blocked by the guard");
@@ -123,7 +153,7 @@ contract VaultReentrancyTest is ChainFixture {
         asset.arm(address(vault), abi.encodeCall(ArcaidiaLiquidityVault.redeem, (shares, lp, lp)));
 
         FillAuthorization memory auth = _authorization(4, 10_000e6, 50e6);
-        vault.fastFill(auth, _sign(auth));
+        vault.fastFill(_intentOf(auth), auth, _sign(auth));
 
         assertEq(asset.callbackCount(), 1);
         assertFalse(asset.lastCallSucceeded(), "redeem during a fill must be blocked");
@@ -165,7 +195,7 @@ contract VaultReentrancyTest is ChainFixture {
 
     function test_reentrantReimbursementIsBlocked() public {
         FillAuthorization memory auth = _authorization(5, 10_000e6, 50e6);
-        vault.fastFill(auth, _sign(auth));
+        vault.fastFill(_intentOf(auth), auth, _sign(auth));
 
         asset.mint(address(this), 20_000e6);
         asset.approve(address(vault), type(uint256).max);

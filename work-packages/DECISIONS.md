@@ -167,3 +167,31 @@ gains a factory data source + vault template; the frontend's "derive vaults from
 
 **Why:** the Earn page already assumes exactly this; multi-vault indexing needs a discovery
 event; independent operators need no Arcaidia key at any step (WP-20.4).
+
+## D11 — Only factory-created standard vaults may claim an intent
+**Date:** 2026-09-11 · **Status:** accepted · **Affects:** WP-26, WP-28, WP-31 · **Found while:** designing `settleWithProof`
+
+`ArcaidiaIntentMarket.claimIntent` was callable by anyone. `SettlementReceiver` reimburses the
+market's winner by approving it and calling `recordReimbursement` — so any contract that
+claimed an intent id could pull the canonical funds when they landed, and an EOA claimant
+would leave them unroutable. The market now takes an `IVaultRegistry` (the factory) at
+construction and reverts `NotAFactoryVault` for any other claimant. `SettlementReceiver`
+additionally wraps the reimbursement in `try/catch`, parking funds as `HELD_FOR_VAULT` with a
+permissionless `retryHeld`, so canonical funds are never trapped even by a pathological winner.
+
+**Why this and not "verify the claim against the CCTP deposit":** at claim time nothing from
+CCTP exists on the destination chain — the attested hook arrives minutes later, and the brief
+forbids gating the fast fill on attestation. What the CCTP deposit *does* prove, once it lands,
+is the intent (`intentId`, `recipient`); who won is the market's own on-chain record. Both are
+what `settleWithProof` routes by (D8).
+
+**Still permissionless:** anyone creates a standard vault through the factory with no Arcaidia
+key; the factory embeds the vault's init code, so "a vault the market trusts" and "a vault
+whose `recordReimbursement` only accepts funds for intents it actually paid" are the same thing
+by construction.
+
+**Recorded alternative (not built, ~1 day):** market-executed payout — `claimIntent` pulls the
+output from the claimant and pays the recipient itself, so claimed ⇔ paid and reimbursement is a
+plain transfer to whoever the market debited. Fully allowlist-free, but moves the payout and the
+swap-delivery seam (D9) out of the vault and re-opens the fill path's accounting/reentrancy
+analysis. Revisit if non-standard vault code ever needs to compete.

@@ -19,6 +19,7 @@ import {
   type WalletClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import type { FeePolicy } from '@arcaidia/domain';
 import { ARTIFACTS, SALTS } from './artifacts.js';
 import type { AnvilChain } from './anvil.js';
 
@@ -31,6 +32,8 @@ export interface ChainDeployment {
   readonly vault: Address;
   readonly settlementReceiver: Address;
   readonly market: Address;
+  readonly factory: Address;
+  readonly messageTransmitter: Address;
   readonly wallet: WalletClient;
   readonly owner: Address;
 }
@@ -50,7 +53,8 @@ export interface DeployOptions {
   /** Vault's own live cap, as a percentage of `totalAssets()` — see `ArcaidiaLiquidityVault.setFillLimits`. */
   readonly maxFillBps: number;
   readonly maxExposureBps: number;
-  readonly maxFeeBps: number;
+  /** The House Vault's immutable fee tiers (D7). */
+  readonly feePolicy: FeePolicy;
 }
 
 export async function deployProtocol(
@@ -70,22 +74,16 @@ export async function deployProtocol(
     ARTIFACTS.ArcaidiaDeployer.abi,
     ARTIFACTS.ArcaidiaDeployer.bytecode,
   );
-
-  // Deploy and initialize atomically, exactly as production does — there must
-  // be no moment at which an uninitialized contract sits at a known address.
-  const vault = await send.create2(
-    deployerContract,
-    SALTS.vault,
-    ARTIFACTS.ArcaidiaLiquidityVault.bytecode,
-    encodeFunctionData({
-      abi: ARTIFACTS.ArcaidiaLiquidityVault.abi,
-      functionName: 'initialize',
-      args: [account.address, usdc, options.reserveFloorBps],
-    }),
+  const messageTransmitter = await send.deploy(
+    ARTIFACTS.MockMessageTransmitterV2.abi,
+    ARTIFACTS.MockMessageTransmitterV2.bytecode,
+    [usdc],
   );
 
-  // Deployed without initializing yet — `initialize` now needs the market's address, and the
-  // market needs the receiver's, same ordering as the production Solidity deploy library.
+  // Mirrors `ArcaidiaDeployment.deployAll` (v2) step for step. The receiver's init code takes
+  // no constructor arguments, so its address is fixed the instant it's deployed — deployed
+  // without initializing yet, since `initialize` needs the market, and the market needs the
+  // receiver's and the factory's addresses.
   const settlementReceiver = await send.create2(
     deployerContract,
     SALTS.receiver,
@@ -93,12 +91,19 @@ export async function deployProtocol(
     '0x',
   );
 
+  const predictedFactory = (await chain.client.readContract({
+    address: deployerContract,
+    abi: ARTIFACTS.ArcaidiaDeployer.abi,
+    functionName: 'predictAddressFor',
+    args: [SALTS.factory, ARTIFACTS.ArcaidiaVaultFactory.bytecode],
+  })) as Address;
+
   const market = await send.create2(
     deployerContract,
     SALTS.market,
     concatHex([
       ARTIFACTS.ArcaidiaIntentMarket.bytecode,
-      encodeAbiParameters([{ type: 'address' }], [settlementReceiver]),
+      encodeAbiParameters([{ type: 'address' }, { type: 'address' }], [settlementReceiver, predictedFactory]),
     ]),
     '0x',
   );
@@ -107,7 +112,22 @@ export async function deployProtocol(
     account.address,
     usdc,
     market,
+    messageTransmitter,
   ]);
+
+  const factory = await send.create2(
+    deployerContract,
+    SALTS.factory,
+    ARTIFACTS.ArcaidiaVaultFactory.bytecode,
+    encodeFunctionData({
+      abi: ARTIFACTS.ArcaidiaVaultFactory.abi,
+      functionName: 'initialize',
+      args: [account.address, usdc, market, settlementReceiver],
+    }),
+  );
+  if (factory.toLowerCase() !== predictedFactory.toLowerCase()) {
+    throw new Error(`Factory landed at ${factory}, predicted ${predictedFactory}.`);
+  }
 
   const router = await send.create2(
     deployerContract,
@@ -126,14 +146,29 @@ export async function deployProtocol(
     }),
   );
 
+  // The House Vault goes through the same permissionless path as any participant's (D10).
+  const vault = (await chain.client.readContract({
+    address: factory,
+    abi: ARTIFACTS.ArcaidiaVaultFactory.abi,
+    functionName: 'predictVault',
+    args: [account.address, SALTS.houseVault],
+  })) as Address;
+  await send.call(factory, ARTIFACTS.ArcaidiaVaultFactory.abi, 'createVault', [
+    SALTS.houseVault,
+    options.reserveFloorBps,
+    options.maxFillBps,
+    options.maxExposureBps,
+    options.feePolicy,
+    'Arcaidia House Vault',
+  ]);
+  const vaultCode = await chain.client.getCode({ address: vault });
+  if (!vaultCode || vaultCode === '0x') throw new Error(`House Vault did not land at ${vault}.`);
+
   // --- wiring -------------------------------------------------------------
 
   const vaultCall = (functionName: string, args: readonly unknown[]) =>
     send.call(vault, ARTIFACTS.ArcaidiaLiquidityVault.abi, functionName, args);
 
-  await vaultCall('setSettlementReceiver', [settlementReceiver]);
-  await vaultCall('setMarket', [market]);
-  await vaultCall('setFillLimits', [options.maxFillBps, options.maxExposureBps, options.maxFeeBps]);
   await vaultCall('setAuthorisedSigner', [options.agentSigner, true]);
   await vaultCall('setTreasury', [options.treasury]);
   await vaultCall('setProtocolFeeShareBps', [options.protocolFeeShareBps]);
@@ -157,6 +192,8 @@ export async function deployProtocol(
     vault,
     settlementReceiver,
     market,
+    factory,
+    messageTransmitter,
     wallet,
     owner: account.address,
   };
@@ -166,7 +203,7 @@ export async function deployProtocol(
 export async function predictAddresses(
   chain: AnvilChain,
   deployerContract: Address,
-): Promise<{ vault: Address; receiver: Address; router: Address }> {
+): Promise<{ receiver: Address; router: Address; factory: Address }> {
   const predict = (salt: Hex, bytecode: Hex) =>
     chain.client.readContract({
       address: deployerContract,
@@ -176,9 +213,9 @@ export async function predictAddresses(
     }) as Promise<Address>;
 
   return {
-    vault: await predict(SALTS.vault, ARTIFACTS.ArcaidiaLiquidityVault.bytecode),
     receiver: await predict(SALTS.receiver, ARTIFACTS.SettlementReceiver.bytecode),
     router: await predict(SALTS.router, ARTIFACTS.ArcaidiaIntentRouter.bytecode),
+    factory: await predict(SALTS.factory, ARTIFACTS.ArcaidiaVaultFactory.bytecode),
   };
 }
 
@@ -190,8 +227,8 @@ function sender(client: PublicClient, wallet: WalletClient) {
   };
 
   return {
-    async deploy(abi: readonly unknown[], bytecode: Hex): Promise<Address> {
-      const hash = await wallet.deployContract({ abi: abi as never, bytecode } as never);
+    async deploy(abi: readonly unknown[], bytecode: Hex, args: readonly unknown[] = []): Promise<Address> {
+      const hash = await wallet.deployContract({ abi: abi as never, bytecode, args } as never);
       const receipt = await confirm(hash);
       if (!receipt.contractAddress) throw new Error('Deployment produced no address.');
       return receipt.contractAddress;

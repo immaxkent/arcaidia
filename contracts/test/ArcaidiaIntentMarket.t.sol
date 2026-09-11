@@ -4,6 +4,8 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
+import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
+import {MockVaultRegistry} from "./base/MockVaultRegistry.sol";
 
 /// @notice A settlement check the test controls directly, so "already settled
 ///         canonically" can be exercised without standing up a real SettlementReceiver.
@@ -32,6 +34,7 @@ contract RevertingToken {
 contract ArcaidiaIntentMarketTest is Test {
     ArcaidiaIntentMarket internal market;
     MockSettlementCheck internal settlementCheck;
+    MockVaultRegistry internal registry;
     RevertingToken internal token;
 
     address internal vaultA = makeAddr("vaultA");
@@ -39,7 +42,8 @@ contract ArcaidiaIntentMarketTest is Test {
 
     function setUp() public {
         settlementCheck = new MockSettlementCheck();
-        market = new ArcaidiaIntentMarket(ISettlementCheck(address(settlementCheck)));
+        registry = new MockVaultRegistry();
+        market = new ArcaidiaIntentMarket(ISettlementCheck(address(settlementCheck)), IVaultRegistry(address(registry)));
         token = new RevertingToken();
     }
 
@@ -190,5 +194,30 @@ contract ArcaidiaIntentMarketTest is Test {
         vm.prank(vaultA);
         vm.expectRevert();
         market.claimIntent(id, outputAmount, excessiveFee);
+    }
+
+    // -----------------------------------------------------------------------
+    // WP-26 / D11: only factory-created standard vaults may claim
+    // -----------------------------------------------------------------------
+
+    /// Without this, any contract could claim an intent and, when canonical funds landed, be
+    /// handed them by `SettlementReceiver` — and an EOA claimant would leave them unroutable.
+    function test_rejectsAClaimantThatIsNotAFactoryVault() public {
+        registry.setAllowAll(false);
+        registry.set(vaultA, true);
+        bytes32 id = _intentId(40);
+
+        vm.expectRevert(abi.encodeWithSelector(ArcaidiaIntentMarket.NotAFactoryVault.selector, vaultB));
+        vm.prank(vaultB);
+        market.claimIntent(id, 1_000e6, 1e6);
+
+        // The registered vault still wins normally.
+        vm.prank(vaultA);
+        market.claimIntent(id, 1_000e6, 1e6);
+        assertEq(market.filledBy(id), vaultA);
+    }
+
+    function test_registryIsBoundAtConstruction() public view {
+        assertEq(address(market.vaultRegistry()), address(registry));
     }
 }

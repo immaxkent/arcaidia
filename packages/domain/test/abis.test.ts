@@ -28,8 +28,11 @@ describe('generated ABI barrel', () => {
       'ArcaidiaIntentMarket',
       'ArcaidiaIntentRouter',
       'ArcaidiaLiquidityVault',
+      'ArcaidiaVaultFactory', // WP-26
       'CircleCCTPInitiator',
+      'MockMessageTransmitterV2', // WP-26
       'MockSettlementInitiator',
+      'MockSwapAdapter', // WP-26
       'MockUSDC',
       'SettlementReceiver',
     ]);

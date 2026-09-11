@@ -2,18 +2,26 @@
 pragma solidity 0.8.28;
 
 import {VaultFixture} from "./VaultFixture.sol";
-import {FillAuthorization} from "../../src/libraries/ArcaidiaTypes.sol";
+import {FillAuthorization, Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "../../src/libraries/ArcaidiaTypes.sol";
+import {IntentLib} from "../../src/libraries/IntentLib.sol";
 
 /// @notice Setup for the fill path: an authorised agent key and a signer helper.
 /// @dev The agent key here stands in for `LocalAgentSigner`, and later for a
 ///      Circle Agent Wallet. The vault cannot tell them apart, which is the
 ///      point of authenticating a recovered signer rather than a caller.
+///
+///      v2 (WP-26): every authorization is derived from a real `Intent` — the
+///      vault recomputes the id from the intent it is handed (D6) — so the
+///      fixture keeps the intent behind each id and passes it alongside.
 abstract contract FastFillFixture is VaultFixture {
     uint256 internal agentKey;
     address internal agent;
 
     uint256 internal rogueKey;
     address internal rogue;
+
+    /// @dev The intent behind every authorization this fixture minted, by id.
+    mapping(bytes32 => Intent) internal intents;
 
     // Fill/exposure caps are now a live percentage of totalAssets() (see
     // ArcaidiaLiquidityVault.maxFillAmount/maxOutstandingExposure). These two
@@ -25,7 +33,10 @@ abstract contract FastFillFixture is VaultFixture {
     uint256 internal constant MAX_EXPOSURE = 60_000e6;
     uint16 internal constant MAX_FILL_BPS = 2_500; // 25% of 100,000e6 == MAX_FILL
     uint16 internal constant MAX_EXPOSURE_BPS = 6_000; // 60% of 100,000e6 == MAX_EXPOSURE
-    uint16 internal constant MAX_FEE_BPS = 100; // 1%
+    /// @dev The user's own ceiling on every fixture intent (schema v1.1 `maxFeeBps`) — 1%.
+    ///      The vault's permissive policy posts the same 100 bps at low utilisation, so
+    ///      both ceilings coincide here; `VaultIntentTerms.t.sol` pulls them apart.
+    uint16 internal constant MAX_FEE_BPS = 100;
 
     function _deployWithAgent() internal {
         _deployVault();
@@ -34,29 +45,64 @@ abstract contract FastFillFixture is VaultFixture {
         (rogue, rogueKey) = makeAddrAndKey("rogue");
 
         vm.startPrank(vaultOwner);
-        vault.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
+        vault.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS);
         vault.setAuthorisedSigner(agent, true);
         vm.stopPrank();
 
         _deposit(lpAlice, 100_000e6);
     }
 
+    /// @dev A plain USDC intent of `inputAmount`, created on the *other* chain for this one.
+    function _intent(uint256 nonce, uint256 inputAmount) internal view returns (Intent memory) {
+        return Intent({
+            intentVersion: INTENT_VERSION,
+            sender: lpBob,
+            recipient: recipient,
+            inputToken: address(asset),
+            amount: inputAmount,
+            sourceChainId: sourceChainId,
+            destinationChainId: block.chainid,
+            maxFeeBps: MAX_FEE_BPS,
+            deadline: uint64(block.timestamp + 1 hours),
+            nonce: nonce,
+            tokenOut: USDC_TOKEN_OUT,
+            targetMinOut: 0
+        });
+    }
+
+    /// @dev Remember `intent` under its canonical id so `_intentOf` can hand it back.
+    function _register(Intent memory intent) internal returns (bytes32 intentId) {
+        intentId = IntentLib.computeIntentId(intent);
+        intents[intentId] = intent;
+    }
+
+    function _intentOf(FillAuthorization memory authorization) internal view returns (Intent memory) {
+        return intents[authorization.intentId];
+    }
+
     function _authorization(uint256 nonce, uint256 inputAmount, uint256 feeAmount)
         internal
-        view
         returns (FillAuthorization memory)
     {
+        return _authorizationFor(_intent(nonce, inputAmount), feeAmount, nonce);
+    }
+
+    /// @dev An authorization for an arbitrary (already-built) intent.
+    function _authorizationFor(Intent memory intent, uint256 feeAmount, uint256 agentNonce)
+        internal
+        returns (FillAuthorization memory)
+    {
+        bytes32 intentId = _register(intent);
         return FillAuthorization({
-            intentId: keccak256(abi.encode("intent", nonce)),
-            // The intent was created on the *other* chain.
-            sourceChainId: sourceChainId,
-            sourceTxHash: keccak256(abi.encode("tx", nonce)),
-            recipient: recipient,
-            inputAmount: inputAmount,
-            outputAmount: inputAmount - feeAmount,
+            intentId: intentId,
+            sourceChainId: intent.sourceChainId,
+            sourceTxHash: keccak256(abi.encode("tx", intentId)),
+            recipient: intent.recipient,
+            inputAmount: intent.amount,
+            outputAmount: intent.amount - feeAmount,
             feeAmount: feeAmount,
             expiry: uint64(block.timestamp + 45),
-            nonce: nonce
+            nonce: agentNonce
         });
     }
 
@@ -66,7 +112,7 @@ abstract contract FastFillFixture is VaultFixture {
     }
 
     function _fill(FillAuthorization memory authorization) internal returns (address) {
-        return vault.fastFill(authorization, _sign(authorization, agentKey));
+        return vault.fastFill(_intentOf(authorization), authorization, _sign(authorization, agentKey));
     }
 
     /// @dev Signs *before* arming the expectation. `_sign` reads the digest from
@@ -78,20 +124,23 @@ abstract contract FastFillFixture is VaultFixture {
         internal
     {
         bytes memory signature = _sign(authorization, agentKey);
+        Intent memory intent = _intentOf(authorization);
         vm.expectRevert(expectedError);
-        vault.fastFill(authorization, signature);
+        vault.fastFill(intent, authorization, signature);
     }
 
     /// @dev Selector overload, for errors that carry no arguments.
     function _fillExpectingRevert(FillAuthorization memory authorization, bytes4 expectedSelector) internal {
         bytes memory signature = _sign(authorization, agentKey);
+        Intent memory intent = _intentOf(authorization);
         vm.expectRevert(expectedSelector);
-        vault.fastFill(authorization, signature);
+        vault.fastFill(intent, authorization, signature);
     }
 
     function _fillExpectingAnyRevert(FillAuthorization memory authorization) internal {
         bytes memory signature = _sign(authorization, agentKey);
+        Intent memory intent = _intentOf(authorization);
         vm.expectRevert();
-        vault.fastFill(authorization, signature);
+        vault.fastFill(intent, authorization, signature);
     }
 }

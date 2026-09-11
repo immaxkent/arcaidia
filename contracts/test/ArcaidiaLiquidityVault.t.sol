@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {VaultFixture} from "./base/VaultFixture.sol";
+import {TestPolicies} from "./base/TestPolicies.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {VaultHarness} from "./harness/VaultHarness.sol";
@@ -33,13 +34,13 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
 
     function test_initializeCannotBeCalledTwice() public {
         vm.expectRevert(ArcaidiaLiquidityVault.AlreadyInitialized.selector);
-        vault.initialize(lpAlice, address(asset), 0);
+        vault.initialize(lpAlice, address(asset), 0, DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, TestPolicies.permissive());
     }
 
     function test_initializeRejectsReserveFloorAboveDenominator() public {
         VaultHarness fresh = new VaultHarness();
         vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.ReserveFloorTooHigh.selector, 10_001));
-        fresh.initialize(vaultOwner, address(asset), 10_001);
+        fresh.initialize(vaultOwner, address(asset), 10_001, 5_000, 8_000, TestPolicies.permissive());
     }
 
     /// Share decimals are asset decimals plus the virtual offset, which is what
@@ -135,7 +136,7 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
     function test_withdrawIsCappedByLiquidBalance() public {
         vm.startPrank(vaultOwner);
         vault.setReserveFloorBps(0);
-        vault.setFillLimits(10_000, 10_000, vault.maxFeeBps());
+        vault.setFillLimits(10_000, 10_000);
         vm.stopPrank();
 
         _deposit(lpAlice, 100_000e6);
@@ -176,9 +177,8 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
     /// against the *post-withdrawal* totalAssets — see
     /// ArcaidiaLiquidityVault._minLiquidRetained — not a flat 10% of today's.
     function test_withdrawIsCappedToPreserveTheReserveFloor() public {
-        uint16 feeBps = vault.maxFeeBps();
         vm.prank(vaultOwner);
-        vault.setFillLimits(10_000, 10_000, feeBps);
+        vault.setFillLimits(10_000, 10_000);
 
         _deposit(lpAlice, 100_000e6);
         _advance(3, 5_000e6);

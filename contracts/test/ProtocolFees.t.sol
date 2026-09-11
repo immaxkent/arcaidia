@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {VaultFixture} from "./base/VaultFixture.sol";
+import {TestPolicies} from "./base/TestPolicies.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 
 /// @notice The 50/50 fee split and the treasury sweep.
@@ -172,7 +173,7 @@ contract ProtocolFeesTest is VaultFixture {
 
     function test_sweepRevertsWithNoTreasurySet() public {
         ArcaidiaLiquidityVault fresh = new ArcaidiaLiquidityVault();
-        fresh.initialize(vaultOwner, address(asset), 1_000);
+        fresh.initialize(vaultOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive());
 
         vm.prank(vaultOwner);
         vm.expectRevert(ArcaidiaLiquidityVault.TreasuryNotSet.selector);

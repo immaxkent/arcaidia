@@ -11,8 +11,12 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IFillRegistry} from "./interfaces/IFillRegistry.sol";
 import {ISettlementCheck} from "./interfaces/ISettlementCheck.sol";
 import {IIntentMarket} from "./interfaces/IIntentMarket.sol";
-import {FillAuthorization} from "./libraries/ArcaidiaTypes.sol";
+import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
+import {IArcaidiaSolverVault} from "./interfaces/IArcaidiaSolverVault.sol";
+import {FeePolicy, FillAuthorization, Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "./libraries/ArcaidiaTypes.sol";
 import {FillAuthorizationLib} from "./libraries/FillAuthorizationLib.sol";
+import {FeePolicyLib} from "./libraries/FeePolicyLib.sol";
+import {IntentLib} from "./libraries/IntentLib.sol";
 
 /// @title ArcaidiaLiquidityVault
 /// @notice Destination-side LP inventory: an ERC-4626 tokenized vault whose
@@ -42,9 +46,23 @@ import {FillAuthorizationLib} from "./libraries/FillAuthorizationLib.sol";
 ///
 ///      Rounding always favours the vault over the caller, so no sequence of
 ///      deposits and redemptions can extract value from other LPs.
-contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
+///
+///      **v2 (WP-26).** Three things change, none of them the accounting above:
+///      - The vault carries an immutable, utilisation-tiered `FeePolicy` fixed at
+///        `initialize` (DECISIONS.md D7) and is the source of truth for its own price:
+///        `currentFeeBps()` is what it will accept, never more.
+///      - `fastFill` is handed the canonical `Intent` and recomputes `intentId` from
+///        it, so the user's `maxFeeBps` — and every other term — is enforced against
+///        the one intent the signed authorization, the market claim and the CCTP hook
+///        all name (D6). `FillAuthorization` itself is byte-identical to v1.
+///      - Delivery goes through an owner-settable `ISwapAdapter` when the intent asks
+///        for a non-USDC `tokenOut`, falling back to USDC on any failure (D9). LP
+///        accounting is identical either way: the receivable is the USDC that left.
+contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcaidiaSolverVault {
     using SafeERC20 for IERC20;
     using Math for uint256;
+    using IntentLib for Intent;
+    using FeePolicyLib for FeePolicy;
 
     // -----------------------------------------------------------------------
     // Configuration
@@ -76,9 +94,13 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///         of total vault depth (`totalAssets`). Same rationale as `maxFillBps`.
     uint16 public maxExposureBps;
 
-    /// @notice Protocol fee ceiling. The user's own ceiling may be lower and is
-    ///         enforced by the agent before it ever signs.
-    uint16 public maxFeeBps;
+    /// @notice This vault's posted price: the fee tier at each utilisation band, fixed at
+    ///         `initialize` and never editable (D7). `currentFeeBps()` reads it live.
+    FeePolicy public feePolicy;
+
+    /// @notice Destination-side trade execution seam (D9). `address(0)` — the default — means
+    ///         every fill is delivered in USDC, including trade intents.
+    ISwapAdapter public swapAdapter;
 
     /// @notice Agent authorities whose signatures this vault accepts.
     /// @dev An allowlist of recovered EIP-712 signers, not of callers: any
@@ -133,16 +155,10 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///      price far enough to steal a later deposit through a direct transfer.
     uint8 internal constant DECIMALS_OFFSET = 6;
 
-    /// @dev Defaults set at `initialize()` so a freshly deployed vault — the
-    ///      House Vault or, later, a permissionless LP-created one — is safe
-    ///      AND functional immediately: no separate `setFillLimits` call is
-    ///      required before it can fill anything. Leaving these at their
-    ///      Solidity zero-value default was exactly the gap that made the
-    ///      House Vault's own first live fill revert unconditionally. The
-    ///      owner may still tighten or loosen via `setFillLimits`.
-    uint16 internal constant DEFAULT_MAX_FILL_BPS = 5_000; // 50% of vault depth
-    uint16 internal constant DEFAULT_MAX_EXPOSURE_BPS = 8_000; // 80% of vault depth
-    uint16 internal constant DEFAULT_MAX_FEE_BPS = 150; // 1.5%
+    // v2: the fill/exposure caps and the fee policy are explicit `initialize` arguments
+    // (the factory collects them at creation), so a freshly created vault is safe AND
+    // functional immediately with the economics its owner actually chose — the WP-12
+    // lesson (a zero-value default blocked every fill) is kept by making them required.
 
     // -----------------------------------------------------------------------
     // Events
@@ -162,7 +178,13 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     event MarketConfigured(address market);
     event FillRecorded(bytes32 indexed intentId, address indexed recipient, uint256 outputAmount);
     event ReimbursementRecorded(bytes32 indexed intentId, uint256 amountReceived, uint256 exposureCleared);
-    event FillLimitsConfigured(uint16 maxFillBps, uint16 maxExposureBps, uint16 maxFeeBps);
+    event FillLimitsConfigured(uint16 maxFillBps, uint16 maxExposureBps);
+    event FeePolicyConfigured(FeePolicy policy);
+    event SwapAdapterConfigured(address swapAdapter);
+    /// `tokenOut` delivered through the swap adapter (D9).
+    event DeliveredViaSwap(bytes32 indexed intentId, address indexed tokenOut, uint256 amountOut);
+    /// The adapter reverted or was absent; USDC delivered instead.
+    event SwapFellBack(bytes32 indexed intentId, address indexed tokenOut, uint256 usdcDelivered);
     event TreasuryConfigured(address treasury);
     event ProtocolFeeShareConfigured(uint16 protocolFeeShareBps);
     event FeesAccrued(bytes32 indexed intentId, uint256 toProtocol, uint256 toLps);
@@ -174,7 +196,8 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         address indexed signer,
         uint256 inputAmount,
         uint256 outputAmount,
-        uint256 feeAmount
+        uint256 feeAmount,
+        uint16 feeBps
     );
     event PausedSet(bool paused);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
@@ -203,7 +226,16 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     error SignerNotAuthorised(address signer);
     error AgentNonceAlreadyUsed(uint256 nonce);
     error AmountsInconsistent(uint256 inputAmount, uint256 outputAmount, uint256 feeAmount);
-    error FeeAboveProtocolCeiling(uint256 feeAmount, uint256 ceiling);
+    /// The fee exceeds the user's own `maxFeeBps` — the brief's hard requirement (D6).
+    error UserFeeCeilingExceeded(uint256 feeAmount, uint256 ceiling);
+    /// The fee exceeds this vault's posted tier at current utilisation (D7).
+    error FeeAbovePolicy(uint256 feeAmount, uint256 ceiling);
+    /// The `Intent` handed in does not hash to the id the authorization names.
+    error IntentMismatch(bytes32 expected, bytes32 actual);
+    error UnsupportedIntentVersion(uint8 version);
+    error IntentExpired(uint64 deadline, uint256 nowTimestamp);
+    /// Intent and authorization disagree on recipient / amount / source chain.
+    error IntentTermsInconsistent();
     error FillAboveCap(uint256 outputAmount, uint256 cap);
     error ExposureCapExceeded(uint256 attempted, uint256 cap);
     error WrongDestinationChain(uint256 sourceChainId);
@@ -221,22 +253,35 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///      arguments do not disturb CREATE2 address parity.
     constructor() ERC20("Arcaidia Liquidity", "arcLP") {}
 
-    function initialize(address owner_, address asset_, uint16 reserveFloorBps_) external {
+    /// @notice One-time configuration. The fee policy set here is permanent (D7); the two
+    ///         caps remain owner-adjustable risk knobs.
+    function initialize(
+        address owner_,
+        address asset_,
+        uint16 reserveFloorBps_,
+        uint16 maxFillBps_,
+        uint16 maxExposureBps_,
+        FeePolicy calldata policy
+    ) external {
         if (initialized) revert AlreadyInitialized();
         if (owner_ == address(0) || asset_ == address(0)) revert ZeroAddress();
         if (reserveFloorBps_ > BPS_DENOMINATOR) revert ReserveFloorTooHigh(reserveFloorBps_);
+        if (maxFillBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxFillBps_);
+        if (maxExposureBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxExposureBps_);
+        FeePolicyLib.validate(policy);
 
         initialized = true;
         owner = owner_;
         asset = IERC20(asset_);
         _assetDecimals = IERC20Metadata(asset_).decimals();
         reserveFloorBps = reserveFloorBps_;
-        maxFillBps = DEFAULT_MAX_FILL_BPS;
-        maxExposureBps = DEFAULT_MAX_EXPOSURE_BPS;
-        maxFeeBps = DEFAULT_MAX_FEE_BPS;
+        maxFillBps = maxFillBps_;
+        maxExposureBps = maxExposureBps_;
+        feePolicy = policy;
 
         emit VaultInitialized(owner_, asset_, reserveFloorBps_);
-        emit FillLimitsConfigured(DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, DEFAULT_MAX_FEE_BPS);
+        emit FillLimitsConfigured(maxFillBps_, maxExposureBps_);
+        emit FeePolicyConfigured(policy);
     }
 
     // -----------------------------------------------------------------------
@@ -261,14 +306,20 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         emit MarketConfigured(market_);
     }
 
-    function setFillLimits(uint16 maxFillBps_, uint16 maxExposureBps_, uint16 maxFeeBps_) external onlyOwner {
+    function setFillLimits(uint16 maxFillBps_, uint16 maxExposureBps_) external onlyOwner {
         if (maxFillBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxFillBps_);
         if (maxExposureBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxExposureBps_);
-        if (maxFeeBps_ > BPS_DENOMINATOR) revert BpsAboveDenominator(maxFeeBps_);
         maxFillBps = maxFillBps_;
         maxExposureBps = maxExposureBps_;
-        maxFeeBps = maxFeeBps_;
-        emit FillLimitsConfigured(maxFillBps_, maxExposureBps_, maxFeeBps_);
+        emit FillLimitsConfigured(maxFillBps_, maxExposureBps_);
+    }
+
+    /// @notice Set (or, with `address(0)`, clear) the destination trade adapter (D9). The
+    ///         adapter only ever receives USDC the vault has already booked as advanced; a
+    ///         misbehaving one can make a trade intent fall back to USDC, never lose LP funds.
+    function setSwapAdapter(address adapter) external onlyOwner {
+        swapAdapter = ISwapAdapter(adapter);
+        emit SwapAdapterConfigured(adapter);
     }
 
     function setAuthorisedSigner(address signer, bool allowed) external onlyOwner {
@@ -411,6 +462,39 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         uint256 total = totalAssets();
         if (total == 0) return BPS_DENOMINATOR;
         return outstandingExposure.mulDiv(BPS_DENOMINATOR, total);
+    }
+
+    /// @notice The fee tier this vault charges right now — its posted price (D7).
+    function currentFeeBps() public view returns (uint16) {
+        return feePolicy.feeBpsAt(utilisationBps());
+    }
+
+    /// @notice Fee and net output for `inputAmount` at the current tier.
+    function quoteFee(uint256 inputAmount) public view returns (uint16 feeBps, uint256 feeAmount) {
+        feeBps = currentFeeBps();
+        feeAmount = FeePolicyLib.feeAmountFor(inputAmount, feeBps);
+    }
+
+    /// @inheritdoc IArcaidiaSolverVault
+    function quote(Intent calldata intent)
+        external
+        view
+        returns (uint16 feeBps, uint256 feeAmount, uint256 outputAmount, bool canFill)
+    {
+        (feeBps, feeAmount) = quoteFee(intent.amount);
+        outputAmount = intent.amount > feeAmount ? intent.amount - feeAmount : 0;
+        bytes32 intentId = intent.computeIntentId();
+
+        canFill = !paused && market != address(0) && intent.intentVersion == INTENT_VERSION
+            && intent.destinationChainId == block.chainid && intent.deadline > block.timestamp
+            && feeAmount <= FeePolicyLib.feeAmountFor(intent.amount, intent.maxFeeBps)
+            && outputAmount > 0 && outputAmount <= maxFillAmount()
+            && outstandingExposure + outputAmount <= maxOutstandingExposure()
+            && outputAmount <= availableLiquidity() && !intentFilled[intentId]
+            && (
+                settlementReceiver == address(0)
+                    || !ISettlementCheck(settlementReceiver).isSettled(intentId)
+            );
     }
 
     // -----------------------------------------------------------------------
@@ -562,9 +646,10 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///      narrow, short-lived statement about one intent, and every reason to
     ///      refuse is checked here rather than trusted to the agent:
     ///
-    ///        expiry, amount consistency, protocol fee ceiling, single-fill cap,
-    ///        exposure cap, signer allowlist, agent nonce, intent replay,
-    ///        reserve floor and available liquidity.
+    ///        market claim, intent identity and terms (D6), user fee ceiling,
+    ///        posted-policy fee ceiling (D7), expiry, amount consistency,
+    ///        single-fill cap, exposure cap, signer allowlist, agent nonce,
+    ///        intent replay, reserve floor and available liquidity.
     ///
     ///      Submission is permissionless. Authority rests on the recovered
     ///      signer, not on `msg.sender`, so any relayer may carry a valid
@@ -573,7 +658,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///      Checks that cost nothing come before signature recovery; the
     ///      allowlist check comes before any state is written; and state is
     ///      written before the transfer.
-    function fastFill(FillAuthorization memory authorization, bytes calldata signature)
+    function fastFill(Intent calldata intent, FillAuthorization calldata authorization, bytes calldata signature)
         external
         nonReentrant
         returns (address signer)
@@ -600,20 +685,8 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
             );
         }
 
-        uint256 feeCeiling = (authorization.inputAmount * maxFeeBps) / BPS_DENOMINATOR;
-        if (authorization.feeAmount > feeCeiling) {
-            revert FeeAboveProtocolCeiling(authorization.feeAmount, feeCeiling);
-        }
-        uint256 fillCap = maxFillAmount();
-        if (authorization.outputAmount > fillCap) {
-            revert FillAboveCap(authorization.outputAmount, fillCap);
-        }
-
-        uint256 newExposure = outstandingExposure + authorization.outputAmount;
-        uint256 exposureCap = maxOutstandingExposure();
-        if (newExposure > exposureCap) {
-            revert ExposureCapExceeded(newExposure, exposureCap);
-        }
+        uint16 tierFeeBps = _enforceIntentTerms(intent, authorization);
+        _enforceCaps(authorization.outputAmount);
 
         // Mirrors the check `SettlementReceiver.settle()` already makes in the
         // other direction (`IFillRegistry.isFilled`) before choosing its own
@@ -635,7 +708,13 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         if (agentNonceUsed[authorization.nonce]) revert AgentNonceAlreadyUsed(authorization.nonce);
         agentNonceUsed[authorization.nonce] = true;
 
-        _recordFastFill(authorization.intentId, authorization.recipient, authorization.outputAmount);
+        _recordFastFill(
+            authorization.intentId,
+            authorization.recipient,
+            authorization.outputAmount,
+            intent.tokenOut,
+            intent.targetMinOut
+        );
 
         emit FastFilled(
             authorization.intentId,
@@ -643,8 +722,48 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
             signer,
             authorization.inputAmount,
             authorization.outputAmount,
-            authorization.feeAmount
+            authorization.feeAmount,
+            tierFeeBps
         );
+    }
+
+    /// @dev D6: the intent must hash to the id the authorization names — then every term the
+    ///      vault enforces from `intent` is provably a term of the one intent that id denotes.
+    ///      D7: the fee may not exceed the user's ceiling nor this vault's posted tier, both
+    ///      evaluated at pre-fill utilisation.
+    function _enforceIntentTerms(Intent calldata intent, FillAuthorization calldata authorization)
+        private
+        view
+        returns (uint16 tierFeeBps)
+    {
+        bytes32 computed = intent.computeIntentId();
+        if (computed != authorization.intentId) revert IntentMismatch(authorization.intentId, computed);
+        if (intent.intentVersion != INTENT_VERSION) revert UnsupportedIntentVersion(intent.intentVersion);
+        if (intent.destinationChainId != block.chainid) revert WrongDestinationChain(intent.destinationChainId);
+        if (
+            intent.sourceChainId != authorization.sourceChainId || intent.recipient != authorization.recipient
+                || intent.amount != authorization.inputAmount
+        ) revert IntentTermsInconsistent();
+        if (intent.deadline <= block.timestamp) revert IntentExpired(intent.deadline, block.timestamp);
+
+        uint256 userCeiling = FeePolicyLib.feeAmountFor(intent.amount, intent.maxFeeBps);
+        if (authorization.feeAmount > userCeiling) {
+            revert UserFeeCeilingExceeded(authorization.feeAmount, userCeiling);
+        }
+        tierFeeBps = currentFeeBps();
+        uint256 policyCeiling = FeePolicyLib.feeAmountFor(intent.amount, tierFeeBps);
+        if (authorization.feeAmount > policyCeiling) {
+            revert FeeAbovePolicy(authorization.feeAmount, policyCeiling);
+        }
+    }
+
+    function _enforceCaps(uint256 outputAmount) private view {
+        uint256 fillCap = maxFillAmount();
+        if (outputAmount > fillCap) revert FillAboveCap(outputAmount, fillCap);
+
+        uint256 newExposure = outstandingExposure + outputAmount;
+        uint256 exposureCap = maxOutstandingExposure();
+        if (newExposure > exposureCap) revert ExposureCapExceeded(newExposure, exposureCap);
     }
 
     /// @dev Records a fast fill and pays the recipient. Marks state before
@@ -656,7 +775,13 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     ///      the `fastFill` entry point in WP-05. This internal function is the
     ///      accounting half, so the reimbursement path can be built and tested
     ///      against real state first.
-    function _recordFastFill(bytes32 intentId, address recipient, uint256 outputAmount) internal {
+    function _recordFastFill(
+        bytes32 intentId,
+        address recipient,
+        uint256 outputAmount,
+        address tokenOut,
+        uint256 targetMinOut
+    ) internal {
         if (intentFilled[intentId]) revert IntentAlreadyFilled(intentId);
         if (recipient == address(0)) revert ZeroAddress();
         if (outputAmount == 0) revert ZeroAmount();
@@ -668,8 +793,39 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         advancedPrincipal[intentId] = outputAmount;
         outstandingExposure += outputAmount;
 
-        asset.safeTransfer(recipient, outputAmount);
+        _deliver(intentId, recipient, outputAmount, tokenOut, targetMinOut);
         emit FillRecorded(intentId, recipient, outputAmount);
+    }
+
+    /// @dev D9. State is already written; whatever happens here, the receivable is the USDC
+    ///      that leaves. A plain transfer for USDC intents or when no adapter is set; otherwise
+    ///      the adapter pulls the USDC and delivers `tokenOut`, and any revert — unsupported
+    ///      pair, price moved past `targetMinOut`, adapter bug — falls back to delivering USDC,
+    ///      which is exactly what the user would have received from canonical settlement.
+    function _deliver(
+        bytes32 intentId,
+        address recipient,
+        uint256 outputAmount,
+        address tokenOut,
+        uint256 targetMinOut
+    ) private {
+        ISwapAdapter adapter = swapAdapter;
+        if (tokenOut == USDC_TOKEN_OUT || address(adapter) == address(0)) {
+            asset.safeTransfer(recipient, outputAmount);
+            return;
+        }
+
+        asset.forceApprove(address(adapter), outputAmount);
+        try adapter.swapExactInput(address(asset), tokenOut, outputAmount, targetMinOut, recipient) returns (
+            uint256 amountOut
+        ) {
+            asset.forceApprove(address(adapter), 0);
+            emit DeliveredViaSwap(intentId, tokenOut, amountOut);
+        } catch {
+            asset.forceApprove(address(adapter), 0);
+            asset.safeTransfer(recipient, outputAmount);
+            emit SwapFellBack(intentId, tokenOut, outputAmount);
+        }
     }
 
     /// @notice Accept canonical funds for a filled intent and clear its receivable.

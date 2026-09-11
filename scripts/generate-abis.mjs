@@ -26,6 +26,10 @@ const CONTRACTS = [
   'MockUSDC',
   'MockSettlementInitiator',
   'CircleCCTPInitiator',
+  // WP-26
+  'ArcaidiaVaultFactory',
+  'MockSwapAdapter',
+  'MockMessageTransmitterV2',
 ];
 
 function readAbi(name) {

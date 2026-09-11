@@ -8,6 +8,9 @@ import {VaultInvariantHandler} from "./harness/VaultInvariantHandler.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
+import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
+import {MockVaultRegistry} from "./base/MockVaultRegistry.sol";
+import {TestPolicies} from "./base/TestPolicies.sol";
 
 /// @notice What must hold no matter what sequence of legal actions occurs.
 ///
@@ -29,7 +32,6 @@ contract VaultInvariantsTest is ChainFixture {
     // enough that many random actions succeed, tight enough to bind sometimes.
     uint16 internal constant MAX_FILL_BPS = 5_000; // 50%
     uint16 internal constant MAX_EXPOSURE_BPS = 9_000; // 90%
-    uint16 internal constant MAX_FEE_BPS = 100; // 1%
     uint16 internal constant PROTOCOL_SHARE_BPS = 5_000; // half the fee
 
     function setUp() public {
@@ -38,17 +40,20 @@ contract VaultInvariantsTest is ChainFixture {
 
         asset = new MockUSDC();
         vault = new VaultHarness();
-        vault.initialize(vaultOwner, address(asset), RESERVE_FLOOR_BPS);
+        vault.initialize(
+            vaultOwner, address(asset), RESERVE_FLOOR_BPS, MAX_FILL_BPS, MAX_EXPOSURE_BPS, TestPolicies.permissive()
+        );
 
         (, uint256 agentKey) = makeAddrAndKey("invAgent");
         handler = new VaultInvariantHandler(vault, asset, agentKey);
 
         ArcaidiaIntentMarket market =
-            new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())));
+            new ArcaidiaIntentMarket(
+            ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(new MockVaultRegistry()))
+        );
 
         vm.startPrank(vaultOwner);
         vault.setMarket(address(market));
-        vault.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
         vault.setAuthorisedSigner(handler.agent(), true);
         vault.setSettlementReceiver(address(handler));
         vault.setTreasury(makeAddr("invTreasury"));

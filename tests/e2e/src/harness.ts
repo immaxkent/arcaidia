@@ -86,7 +86,21 @@ export const POLICY = {
   // way it does every other field.
   maxFillBps: 5_000,
   maxExposureBps: 8_000,
-  maxFeeBps: 100,
+  /**
+   * The House Vault's fee tiers (D7). Permissive on purpose: the vault's tier is a *ceiling*
+   * on what a solver may charge, and until WP-28 the reference solver still prices from its
+   * own `DEFAULT_RISK_POLICY` (10–85 bps), which must stay under it or every fill reverts
+   * with `FeeAbovePolicy`. Capped at the protocol maximum.
+   */
+  feePolicy: {
+    baseFeeBps: 100,
+    midFeeBps: 110,
+    highFeeBps: 120,
+    criticalFeeBps: 150,
+    midThresholdBps: 5_000,
+    highThresholdBps: 7_500,
+    criticalThresholdBps: 9_000,
+  },
   lpDeposit: USDC(100_000),
   userBalance: USDC(50_000),
   attestationDelaySeconds: 120,
@@ -176,7 +190,7 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
     maxInFlightValue: POLICY.maxInFlightValue,
     maxFillBps: POLICY.maxFillBps,
     maxExposureBps: POLICY.maxExposureBps,
-    maxFeeBps: POLICY.maxFeeBps,
+    feePolicy: POLICY.feePolicy,
   };
 
   const sepoliaDeployment = await deployProtocol(sepolia, {

@@ -4,7 +4,8 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {VaultHarness} from "./VaultHarness.sol";
 import {MockUSDC} from "../../src/mocks/MockUSDC.sol";
-import {FillAuthorization} from "../../src/libraries/ArcaidiaTypes.sol";
+import {FillAuthorization, Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "../../src/libraries/ArcaidiaTypes.sol";
+import {IntentLib} from "../../src/libraries/IntentLib.sol";
 
 /// @notice Drives the vault through random but legal sequences of LP deposits,
 ///         redemptions, fast fills and canonical reimbursements.
@@ -41,6 +42,13 @@ contract VaultInvariantHandler is Test {
     mapping(bytes32 => bool) public reimbursed;
 
     uint256 internal nonceCounter;
+
+    /// @dev The intent behind each authorization, by id (D6: the vault recomputes the id).
+    mapping(bytes32 => Intent) internal intents;
+
+    /// @dev Every handler intent's own ceiling. Permissive policy posts <= 150 bps; 1% keeps
+    ///      the user ceiling the binding one at low utilisation, the policy tier at high.
+    uint16 internal constant USER_MAX_FEE_BPS = 100;
 
     constructor(VaultHarness vault_, MockUSDC asset_, uint256 agentKey_) {
         vault = vault_;
@@ -103,13 +111,34 @@ contract VaultInvariantHandler is Test {
         if (ceiling < 2) return;
 
         uint256 output = bound(amountSeed, 1, ceiling);
-        uint256 fee = bound(feeSeed, 0, (output * vault.maxFeeBps()) / 10_000);
+        // Legal fee: within both the user's ceiling and the vault's posted tier (D6/D7).
+        uint16 tier = vault.currentFeeBps();
+        uint16 binding = tier < USER_MAX_FEE_BPS ? tier : USER_MAX_FEE_BPS;
+        uint256 fee = bound(feeSeed, 0, (output * binding) / 10_000);
         uint256 input = output + fee;
 
         nonceCounter++;
+        uint256 otherChain = block.chainid == 11155111 ? 5042002 : 11155111;
+        Intent memory intent = Intent({
+            intentVersion: INTENT_VERSION,
+            sender: address(this),
+            recipient: RECIPIENT,
+            inputToken: address(asset),
+            amount: input,
+            sourceChainId: otherChain,
+            destinationChainId: block.chainid,
+            maxFeeBps: USER_MAX_FEE_BPS,
+            deadline: uint64(block.timestamp + 1 hours),
+            nonce: nonceCounter,
+            tokenOut: USDC_TOKEN_OUT,
+            targetMinOut: 0
+        });
+        bytes32 intentId = IntentLib.computeIntentId(intent);
+        intents[intentId] = intent;
+
         FillAuthorization memory auth = FillAuthorization({
-            intentId: keccak256(abi.encode("inv-intent", nonceCounter)),
-            sourceChainId: block.chainid == 11155111 ? 5042002 : 11155111,
+            intentId: intentId,
+            sourceChainId: otherChain,
             sourceTxHash: keccak256(abi.encode("inv-tx", nonceCounter)),
             recipient: RECIPIENT,
             inputAmount: input,
@@ -121,7 +150,7 @@ contract VaultInvariantHandler is Test {
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(agentKey, vault.hashFillAuthorization(auth));
 
-        try vault.fastFill(auth, abi.encodePacked(r, s, v)) {
+        try vault.fastFill(intent, auth, abi.encodePacked(r, s, v)) {
             ghostAdvanced += output;
             filledIntents.push(auth.intentId);
         } catch {}
@@ -138,7 +167,7 @@ contract VaultInvariantHandler is Test {
         if (principal == 0) return;
 
         // The fee the agent quoted, recovered from the recorded principal.
-        uint256 fee = (principal * vault.maxFeeBps()) / 10_000;
+        uint256 fee = (principal * USER_MAX_FEE_BPS) / 10_000;
         uint256 canonical = principal + fee;
 
         asset.mint(address(this), canonical);

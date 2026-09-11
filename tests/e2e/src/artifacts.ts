@@ -46,14 +46,27 @@ export const ARTIFACTS = {
     abi: ABIS.ArcaidiaIntentMarket,
     bytecode: bytecodeOf('ArcaidiaIntentMarket'),
   },
+  ArcaidiaVaultFactory: {
+    abi: ABIS.ArcaidiaVaultFactory,
+    bytecode: bytecodeOf('ArcaidiaVaultFactory'),
+  },
+  MockMessageTransmitterV2: {
+    abi: ABIS.MockMessageTransmitterV2,
+    bytecode: bytecodeOf('MockMessageTransmitterV2'),
+  },
 } as const;
 
-/** Salts must be identical on every chain; they are half of what fixes the addresses. */
+/**
+ * Salts must be identical on every chain; they are half of what fixes the addresses.
+ * Mirrors `ArcaidiaDeployment.sol` (v2, WP-26) exactly. The House Vault is not CREATE2'd by
+ * the deployer but by the factory, salted by creator + `houseVault`.
+ */
 export const SALTS = {
-  vault: keccakConstant('arcaidia.v1.liquidity-vault'),
-  receiver: keccakConstant('arcaidia.v1.settlement-receiver'),
-  router: keccakConstant('arcaidia.v1.intent-router'),
-  market: keccakConstant('arcaidia.v1.intent-market'),
+  receiver: keccakConstant('arcaidia.v2.settlement-receiver'),
+  router: keccakConstant('arcaidia.v2.intent-router'),
+  market: keccakConstant('arcaidia.v2.intent-market'),
+  factory: keccakConstant('arcaidia.v2.vault-factory'),
+  houseVault: keccakConstant('arcaidia.v2.house-vault'),
 } as const;
 
 // Imported lazily to keep this module's surface small.

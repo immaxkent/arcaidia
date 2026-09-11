@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerDeployment, resetDeployments } from '@arcaidia/domain';
 import { HttpTelemetryClient, NoopTelemetryClient } from '@arcaidia/telemetry';
+import { intent } from '../fixtures.js';
 import { InMemoryDecisionLog } from '../../src/logging/decision-log.js';
 import {
   buildReadClients,
@@ -138,7 +139,7 @@ describe('buildSolverDependencies', () => {
   it('the submitter refuses an unconfigured chain id synchronously, before any network call', async () => {
     const { deps } = buildSolverDependencies(config(), { log: new InMemoryDecisionLog() });
     await expect(
-      deps.submitter.submitFastFill(999, SEPOLIA_CHAIN.liquidityVault, {
+      deps.submitter.submitFastFill(999, SEPOLIA_CHAIN.liquidityVault, intent(), {
         authorization: {
           intentId: `0x${'00'.repeat(32)}`,
           sourceChainId: SEPOLIA_CHAIN.chainId,

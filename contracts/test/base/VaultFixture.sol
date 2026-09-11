@@ -6,6 +6,9 @@ import {MockUSDC} from "../../src/mocks/MockUSDC.sol";
 import {VaultHarness} from "../harness/VaultHarness.sol";
 import {ArcaidiaIntentMarket} from "../../src/ArcaidiaIntentMarket.sol";
 import {ISettlementCheck} from "../../src/interfaces/ISettlementCheck.sol";
+import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
+import {MockVaultRegistry} from "./MockVaultRegistry.sol";
+import {TestPolicies} from "./TestPolicies.sol";
 
 /// @notice Never reports anything settled. Most vault suites don't exercise the
 ///         settlement-check interaction at all; they need a market to fill through,
@@ -24,6 +27,7 @@ abstract contract VaultFixture is ChainFixture {
     MockUSDC internal asset;
     VaultHarness internal vault;
     ArcaidiaIntentMarket internal market;
+    MockVaultRegistry internal registry;
 
     address internal vaultOwner = makeAddr("vaultOwner");
     address internal lpAlice = makeAddr("lpAlice");
@@ -31,6 +35,8 @@ abstract contract VaultFixture is ChainFixture {
     address internal recipient = makeAddr("recipient");
 
     uint16 internal constant RESERVE_FLOOR_BPS = 1_000; // 10%
+    uint16 internal constant DEFAULT_MAX_FILL_BPS = 5_000; // 50% of vault depth
+    uint16 internal constant DEFAULT_MAX_EXPOSURE_BPS = 8_000; // 80% of vault depth
 
     function _deployVault() internal {
         _configureDirection();
@@ -39,9 +45,19 @@ abstract contract VaultFixture is ChainFixture {
 
         asset = new MockUSDC();
         vault = new VaultHarness();
-        vault.initialize(vaultOwner, address(asset), RESERVE_FLOOR_BPS);
+        vault.initialize(
+            vaultOwner,
+            address(asset),
+            RESERVE_FLOOR_BPS,
+            DEFAULT_MAX_FILL_BPS,
+            DEFAULT_MAX_EXPOSURE_BPS,
+            TestPolicies.permissive()
+        );
 
-        market = new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())));
+        registry = new MockVaultRegistry();
+        market = new ArcaidiaIntentMarket(
+            ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(registry))
+        );
         vm.prank(vaultOwner);
         vault.setMarket(address(market));
 

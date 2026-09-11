@@ -37,7 +37,7 @@ contract FastFillTest is FastFillFixture {
         bytes memory signature = _sign(auth, agentKey);
 
         vm.prank(makeAddr("randomRelayer"));
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
 
         assertEq(asset.balanceOf(recipient), 9_950e6);
     }
@@ -58,7 +58,7 @@ contract FastFillTest is FastFillFixture {
         bytes memory signature = _sign(auth, rogueKey);
 
         vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.SignerNotAuthorised.selector, rogue));
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
     }
 
     function test_rejectsARevokedSigner() public {
@@ -69,7 +69,7 @@ contract FastFillTest is FastFillFixture {
         bytes memory signature = _sign(auth, agentKey);
 
         vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.SignerNotAuthorised.selector, agent));
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
     }
 
     /// Tampering after signing changes the digest, so recovery yields some other
@@ -80,7 +80,7 @@ contract FastFillTest is FastFillFixture {
 
         auth.recipient = makeAddr("attacker");
         vm.expectRevert();
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
         assertEq(asset.balanceOf(makeAddr("attacker")), 0);
     }
 
@@ -91,7 +91,7 @@ contract FastFillTest is FastFillFixture {
         auth.outputAmount = 20_000e6;
         auth.inputAmount = auth.outputAmount + auth.feeAmount;
         vm.expectRevert();
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
     }
 
     function test_rejectsATamperedIntentId() public {
@@ -100,13 +100,13 @@ contract FastFillTest is FastFillFixture {
 
         auth.intentId = keccak256("different intent");
         vm.expectRevert();
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
     }
 
     function test_rejectsAMalformedSignature() public {
         FillAuthorization memory auth = _authorization(9, 10_000e6, 50e6);
         vm.expectRevert();
-        vault.fastFill(auth, hex"1234");
+        vault.fastFill(_intentOf(auth), auth, hex"1234");
     }
 
     /// A signature for one chain's vault must not work on the other's, even
@@ -121,7 +121,7 @@ contract FastFillTest is FastFillFixture {
         vm.chainId(currentChain);
 
         vm.expectRevert();
-        vault.fastFill(auth, foreignSignature);
+        vault.fastFill(_intentOf(auth), auth, foreignSignature);
     }
 
     // -----------------------------------------------------------------------
@@ -150,8 +150,8 @@ contract FastFillTest is FastFillFixture {
         FillAuthorization memory auth = _authorization(13, 10_000e6, 50e6);
         _fill(auth);
 
+        // A different intent (different amount => different canonical id) reusing agent nonce 13.
         FillAuthorization memory second = _authorization(13, 5_000e6, 25e6);
-        second.intentId = keccak256("another intent");
 
         _fillExpectingRevert(
             second, abi.encodeWithSelector(ArcaidiaLiquidityVault.AgentNonceAlreadyUsed.selector, 13)
@@ -163,9 +163,9 @@ contract FastFillTest is FastFillFixture {
         FillAuthorization memory auth = _authorization(14, 10_000e6, 50e6);
         bytes memory signature = _sign(auth, agentKey);
 
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
         vm.expectRevert();
-        vault.fastFill(auth, signature);
+        vault.fastFill(_intentOf(auth), auth, signature);
 
         assertEq(asset.balanceOf(recipient), 9_950e6);
     }
@@ -219,13 +219,14 @@ contract FastFillTest is FastFillFixture {
         );
     }
 
-    function test_rejectsAFeeAboveTheProtocolCeiling() public {
-        // 1% of 10,000 is 100; ask for 101.
+    /// The user's own ceiling (schema v1.1 `maxFeeBps`, 1% on every fixture intent) is enforced
+    /// on chain now (D6): 1% of 10,000 is 100; ask for 101.
+    function test_rejectsAFeeAboveTheUsersCeiling() public {
         FillAuthorization memory auth = _authorization(19, 10_000e6, 101e6);
 
         _fillExpectingRevert(
             auth,
-            abi.encodeWithSelector(ArcaidiaLiquidityVault.FeeAboveProtocolCeiling.selector, 101e6, 100e6)
+            abi.encodeWithSelector(ArcaidiaLiquidityVault.UserFeeCeilingExceeded.selector, 101e6, 100e6)
         );
     }
 
@@ -260,7 +261,7 @@ contract FastFillTest is FastFillFixture {
     function test_rejectsAFillBreachingTheReserveFloor() public {
         vm.prank(vaultOwner);
         // 100%/100% so only the reserve floor can bind here, not the fill/exposure caps.
-        vault.setFillLimits(10_000, 10_000, MAX_FEE_BPS);
+        vault.setFillLimits(10_000, 10_000);
 
         // Available is 90,000; ask for more.
         FillAuthorization memory auth = _authorization(25, 95_000e6, 50e6);
@@ -312,7 +313,7 @@ contract FastFillTest is FastFillFixture {
         FillAuthorization memory unauthorised = _authorization(30, 10_000e6, 50e6);
         bytes memory rogueSignature = _sign(unauthorised, rogueKey);
         vm.expectRevert();
-        vault.fastFill(unauthorised, rogueSignature);
+        vault.fastFill(_intentOf(unauthorised), unauthorised, rogueSignature);
 
         assertEq(vault.liquidBalance(), liquidBefore);
         assertEq(vault.outstandingExposure(), exposureBefore);
@@ -330,7 +331,7 @@ contract FastFillTest is FastFillFixture {
 
         FillAuthorization memory auth = _authorization(nonce, input, fee);
 
-        try vault.fastFill(auth, _sign(auth, agentKey)) {
+        try vault.fastFill(_intentOf(auth), auth, _sign(auth, agentKey)) {
             assertLe(vault.outstandingExposure(), MAX_EXPOSURE);
             assertGe(vault.liquidBalance(), vault.reserveFloor());
         } catch {

@@ -8,7 +8,12 @@ import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {SettlementReceiver} from "../src/SettlementReceiver.sol";
 import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
-import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
+import {FillAuthorization, Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "../src/libraries/ArcaidiaTypes.sol";
+import {IntentLib} from "../src/libraries/IntentLib.sol";
+import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
+import {MockVaultRegistry} from "./base/MockVaultRegistry.sol";
+import {TestPolicies} from "./base/TestPolicies.sol";
+import {MockMessageTransmitterV2} from "../src/mocks/MockMessageTransmitterV2.sol";
 
 /// @notice WP-16's actual acceptance gate: two independently-deployed, independently-funded
 ///         vaults, sharing nothing but the market and the settlement asset, racing for the
@@ -16,6 +21,8 @@ import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
 contract IntentMarketVaultIntegrationTest is ChainFixture {
     MockUSDC internal asset;
     ArcaidiaIntentMarket internal market;
+    MockVaultRegistry internal registry;
+    mapping(bytes32 => Intent) internal intents;
 
     VaultHarness internal vaultA;
     VaultHarness internal vaultB;
@@ -32,7 +39,10 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
         vm.chainId(destinationChainId);
 
         asset = new MockUSDC();
-        market = new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())));
+        registry = new MockVaultRegistry();
+        market = new ArcaidiaIntentMarket(
+            ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(registry))
+        );
 
         vaultA = _standUpVault("vaultAOwner", "lpA", 100_000e6);
         vaultB = _standUpVault("vaultBOwner", "lpB", 100_000e6);
@@ -54,10 +64,10 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
         address lp = makeAddr(lpSeed);
 
         v = new VaultHarness();
-        v.initialize(vOwner, address(asset), 1_000); // 10% reserve floor
+        // 10% reserve floor, 50% fill cap, 80% exposure cap, permissive fee tiers
+        v.initialize(vOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive());
 
         vm.startPrank(vOwner);
-        v.setFillLimits(5_000, 8_000, 150); // 50% fill cap, 80% exposure cap, 1.5% fee
         v.setMarket(address(market));
         vm.stopPrank();
 
@@ -74,11 +84,28 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
         return v.owner();
     }
 
-    function _authorization(bytes32 intentId, uint256 inputAmount, uint256 feeAmount)
+    /// @dev A real intent (schema v1.1) seeded by `seed`, remembered under its canonical id so
+    ///      each vault can be handed it alongside the authorization (D6).
+    function _authorization(bytes32 seed, uint256 inputAmount, uint256 feeAmount)
         internal
-        view
         returns (FillAuthorization memory)
     {
+        Intent memory intent = Intent({
+            intentVersion: INTENT_VERSION,
+            sender: makeAddr("sender"),
+            recipient: recipient,
+            inputToken: address(asset),
+            amount: inputAmount,
+            sourceChainId: sourceChainId,
+            destinationChainId: block.chainid,
+            maxFeeBps: 150,
+            deadline: uint64(block.timestamp + 1 hours),
+            nonce: uint256(seed),
+            tokenOut: USDC_TOKEN_OUT,
+            targetMinOut: 0
+        });
+        bytes32 intentId = IntentLib.computeIntentId(intent);
+        intents[intentId] = intent;
         return FillAuthorization({
             intentId: intentId,
             sourceChainId: sourceChainId,
@@ -90,6 +117,10 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
             expiry: uint64(block.timestamp + 45),
             nonce: 1
         });
+    }
+
+    function _intentOf(FillAuthorization memory auth) internal view returns (Intent memory) {
+        return intents[auth.intentId];
     }
 
     function _sign(VaultHarness v, FillAuthorization memory auth, uint256 key)
@@ -106,8 +137,9 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     function test_onlyOneOfTwoCompetingVaultsFillsTheSameIntent() public {
         bytes32 intentId = keccak256("shared-intent");
         FillAuthorization memory auth = _authorization(intentId, 10_000e6, 100e6);
+        intentId = auth.intentId;
 
-        address signerA = vaultA.fastFill(auth, _sign(vaultA, auth, agentAKey));
+        address signerA = vaultA.fastFill(_intentOf(auth), auth, _sign(vaultA, auth, agentAKey));
         assertEq(signerA, agentA);
         assertEq(market.filledBy(intentId), address(vaultA));
         assertEq(asset.balanceOf(recipient), 9_900e6);
@@ -120,7 +152,7 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
                 ArcaidiaIntentMarket.IntentAlreadyClaimed.selector, intentId, address(vaultA)
             )
         );
-        vaultB.fastFill(auth, sigB);
+        vaultB.fastFill(_intentOf(auth), auth, sigB);
 
         // No second payout, and vaultB's own liquidity is untouched — it never advanced anything.
         assertEq(asset.balanceOf(recipient), 9_900e6);
@@ -132,11 +164,12 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     function test_secondToExecuteLosesEvenIfConstructedFirst() public {
         bytes32 intentId = keccak256("execution-order-intent");
         FillAuthorization memory auth = _authorization(intentId, 5_000e6, 50e6);
+        intentId = auth.intentId;
         bytes memory sigA = _sign(vaultA, auth, agentAKey);
         bytes memory sigB = _sign(vaultB, auth, agentBKey);
 
         // vaultB executes first even though vaultA's signature was produced first above.
-        address signerB = vaultB.fastFill(auth, sigB);
+        address signerB = vaultB.fastFill(_intentOf(auth), auth, sigB);
         assertEq(signerB, agentB);
         assertEq(market.filledBy(intentId), address(vaultB));
 
@@ -145,7 +178,7 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
                 ArcaidiaIntentMarket.IntentAlreadyClaimed.selector, intentId, address(vaultB)
             )
         );
-        vaultA.fastFill(auth, sigA);
+        vaultA.fastFill(_intentOf(auth), auth, sigA);
     }
 
     /// V1's single-vault behaviour must be unchanged: one vault, alone in the market,
@@ -153,8 +186,9 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     function test_aLoneVaultInTheMarketFillsExactlyAsBefore() public {
         bytes32 intentId = keccak256("solo-intent");
         FillAuthorization memory auth = _authorization(intentId, 10_000e6, 100e6);
+        intentId = auth.intentId;
 
-        address signer = vaultA.fastFill(auth, _sign(vaultA, auth, agentAKey));
+        address signer = vaultA.fastFill(_intentOf(auth), auth, _sign(vaultA, auth, agentAKey));
 
         assertEq(signer, agentA);
         assertEq(asset.balanceOf(recipient), 9_900e6);
@@ -170,7 +204,9 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
         reporter = makeAddr("reporter");
 
         receiver = new SettlementReceiver();
-        receiver.initialize(receiverOwner, address(asset), address(market));
+        receiver.initialize(
+            receiverOwner, address(asset), address(market), address(new MockMessageTransmitterV2(asset))
+        );
 
         vm.prank(receiverOwner);
         receiver.setReporter(reporter, true);
@@ -190,8 +226,9 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
 
         bytes32 intentId = keccak256("reimbursement-intent");
         FillAuthorization memory auth = _authorization(intentId, 10_000e6, 100e6);
+        intentId = auth.intentId;
 
-        address signer = vaultB.fastFill(auth, _sign(vaultB, auth, agentBKey));
+        address signer = vaultB.fastFill(_intentOf(auth), auth, _sign(vaultB, auth, agentBKey));
         assertEq(signer, agentB);
         assertEq(market.filledBy(intentId), address(vaultB));
         // Captured *after* the fill's own outflow (9,900e6 left for the recipient), so the

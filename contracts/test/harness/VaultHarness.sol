@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {ArcaidiaLiquidityVault} from "../../src/ArcaidiaLiquidityVault.sol";
 import {IIntentMarket} from "../../src/interfaces/IIntentMarket.sol";
+import {USDC_TOKEN_OUT} from "../../src/libraries/ArcaidiaTypes.sol";
 
 /// @notice Test-only vault exposing the fill accounting without the
 ///         authorization machinery that arrives in WP-05.
@@ -22,6 +23,6 @@ import {IIntentMarket} from "../../src/interfaces/IIntentMarket.sol";
 contract VaultHarness is ArcaidiaLiquidityVault {
     function advanceForTest(bytes32 intentId, address recipient, uint256 outputAmount) external {
         IIntentMarket(market).claimIntent(intentId, outputAmount, 0);
-        _recordFastFill(intentId, recipient, outputAmount);
+        _recordFastFill(intentId, recipient, outputAmount, USDC_TOKEN_OUT, 0);
     }
 }

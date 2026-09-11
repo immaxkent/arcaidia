@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {VaultFixture} from "./base/VaultFixture.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 import {SettlementReceiver} from "../src/SettlementReceiver.sol";
+import {MockMessageTransmitterV2} from "../src/mocks/MockMessageTransmitterV2.sol";
 
 /// @notice Canonical settlement routing, both branches.
 /// @dev The fallback branch is the specification's central promise: if no solver
@@ -11,6 +12,7 @@ import {SettlementReceiver} from "../src/SettlementReceiver.sol";
 ///      Arcaidia is an acceleration layer, not a dependency.
 contract SettlementReceiverTest is VaultFixture {
     SettlementReceiver internal receiver;
+    MockMessageTransmitterV2 internal transmitter;
 
     address internal reporter = makeAddr("settlementReporter");
     address internal fallbackRecipient = makeAddr("fallbackRecipient");
@@ -18,8 +20,9 @@ contract SettlementReceiverTest is VaultFixture {
     function setUp() public {
         _deployVault();
 
+        transmitter = new MockMessageTransmitterV2(asset);
         receiver = new SettlementReceiver();
-        receiver.initialize(vaultOwner, address(asset), address(market));
+        receiver.initialize(vaultOwner, address(asset), address(market), address(transmitter));
 
         vm.startPrank(vaultOwner);
         receiver.setReporter(reporter, true);
@@ -52,13 +55,13 @@ contract SettlementReceiverTest is VaultFixture {
 
     function test_initializeCannotBeCalledTwice() public {
         vm.expectRevert(SettlementReceiver.AlreadyInitialized.selector);
-        receiver.initialize(lpAlice, address(asset), address(market));
+        receiver.initialize(lpAlice, address(asset), address(market), address(transmitter));
     }
 
     function test_initializeRejectsZeroAddresses() public {
         SettlementReceiver fresh = new SettlementReceiver();
         vm.expectRevert(SettlementReceiver.ZeroAddress.selector);
-        fresh.initialize(address(0), address(asset), address(market));
+        fresh.initialize(address(0), address(asset), address(market), address(transmitter));
     }
 
     // -----------------------------------------------------------------------

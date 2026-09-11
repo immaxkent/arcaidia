@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ChainFixture} from "./base/ChainFixture.sol";
+import {TestPolicies} from "./base/TestPolicies.sol";
 import {ArcaidiaDeployer} from "../src/deploy/ArcaidiaDeployer.sol";
 import {ArcaidiaIntentRouter} from "../src/ArcaidiaIntentRouter.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
@@ -129,7 +130,7 @@ contract Create2DeterminismTest is ChainFixture {
         address deployed = deployer.deploy(
             VAULT_SALT,
             code,
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(asset), 1_000))
+            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive()))
         );
 
         assertEq(deployed, predicted);
@@ -144,7 +145,7 @@ contract Create2DeterminismTest is ChainFixture {
         address deployed = deployer.deploy(
             RECEIVER_SALT,
             code,
-            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), address(0xBEEF)))
+            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), address(0xBEEF), address(0xCAFE)))
         );
 
         assertEq(deployed, predicted);
@@ -169,7 +170,7 @@ contract Create2DeterminismTest is ChainFixture {
         address onEthereum = deployer.deploy(
             VAULT_SALT,
             code,
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(ethereumUsdc), 1_000))
+            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(ethereumUsdc), 1_000, 5_000, 8_000, TestPolicies.permissive()))
         );
 
         assertEq(onEthereum, predicted);
@@ -192,7 +193,7 @@ contract Create2DeterminismTest is ChainFixture {
         address onArc = deployer.deploy(
             VAULT_SALT,
             code,
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(arcUsdc), 2_500))
+            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(arcUsdc), 2_500, 5_000, 8_000, TestPolicies.permissive()))
         );
 
         assertEq(onArc, predicted, "same salt and init code must give the same address");
@@ -213,7 +214,7 @@ contract Create2DeterminismTest is ChainFixture {
         address deployed = deployer.deploy(
             VAULT_SALT,
             code,
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(asset), 1_000))
+            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive()))
         );
 
         ArcaidiaLiquidityVault vault = ArcaidiaLiquidityVault(deployed);
@@ -222,7 +223,7 @@ contract Create2DeterminismTest is ChainFixture {
         // And nobody can take it afterwards.
         vm.prank(makeAddr("attacker"));
         vm.expectRevert(ArcaidiaLiquidityVault.AlreadyInitialized.selector);
-        vault.initialize(makeAddr("attacker"), address(asset), 0);
+        vault.initialize(makeAddr("attacker"), address(asset), 0, 5_000, 8_000, TestPolicies.permissive());
     }
 
     /// A failed initialization must take the deployment down with it, rather
@@ -236,7 +237,7 @@ contract Create2DeterminismTest is ChainFixture {
             VAULT_SALT,
             code,
             // Zero asset address is rejected by initialize.
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(0), 1_000))
+            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(0), 1_000, 5_000, 8_000, TestPolicies.permissive()))
         );
 
         assertEq(predicted.code.length, 0, "no contract may survive a failed initialization");
@@ -246,7 +247,7 @@ contract Create2DeterminismTest is ChainFixture {
         MockUSDC asset = new MockUSDC();
         bytes memory code = type(ArcaidiaLiquidityVault).creationCode;
         bytes memory initCall =
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(asset), 1_000));
+            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (protocolOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive()));
 
         deployer.deploy(VAULT_SALT, code, initCall);
 
@@ -264,7 +265,7 @@ contract Create2DeterminismTest is ChainFixture {
         deployer.deploy(
             RECEIVER_SALT,
             code,
-            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), address(0xBEEF)))
+            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), address(0xBEEF), address(0xCAFE)))
         );
 
         assertTrue(deployer.isDeployed(RECEIVER_SALT, codeHash));

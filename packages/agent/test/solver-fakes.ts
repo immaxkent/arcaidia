@@ -88,16 +88,17 @@ export class RecordingAuthority implements AgentAuthority {
 }
 
 export class FakeSubmitter implements FillSubmitter {
-  submissions: Array<{ chainId: number; vault: string; signed: SignedFillAuthorization }> = [];
+  submissions: Array<{ chainId: number; vault: string; intent: Intent; signed: SignedFillAuthorization }> = [];
   failWith: Error | null = null;
 
   async submitFastFill(
     chainId: number,
     vault: `0x${string}`,
+    intent: Intent,
     signed: SignedFillAuthorization,
   ): Promise<TxHash> {
     if (this.failWith) throw this.failWith;
-    this.submissions.push({ chainId, vault, signed });
+    this.submissions.push({ chainId, vault, intent, signed });
     return `0x${'ab'.repeat(32)}`;
   }
 }

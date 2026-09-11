@@ -23,12 +23,12 @@ import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 ///          --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
 ///          --account deployKey --sender <owner address> \
 ///          --broadcast
+/// @dev v2 vaults only: the fee ceiling is the vault's immutable fee policy (D7), not a limit.
 contract SetFillLimitsScript is Script {
     function run() external {
         address vaultAddress = vm.envAddress("VAULT_ADDRESS");
         uint16 maxFillBps = uint16(vm.envUint("MAX_FILL_BPS"));
         uint16 maxExposureBps = uint16(vm.envUint("MAX_EXPOSURE_BPS"));
-        uint16 maxFeeBps = uint16(vm.envUint("MAX_FEE_BPS"));
 
         ArcaidiaLiquidityVault vault = ArcaidiaLiquidityVault(vaultAddress);
 
@@ -36,15 +36,13 @@ contract SetFillLimitsScript is Script {
         console.log("vault          ", vaultAddress);
         console.log("maxFillBps     ", maxFillBps);
         console.log("maxExposureBps ", maxExposureBps);
-        console.log("maxFeeBps      ", maxFeeBps);
 
         vm.startBroadcast();
-        vault.setFillLimits(maxFillBps, maxExposureBps, maxFeeBps);
+        vault.setFillLimits(maxFillBps, maxExposureBps);
         vm.stopBroadcast();
 
         require(vault.maxFillBps() == maxFillBps, "maxFillBps did not take");
         require(vault.maxExposureBps() == maxExposureBps, "maxExposureBps did not take");
-        require(vault.maxFeeBps() == maxFeeBps, "maxFeeBps did not take");
         console.log("fill limits set");
         console.log("  maxFillAmount() now     ", vault.maxFillAmount());
         console.log("  maxOutstandingExposure()", vault.maxOutstandingExposure());
