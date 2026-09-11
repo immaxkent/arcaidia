@@ -45,45 +45,38 @@ const STEPS = [
 
 type SolverMode = "REFERENCE" | "EXTERNAL";
 
-/** Reference solver deployment recipes. The solver owns its operator key, not Arcaidia. */
+/**
+ * Reference solver recipes — only what actually exists today. There is no
+ * published image, installer or Helm chart; the reference solver is
+ * `packages/agent` in this repository, run either through the committed
+ * Docker Compose stack (WP-17.3, `docker-compose.yml`) or straight from a
+ * checkout with `pnpm solver:start`. Every command below was run as written.
+ * The solver owns its operator key, not Arcaidia.
+ */
 const DEPLOY_TARGETS: Array<{ id: SolverDeployTarget; label: string; command: string }> = [
   {
     id: "DOCKER",
-    label: "Docker",
-    command: `docker run -d --name arcaidia-solver \\
-  -v arcaidia-keys:/keys \\
-  -e ARC_VAULT=0xYourVault \\
-  -e ARC_RPC_URL=https://... \\
-  ghcr.io/arcaidia/reference-solver:latest
+    label: "Docker Compose",
+    command: `git clone https://github.com/immaxkent/arcaidia.git && cd arcaidia
+cp .env.example .env
+# paste the runtime config below into .env, then add your own
+# LOCAL_AGENT_PRIVATE_KEY and LOCAL_SUBMITTER_PRIVATE_KEY
+docker compose up --build -d
+docker compose logs -f arcaidia-solver
 
-# prints: solver operator address 0x…`,
+# prints: [solver] signer 0x… — that is the operator address to authorise below`,
   },
   {
-    id: "VPS",
-    label: "VPS",
-    command: `curl -fsSL https://get.arcaidia.xyz/solver | sh
-arcaidia-solver init --keystore ~/.arcaidia/keys
-arcaidia-solver run --vault 0xYourVault --rpc https://...
+    id: "NODE",
+    label: "Node (pnpm)",
+    command: `git clone https://github.com/immaxkent/arcaidia.git && cd arcaidia
+pnpm install
+cp .env.example .env
+# paste the runtime config below into .env, then add your own
+# LOCAL_AGENT_PRIVATE_KEY and LOCAL_SUBMITTER_PRIVATE_KEY
+pnpm solver:start
 
-# prints: solver operator address 0x…`,
-  },
-  {
-    id: "LOCAL",
-    label: "Local",
-    command: `git clone https://github.com/arcaidia/reference-solver
-cd reference-solver && bun install
-bun run solver --vault 0xYourVault --rpc http://127.0.0.1:8545
-
-# prints: solver operator address 0x…`,
-  },
-  {
-    id: "KUBERNETES",
-    label: "Kubernetes",
-    command: `kubectl create secret generic arcaidia-solver-key --from-file=key=./operator.key
-helm install arcaidia-solver arcaidia/reference-solver \\
-  --set vault=0xYourVault --set rpcUrl=https://...
-
-# kubectl logs prints: solver operator address 0x…`,
+# prints: [solver] signer 0x… — that is the operator address to authorise below`,
   },
 ];
 
@@ -98,10 +91,10 @@ const CHAIN_ENV_PREFIX: Record<number, string> = {
  * just deployed, in the shape `.env.example` and the reference Docker
  * Compose stack (WP-17.3) actually read, not an idealised placeholder.
  *
- * Deliberately omits the solver's own operator key — `LOCAL_AGENT_PRIVATE_KEY`
- * / `LOCAL_SUBMITTER_PRIVATE_KEY` are generated or loaded *inside* the solver
- * container on first start (WP-INTENT-MARKET.md §7); this page never sees or
- * emits them.
+ * Deliberately omits the solver's own operator keys — `LOCAL_AGENT_PRIVATE_KEY`
+ * / `LOCAL_SUBMITTER_PRIVATE_KEY` are the operator's own, set in the solver's
+ * `.env` (see `.env.example`; `packages/agent/src/entrypoint/config.ts` reads
+ * them and never generates them). This page never sees or emits them.
  *
  * Also deliberately omits `SUBGRAPH_URL_{PREFIX}` (WP-22): unset already
  * means "use Arcaidia's own shared, unlimited indexer" — the actual gap
@@ -116,9 +109,9 @@ export function runtimeConfigText(chainId: number, vaultAddress: Address, teleme
 # Set these in the reference solver's .env (see .env.example), or as
 # container env vars for any other deployment target.
 #
-# Never set LOCAL_AGENT_PRIVATE_KEY / LOCAL_SUBMITTER_PRIVATE_KEY here — the
-# solver container generates or loads its own operator key on first start.
-# This page never sees or emits it.
+# LOCAL_AGENT_PRIVATE_KEY / LOCAL_SUBMITTER_PRIVATE_KEY are yours to add in
+# the same .env — the signer produces fill authorisations, the submitter pays
+# gas to broadcast them (see .env.example). This page never sees or emits them.
 
 ${prefix}_LIQUIDITY_VAULT=${vaultAddress}
 
@@ -422,7 +415,7 @@ function EarnPage() {
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {(
                   [
-                    { id: "REFERENCE" as SolverMode, t: "Arcaidia reference solver", d: "Open-source image you run on Docker, a VPS, locally or on Kubernetes." },
+                    { id: "REFERENCE" as SolverMode, t: "Arcaidia reference solver", d: "packages/agent from this repository — Docker Compose, or pnpm from a checkout." },
                     { id: "EXTERNAL" as SolverMode, t: "External solver", d: "Any compatible implementation, however you host it." },
                   ]
                 ).map((o) => (
@@ -463,9 +456,10 @@ function EarnPage() {
                     {(DEPLOY_TARGETS.find((t) => t.id === deployTarget) ?? DEPLOY_TARGETS[0]!).command}
                   </pre>
                   <p className="measure mt-2 text-xs text-text-dim">
-                    On first start the solver creates or loads its own operator wallet and prints the public
-                    address. That key stays with the solver process — Arcaidia and your Privy wallet never
-                    hold it. A supported Circle Agent Wallet address works here too.
+                    On start the solver prints the signer address derived from your own{" "}
+                    <code className="num">LOCAL_AGENT_PRIVATE_KEY</code> — that is the operator address you authorise
+                    below. The key stays with your solver process; Arcaidia and your Privy wallet never hold it.
+                    A Circle Agent Wallet (set the four <code className="num">CIRCLE_*</code> vars instead) works here too.
                   </p>
                 </div>
               ) : (
