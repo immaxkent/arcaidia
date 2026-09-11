@@ -247,7 +247,13 @@ function ConsolePage() {
                 slot={
                   <StateValue
                     state={telemetry}
-                    format={(t) => <TimeValue at={t.lastHeartbeatAt} className="num text-base text-text-dim" />}
+                    format={(t) =>
+                      t.lastHeartbeatAt === null ? (
+                        <span className="num text-base text-text-dim">{NOT_AVAILABLE}</span>
+                      ) : (
+                        <TimeValue at={t.lastHeartbeatAt} className="num text-base text-text-dim" />
+                      )
+                    }
                   />
                 }
               />

@@ -22,8 +22,23 @@ because no Relay existed. This WP replaces those stubs; it does not redesign the
       (`VAULT_ADDRESS, CHAIN_ID, RPC_URL, GRAPH_ENDPOINT, ARCAIDIA_API_BASE_URL,
       ARCAIDIA_TELEMETRY_URL`) for a vault the connected wallet just deployed — never the operator
       key itself, which the container generates locally.
-- [ ] **19.2 Wire `use-solver-telemetry.ts` to the real Relay SSE stream** (WP-18.4) — replace the
-      `TODO(integration)` stub, `SERVICES.solverTelemetryUrl` now genuinely resolves.
+- [x] **19.2 Wire `use-solver-telemetry.ts` to the real Relay SSE stream** (WP-18.4). Opens a
+      browser `EventSource` at `GET {solverTelemetryUrl}/v1/telemetry/vault/{chainId}/{vaultAddress}
+      /stream`; the Relay pushes a full `VaultTelemetryState` snapshot on connect and on every
+      change, so this hook never diffs, it just replaces. Client-side narrows `stage` to the four
+      pre-chain values as a belt on top of the Relay's own WP-18.3 rejection — a stray onchain
+      value on the wire still can never reach the orb as a "stage". Resets to `loading` on a
+      vault/chain change so a switch never shows the *previous* vault's last-known telemetry while
+      the new stream connects; closes the old `EventSource` first. `SolverTelemetry.lastHeartbeatAt`
+      corrected to `number | null` (was non-nullable, inconsistent with `OwnedVault`'s own field of
+      the same name) — `0` must mean "the Relay really said zero", never "never happened"
+      (`data-state.ts`'s own rule). Added a real `online: boolean` field, read directly from the
+      Relay's own heartbeat-timeout sweep (WP-18.2) — `SolverOrb` previously re-derived "fresh"
+      from a hardcoded 45s client-side constant that didn't even match the Relay's own configured
+      timeout; now it just trusts the source of truth instead of guessing a second one. Sets up
+      `apps/web`'s test harness from scratch (`vitest` + `@testing-library/react` + `jsdom` — none
+      existed before this) with a controllable fake `EventSource`, wired into `test:web` /
+      `test:global`.
 - [ ] **19.3 Solver Console state machine**, reading from the right source per stage: `SCANNING →
       INTENT DISCOVERED → VERIFYING SOURCE → FORMULATING FILL → SUBMITTED` from telemetry;
       `FAST FILL CONFIRMED → AWAITING CCTP → SETTLED` from RPC/contract/Graph, overriding telemetry
@@ -32,8 +47,8 @@ because no Relay existed. This WP replaces those stubs; it does not redesign the
       the vault contract (`isAuthorisedSigner`), never inferred from telemetry pairing alone —
       telemetry proves the runtime is alive; the vault contract is the only source of whether it
       may act.
-- [ ] **19.5 Re-link `/earn` and `/console` in `top-bar.tsx`**, removing the comment that currently
-      gates them out pending this phase.
+- [x] **19.5 Re-link `/earn` and `/console` in `top-bar.tsx`**, removing the comment that gated
+      them out pending this phase — both are now backed by real WP-16/WP-18 infrastructure.
 
 ## Tests
 

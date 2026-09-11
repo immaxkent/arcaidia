@@ -13,10 +13,12 @@ import type { SolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
  * come only from RPC / contract / The Graph and always override telemetry.
  *
  * With no heartbeat the orb animates in neutral standby and is labelled
- * SOLVER OFFLINE / AWAITING SOLVER — never SCANNING.
+ * SOLVER OFFLINE / AWAITING SOLVER — never SCANNING. "Fresh" is read directly
+ * from `telemetry.data.online` (the Relay's own heartbeat-timeout sweep,
+ * WP-18.2) rather than re-derived here against a locally guessed timeout —
+ * this component doesn't know, and shouldn't have to guess, how long the
+ * Relay actually waits before flipping a vault offline.
  */
-const HEARTBEAT_TIMEOUT_SECONDS = 45;
-
 export function SolverOrb({
   telemetry,
   runtimeStatus,
@@ -30,8 +32,7 @@ export function SolverOrb({
   onchainStage?: SolverStageId | null;
 }) {
   const beat = telemetry.status === "ready" ? telemetry.data : null;
-  const heartbeatFresh =
-    beat !== null && Date.now() / 1000 - beat.lastHeartbeatAt < HEARTBEAT_TIMEOUT_SECONDS;
+  const heartbeatFresh = beat?.online ?? false;
 
   /** Onchain state wins; telemetry may only supply pre-chain stages. */
   const activeStage: SolverStageId | null =

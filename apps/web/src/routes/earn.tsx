@@ -602,7 +602,7 @@ function EarnPage() {
               Heartbeat{" "}
               <StateValue
                 state={telemetry}
-                format={(t) => <TimeValue at={t.lastHeartbeatAt} />}
+                format={(t) => (t.lastHeartbeatAt === null ? <>{NOT_AVAILABLE}</> : <TimeValue at={t.lastHeartbeatAt} />)}
                 fallback="Telemetry unavailable"
               />
             </p>
