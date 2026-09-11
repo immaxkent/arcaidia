@@ -25,14 +25,22 @@ charges the ceiling.
       owner-configurable, not per-vault) — every `claimIntent` call reverts if `feeAmount` exceeds
       that fraction of `outputAmount + feeAmount`, regardless of what any individual vault's own
       `maxFeeBps` allows.
-- [ ] **16.1 One new line in `fastFill`, before existing logic.**
+- [x] **16.1 One new line in `fastFill`, before existing logic.**
       `market.claimIntent(auth.intentId, auth.outputAmount, auth.feeAmount);` — everything below it
       (allowlist check, replay, caps, transfer) is today's `fastFill`, unchanged. The external
       function signature does not change; nothing that imports its shape (frontend, domain
-      package, solver) needs to change for this WP alone.
-- [ ] **16.2 Migrate `intentFilled[intentId]`'s authority to the market.** The vault's own local
-      mapping becomes a cache reconciled against `market.filledBy(intentId) != address(0)`, not the
-      source of truth — a genuine implementation change, still not an ABI change.
+      package, solver) needs to change for this WP alone. Also required: a new
+      `market` address + `setMarket()` (mirrors `setSettlementReceiver`'s existing pattern) — a
+      vault with no market configured refuses every fill outright (`NoMarketConfigured`) rather
+      than silently behaving as if it had already won uncontested.
+- [x] **16.2 `intentFilled[intentId]` stays as-is — decided, not a gap.** Considered migrating it
+      to a cache reconciled against `market.filledBy`, per the original plan. Concluded this is
+      unnecessary: the market's own claim already runs first and is the actual authority (a second
+      vault, or the same vault replaying, now gets `IntentAlreadyClaimed` from the market before
+      ever reaching this mapping); the vault's own `intentFilled` continues to serve its real,
+      vault-local purpose (`isFilled`/`advancedPrincipal` accounting) exactly as before, now simply
+      redundant-but-harmless as a second replay guard — the same "two independent checks" pattern
+      already established here for `ISettlementCheck`. No code change beyond 16.1 needed.
 - [ ] **16.3 `SettlementReceiver.settle()` reads `market.filledBy(intentId)`** instead of one
       hardcoded `IFillRegistry vault` reference, so it can reimburse whichever vault actually won,
       not a single fixed one.

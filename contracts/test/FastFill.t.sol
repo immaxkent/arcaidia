@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {FastFillFixture} from "./base/FastFillFixture.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
+import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
 
 /// @notice The fill path: the only function that moves LP capital out of the vault.
@@ -127,6 +128,9 @@ contract FastFillTest is FastFillFixture {
     // Replay
     // -----------------------------------------------------------------------
 
+    /// The market claims first, before the vault's own `_recordFastFill` runs — so a replay is
+    /// now caught one layer earlier, by `ArcaidiaIntentMarket`, not the vault's own
+    /// `intentFilled` mapping. Same outcome (no second payout), different, earlier gate.
     function test_rejectsAReplayedIntent() public {
         FillAuthorization memory auth = _authorization(11, 10_000e6, 50e6);
         _fill(auth);
@@ -135,7 +139,10 @@ contract FastFillTest is FastFillFixture {
         second.intentId = auth.intentId;
 
         _fillExpectingRevert(
-            second, abi.encodeWithSelector(ArcaidiaLiquidityVault.IntentAlreadyFilled.selector, auth.intentId)
+            second,
+            abi.encodeWithSelector(
+                ArcaidiaIntentMarket.IntentAlreadyClaimed.selector, auth.intentId, address(vault)
+            )
         );
     }
 

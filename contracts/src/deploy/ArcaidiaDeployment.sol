@@ -5,6 +5,8 @@ import {ArcaidiaDeployer} from "./ArcaidiaDeployer.sol";
 import {ArcaidiaIntentRouter} from "../ArcaidiaIntentRouter.sol";
 import {ArcaidiaLiquidityVault} from "../ArcaidiaLiquidityVault.sol";
 import {SettlementReceiver} from "../SettlementReceiver.sol";
+import {ArcaidiaIntentMarket} from "../ArcaidiaIntentMarket.sol";
+import {ISettlementCheck} from "../interfaces/ISettlementCheck.sol";
 
 /// @title ArcaidiaDeployment
 /// @notice The deployment itself, as a testable library rather than script-only
@@ -217,7 +219,8 @@ library ArcaidiaDeployment {
             )
         );
 
-        ArcaidiaIntentRouter(router).setDestination(config.destinationChainId, config.destinationSettlementReceiver);
+        ArcaidiaIntentRouter(router)
+            .setDestination(config.destinationChainId, config.destinationSettlementReceiver);
         ArcaidiaIntentRouter(router).transferOwnership(config.owner);
     }
 
@@ -230,9 +233,19 @@ library ArcaidiaDeployment {
     bytes32 internal constant VAULT_V2_SALT = keccak256("arcaidia.v1.liquidity-vault.v2");
     bytes32 internal constant RECEIVER_V2_SALT = keccak256("arcaidia.v1.settlement-receiver.v2");
 
+    /// @dev WP-16 (intent market): `ArcaidiaIntentMarket`'s constructor takes the settlement
+    ///      receiver's address as an argument, which would ordinarily be exactly the
+    ///      chain-specific-constructor-argument trap `ArcaidiaDeployer.deploy`'s own doc warns
+    ///      about. It is safe here specifically because `deployment.settlementReceiver` above is
+    ///      itself CREATE2'd from this same deployer with the same salt and no constructor
+    ///      arguments of its own — identical on every chain by construction — so the value being
+    ///      baked into the market's init code is identical everywhere too.
+    bytes32 internal constant MARKET_V2_SALT = keccak256("arcaidia.v1.intent-market.v2");
+
     struct VaultV2Deployment {
         address vault;
         address settlementReceiver;
+        address market;
     }
 
     /// @dev Same stack-depth reasoning as `RouterConfig`.
@@ -258,10 +271,22 @@ library ArcaidiaDeployment {
         view
         returns (VaultV2Deployment memory)
     {
+        address predictedReceiver =
+            deployer.predictAddress(RECEIVER_V2_SALT, keccak256(type(SettlementReceiver).creationCode));
+
         return VaultV2Deployment({
-            vault: deployer.predictAddress(VAULT_V2_SALT, keccak256(type(ArcaidiaLiquidityVault).creationCode)),
-            settlementReceiver: deployer.predictAddress(
-                RECEIVER_V2_SALT, keccak256(type(SettlementReceiver).creationCode)
+            vault: deployer.predictAddress(
+                VAULT_V2_SALT, keccak256(type(ArcaidiaLiquidityVault).creationCode)
+            ),
+            settlementReceiver: predictedReceiver,
+            market: deployer.predictAddress(
+                MARKET_V2_SALT,
+                keccak256(
+                    abi.encodePacked(
+                        type(ArcaidiaIntentMarket).creationCode,
+                        abi.encode(ISettlementCheck(predictedReceiver))
+                    )
+                )
             )
         });
     }
@@ -287,7 +312,9 @@ library ArcaidiaDeployment {
         deployment.vault = deployer.deploy(
             VAULT_V2_SALT,
             type(ArcaidiaLiquidityVault).creationCode,
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (self, config.settlementAsset, config.reserveFloorBps))
+            abi.encodeCall(
+                ArcaidiaLiquidityVault.initialize, (self, config.settlementAsset, config.reserveFloorBps)
+            )
         );
 
         deployment.settlementReceiver = deployer.deploy(
@@ -296,7 +323,17 @@ library ArcaidiaDeployment {
             abi.encodeCall(SettlementReceiver.initialize, (self, config.settlementAsset, deployment.vault))
         );
 
+        deployment.market = deployer.deploy(
+            MARKET_V2_SALT,
+            abi.encodePacked(
+                type(ArcaidiaIntentMarket).creationCode,
+                abi.encode(ISettlementCheck(deployment.settlementReceiver))
+            ),
+            ""
+        );
+
         ArcaidiaLiquidityVault(deployment.vault).setSettlementReceiver(deployment.settlementReceiver);
+        ArcaidiaLiquidityVault(deployment.vault).setMarket(deployment.market);
 
         if (config.treasury != address(0)) {
             ArcaidiaLiquidityVault(deployment.vault).setTreasury(config.treasury);

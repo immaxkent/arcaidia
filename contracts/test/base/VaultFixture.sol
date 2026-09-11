@@ -4,6 +4,17 @@ pragma solidity 0.8.28;
 import {ChainFixture} from "./ChainFixture.sol";
 import {MockUSDC} from "../../src/mocks/MockUSDC.sol";
 import {VaultHarness} from "../harness/VaultHarness.sol";
+import {ArcaidiaIntentMarket} from "../../src/ArcaidiaIntentMarket.sol";
+import {ISettlementCheck} from "../../src/interfaces/ISettlementCheck.sol";
+
+/// @notice Never reports anything settled. Most vault suites don't exercise the
+///         settlement-check interaction at all; they need a market to fill through,
+///         not a real `SettlementReceiver`.
+contract NeverSettledCheck is ISettlementCheck {
+    function isSettled(bytes32) external pure returns (bool) {
+        return false;
+    }
+}
 
 /// @notice Shared setup for vault suites.
 /// @dev The vault runs on the *destination* chain of the direction under test,
@@ -12,6 +23,7 @@ import {VaultHarness} from "../harness/VaultHarness.sol";
 abstract contract VaultFixture is ChainFixture {
     MockUSDC internal asset;
     VaultHarness internal vault;
+    ArcaidiaIntentMarket internal market;
 
     address internal vaultOwner = makeAddr("vaultOwner");
     address internal lpAlice = makeAddr("lpAlice");
@@ -28,6 +40,10 @@ abstract contract VaultFixture is ChainFixture {
         asset = new MockUSDC();
         vault = new VaultHarness();
         vault.initialize(vaultOwner, address(asset), RESERVE_FLOOR_BPS);
+
+        market = new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())));
+        vm.prank(vaultOwner);
+        vault.setMarket(address(market));
 
         asset.mint(lpAlice, 1_000_000e6);
         asset.mint(lpBob, 1_000_000e6);

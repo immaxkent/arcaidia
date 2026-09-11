@@ -2,7 +2,10 @@
 pragma solidity 0.8.28;
 
 import {FastFillFixture} from "./base/FastFillFixture.sol";
+import {NeverSettledCheck} from "./base/VaultFixture.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
+import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
+import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
 import {VaultHarness} from "./harness/VaultHarness.sol";
 import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
 
@@ -48,7 +51,10 @@ contract FastFillSettlementCheckTest is FastFillFixture {
         settled = true;
 
         _fillExpectingRevert(
-            auth, abi.encodeWithSelector(ArcaidiaLiquidityVault.IntentAlreadySettledCanonically.selector, auth.intentId)
+            auth,
+            abi.encodeWithSelector(
+                ArcaidiaLiquidityVault.IntentAlreadySettledCanonically.selector, auth.intentId
+            )
         );
 
         assertEq(asset.balanceOf(recipient), 0, "no LP capital should move once canonically settled");
@@ -65,7 +71,10 @@ contract FastFillSettlementCheckTest is FastFillFixture {
         settled = true;
         FillAuthorization memory later = _authorization(4, 5_000e6, 25e6);
         _fillExpectingRevert(
-            later, abi.encodeWithSelector(ArcaidiaLiquidityVault.IntentAlreadySettledCanonically.selector, later.intentId)
+            later,
+            abi.encodeWithSelector(
+                ArcaidiaLiquidityVault.IntentAlreadySettledCanonically.selector, later.intentId
+            )
         );
     }
 
@@ -76,10 +85,13 @@ contract FastFillSettlementCheckTest is FastFillFixture {
     function test_unsetSettlementReceiverDoesNotBlockFills() public {
         VaultHarness fresh = new VaultHarness();
         fresh.initialize(vaultOwner, address(asset), RESERVE_FLOOR_BPS);
+        ArcaidiaIntentMarket freshMarket =
+            new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())));
 
         vm.startPrank(vaultOwner);
         fresh.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
         fresh.setAuthorisedSigner(agent, true);
+        fresh.setMarket(address(freshMarket));
         vm.stopPrank();
 
         asset.mint(lpAlice, 100_000e6);

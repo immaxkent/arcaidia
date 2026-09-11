@@ -111,7 +111,9 @@ contract CircleCCTPInitiator is ISettlementInitiator {
         address destinationReceiver,
         bytes32 intentId
     ) external returns (bytes32 settlementRef) {
-        if (!domainConfigured[destinationChainId]) revert UnsupportedDestination(destinationChainId);
+        if (!domainConfigured[destinationChainId]) {
+            revert UnsupportedDestination(destinationChainId);
+        }
         if (asset != address(settlementAsset)) revert AssetMismatch(address(settlementAsset), asset);
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);

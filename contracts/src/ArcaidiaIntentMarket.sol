@@ -38,7 +38,16 @@ contract ArcaidiaIntentMarket {
     /// @notice The hard ceiling every claim must respect, in bps of `outputAmount + feeAmount`.
     ///         Not owner-configurable, not per-vault — the one number every user can rely on
     ///         regardless of which vault wins.
-    uint16 public constant MAX_FEE_BPS = 50; // 0.50%
+    /// @dev **Found while wiring this into the vault (WP-16), not the illustrative 0.50% first
+    ///      discussed:** `ArcaidiaLiquidityVault.DEFAULT_MAX_FEE_BPS` — the House Vault's own
+    ///      production default — is 1.5%. A universal ceiling *below* a vault's own already-live
+    ///      default would silently change V1's single-vault observable behaviour the moment this
+    ///      market is wired in, which is exactly what this WP's acceptance gate forbids. Set to
+    ///      match that existing default exactly, so it binds only third-party vaults configured
+    ///      more generously than the House Vault already is — still real protection (nothing
+    ///      currently stops a third-party owner setting theirs far higher), just not as tight as
+    ///      first proposed. Revisit alongside `DEFAULT_MAX_FEE_BPS` if that default ever changes.
+    uint16 public constant MAX_FEE_BPS = 150; // 1.50% — matches ArcaidiaLiquidityVault's own default
 
     uint16 internal constant BPS_DENOMINATOR = 10_000;
 
