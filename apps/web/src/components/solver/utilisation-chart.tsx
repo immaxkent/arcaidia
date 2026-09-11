@@ -1,8 +1,9 @@
 /**
- * Ecosystem-wide utilisation over time — one line per vault, plus one bold
- * aggregated line, next to the Solver Orb on `/console`.
+ * Ecosystem-wide utilisation over time, top of `/liquidity` — one line per
+ * vault across every supported chain, plus one bold aggregated line summing
+ * the whole protocol's USDC balance/exposure before taking a single ratio.
  *
- * Every point is real: reconstructed from this chain's own vault event
+ * Every point is real: reconstructed from each vault's own chain's event
  * history (see `use-ecosystem-utilisation.ts` / `use-vaults.ts`'s
  * `fetchVaultAnalyticsData`), never a fabricated or interpolated shape. A
  * vault with no fill history yet contributes no line at all, rather than a
@@ -71,9 +72,9 @@ function mergeForChart(data: EcosystemUtilisation): MergedRow[] {
 
     for (const vault of data.perVault) {
       const point = vault.points.find((p) => p.at === at);
-      if (point) lastByVault.set(vault.vaultAddress, point.bps);
-      const known = lastByVault.get(vault.vaultAddress);
-      if (known !== undefined) row[vault.vaultAddress] = known;
+      if (point) lastByVault.set(vault.key, point.bps);
+      const known = lastByVault.get(vault.key);
+      if (known !== undefined) row[vault.key] = known;
     }
     return row;
   });
@@ -126,9 +127,9 @@ export function UtilisationChart({ state }: { state: DataState<EcosystemUtilisat
                   />
                   {data.perVault.map((vault, index) => (
                     <Line
-                      key={vault.vaultAddress}
+                      key={vault.key}
                       type="stepAfter"
-                      dataKey={vault.vaultAddress}
+                      dataKey={vault.key}
                       name={vault.label}
                       stroke={VAULT_LINE_COLORS[index % VAULT_LINE_COLORS.length]}
                       strokeWidth={1.5}

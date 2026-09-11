@@ -16,7 +16,7 @@ import {
   StateSection,
   StateValue,
 } from "@/components/data/state-views";
-import { NOT_AVAILABLE } from "@/lib/arcaidia/data-state";
+import { NOT_AVAILABLE, errorState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import {
   useAggregateVaultState,
   useVaults,
@@ -27,6 +27,28 @@ import { useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
 import { useMarketIntelligence } from "@/hooks/arcaidia/use-market-intelligence";
 import { useEcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
 import { UtilisationChart } from "@/components/solver/utilisation-chart";
+
+/**
+ * Every vault on every supported chain, merged into one list — deliberately
+ * two explicit `useVaults` calls, not a `.map()` over the supported chains,
+ * so the hook count stays fixed across renders (Rules of Hooks). Feeds the
+ * ecosystem utilisation chart, which is meant to read as "the whole
+ * protocol", not whichever chain's directory tab happens to be selected
+ * below it.
+ */
+function useAllChainsVaultDirectory(): DataState<VaultDirectoryRow[]> {
+  const sepolia = useVaults(ETHEREUM_SEPOLIA);
+  const arc = useVaults(ARC_TESTNET);
+  const perChain = [sepolia, arc];
+
+  if (perChain.some((s) => s.status === "loading")) return { status: "loading" };
+  const errored = perChain.find((s) => s.status === "error");
+  if (errored && errored.status === "error") return errorState(errored.error);
+
+  const rows = perChain.flatMap((s) => (s.status === "ready" ? s.data : []));
+  if (rows.length === 0) return unavailableState("No vaults deployed on any chain yet");
+  return readyState(rows);
+}
 
 export const Route = createFileRoute("/liquidity")({
   head: () => ({
@@ -68,7 +90,8 @@ function LiquidityPage() {
   const directory = useVaults(chainId);
   const market = useMarketIntelligence(chainId);
   const aggregate = useAggregateVaultState(directory);
-  const ecosystemUtilisation = useEcosystemUtilisation(chainId, directory);
+  const allChainsDirectory = useAllChainsVaultDirectory();
+  const ecosystemUtilisation = useEcosystemUtilisation(allChainsDirectory);
   const vault =
     directory.status === "ready"
       ? (directory.data.find((v) => v.vaultAddress === selected) ?? null)
@@ -81,7 +104,7 @@ function LiquidityPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
-      <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_680px]">
         <div>
           <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">
             Liquidity market

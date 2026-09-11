@@ -1,7 +1,14 @@
 /**
- * Utilisation over time, across every vault in a chain's directory — one
- * line per vault, plus one aggregated line, for the Solver Console's
- * ecosystem-wide chart.
+ * Utilisation over time, across every vault the app knows about — one line
+ * per vault, plus one aggregated line, for `/liquidity`'s ecosystem-wide
+ * chart. Genuinely cross-chain: each vault carries its own `chainId`
+ * (`VaultDirectoryRow.chainId`), so a caller can pass in a single chain's
+ * directory or every chain's merged together and this fetches and sums each
+ * vault against the chain it actually lives on either way. Combining
+ * balances/exposures across chains is meaningful here specifically because
+ * every vault in this app, on every supported chain, holds the same asset —
+ * USDC — so a protocol-wide USDC utilisation ratio is a real number, not an
+ * apples-to-oranges blend.
  *
  * Deliberately its own hook, not `vaults.map(v => useVaultAnalytics(...))`:
  * the vault list's length changes as the market gains participants, and
@@ -12,7 +19,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchVaultAnalyticsData, type VaultDirectoryRow } from "./use-vaults";
 import { readyState, unavailableState, errorState, type DataState } from "@/lib/arcaidia/data-state";
-import type { Address } from "@/lib/arcaidia/types";
+import { CHAINS, type Address } from "@/lib/arcaidia/types";
 
 export interface UtilisationPoint {
   readonly at: number;
@@ -20,6 +27,15 @@ export interface UtilisationPoint {
 }
 
 export interface VaultUtilisationLine {
+  /**
+   * `${chainId}:${vaultAddress}`, not the address alone — Arcaidia deploys
+   * through CREATE2 with identical salts, so the House Vault has the exact
+   * same address on every chain (the recurring source of duplicate-key bugs
+   * elsewhere in this app). A chart merging vaults across chains needs a key
+   * that stays unique even when the address doesn't.
+   */
+  readonly key: string;
+  readonly chainId: number;
   readonly vaultAddress: Address;
   readonly label: string;
   readonly points: readonly UtilisationPoint[];
@@ -45,22 +61,24 @@ function stateAsOf<T extends { at: number }>(series: readonly T[], at: number): 
   return found;
 }
 
-async function fetchEcosystemUtilisation(
-  chainId: number,
-  vaults: readonly VaultDirectoryRow[],
-): Promise<EcosystemUtilisation> {
+async function fetchEcosystemUtilisation(vaults: readonly VaultDirectoryRow[]): Promise<EcosystemUtilisation> {
   const perVaultData = await Promise.all(
     vaults.map(async (vault) => {
-      const analytics = await fetchVaultAnalyticsData(chainId, vault.vaultAddress);
+      const analytics = await fetchVaultAnalyticsData(vault.chainId, vault.vaultAddress);
+      const shortLabel = `${vault.vaultAddress.slice(0, 6)}…${vault.vaultAddress.slice(-4)}`;
       return {
+        key: `${vault.chainId}:${vault.vaultAddress}`,
+        chainId: vault.chainId,
         vaultAddress: vault.vaultAddress,
-        label: vault.operatorLabel ?? `${vault.vaultAddress.slice(0, 6)}…${vault.vaultAddress.slice(-4)}`,
+        label: `${vault.operatorLabel ?? shortLabel} · ${CHAINS[vault.chainId]?.short ?? vault.chainId}`,
         stateSeries: analytics.stateSeries,
       };
     }),
   );
 
   const perVault: VaultUtilisationLine[] = perVaultData.map((v) => ({
+    key: v.key,
+    chainId: v.chainId,
     vaultAddress: v.vaultAddress,
     label: v.label,
     points: v.stateSeries.map((p) => ({ at: p.at, bps: bpsOf(p.balance, p.exposure) })),
@@ -96,15 +114,14 @@ async function fetchEcosystemUtilisation(
 const POLL_INTERVAL_MS = 30_000;
 
 export function useEcosystemUtilisation(
-  chainId: number,
   vaults: DataState<readonly VaultDirectoryRow[]>,
 ): DataState<EcosystemUtilisation> {
   const vaultList = vaults.status === "ready" ? vaults.data : [];
   const enabled = vaults.status === "ready" && vaultList.length > 0;
 
   const query = useQuery({
-    queryKey: ["ecosystem-utilisation", chainId, vaultList.map((v) => v.vaultAddress)],
-    queryFn: () => fetchEcosystemUtilisation(chainId, vaultList),
+    queryKey: ["ecosystem-utilisation", vaultList.map((v) => `${v.chainId}:${v.vaultAddress}`)],
+    queryFn: () => fetchEcosystemUtilisation(vaultList),
     enabled,
     refetchInterval: POLL_INTERVAL_MS,
   });
