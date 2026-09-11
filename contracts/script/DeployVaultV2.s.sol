@@ -71,6 +71,7 @@ contract DeployVaultV2Script is Script {
         console.log("chain id                     ", block.chainid);
         console.log("predicted vault              ", predicted.vault);
         console.log("predicted settlement receiver", predicted.settlementReceiver);
+        console.log("predicted intent market      ", predicted.market);
         console.log("solver signer to authorise   ", solverSigner);
         console.log("settlement reporter to grant ", settlementReporter);
 
@@ -101,10 +102,12 @@ contract DeployVaultV2Script is Script {
             deployment.settlementReceiver == predicted.settlementReceiver,
             "settlement receiver address mismatch"
         );
+        require(deployment.market == predicted.market, "intent market address mismatch");
 
         console.log("--- deployed ---");
         console.log("ArcaidiaLiquidityVault (v2)  ", deployment.vault);
         console.log("SettlementReceiver (v2)      ", deployment.settlementReceiver);
+        console.log("ArcaidiaIntentMarket (v2)    ", deployment.market);
         console.log("router repointed to          ", deployment.settlementReceiver);
         console.log("owner                        ", owner);
     }
