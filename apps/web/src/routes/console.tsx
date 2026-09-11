@@ -10,10 +10,12 @@ import { formatBps, formatDuration, formatUsdc, truncateAddress } from "@/lib/ar
 import { CHAIN_CONFIG, SUPPORTED_CHAIN_IDS, explorerTxUrl } from "@/lib/arcaidia/config";
 import { NOT_AVAILABLE, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateSection, StateValue } from "@/components/data/state-views";
+import { useIntentOutcome } from "@/hooks/arcaidia/use-intent-outcome";
 import { useOwnedVaults, type OwnedVaultRow } from "@/hooks/arcaidia/use-owned-vaults";
 import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
 import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
 import { useVaultActivity, useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
+import { deriveOnchainStage } from "@/lib/arcaidia/solver-stage";
 
 export const Route = createFileRoute("/console")({
   head: () => ({
@@ -85,10 +87,25 @@ function ConsolePage() {
   const [tab, setTab] = useState<Tab>("FILLS");
 
   const vault = rows[Math.min(selected, Math.max(0, rows.length - 1))] ?? null;
-  const metrics = useSolverMetrics(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
+  // Telemetry first: its reported operator/online state feeds useSolverMetrics
+  // below (WP-19.4's own rule — telemetry only ever supplies a *candidate*
+  // operator to check onchain, never the authorisation fact itself).
   const telemetry = useSolverTelemetry(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
+  const metrics = useSolverMetrics(vault?.chainId ?? 0, vault?.vaultAddress ?? null, {
+    candidateOperator: telemetry.status === "ready" ? telemetry.data.operatorAddress : null,
+    telemetryOnline: telemetry.status === "ready" ? telemetry.data.online : null,
+  });
   const fills = useVaultFills(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
   const activity = useVaultActivity(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
+
+  // WP-19.3 — the onchain half of the orb's state machine: whatever intent
+  // telemetry is currently reporting on, checked directly against the
+  // indexer's own fills/settlements for a real, confirmed outcome. Always
+  // wins over telemetry's own stage the instant it exists (see
+  // deriveOnchainStage and SolverOrb's own merge).
+  const activeIntentId = telemetry.status === "ready" ? telemetry.data.intentId : null;
+  const intentOutcome = useIntentOutcome(vault?.chainId ?? 0, activeIntentId);
+  const onchainStage = deriveOnchainStage(vault?.vaultAddress ?? null, intentOutcome);
 
   const authState: SolverAuthState | null =
     (metrics.status === "ready" ? metrics.data.authState : null) ?? vault?.solverAuthState ?? null;
@@ -286,7 +303,12 @@ function ConsolePage() {
           </section>
 
           <section className="panel mt-6 p-5">
-            <SolverOrb telemetry={telemetry} runtimeStatus={runtimeStatus} authState={authState} />
+            <SolverOrb
+              telemetry={telemetry}
+              runtimeStatus={runtimeStatus}
+              authState={authState}
+              onchainStage={onchainStage}
+            />
           </section>
 
           {connected ? (

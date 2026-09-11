@@ -170,8 +170,24 @@ function EarnPage() {
   const deployed = vaultAddress !== null;
   const factoryReady = chainConfig(chainId)?.vaultFactory !== null;
 
-  const metrics = useSolverMetrics(chainId, vaultAddress);
+  const operatorValid = isAddressLike(solverOperator.trim());
+
+  // Telemetry first: its reported operator/online state feeds useSolverMetrics
+  // below (WP-19.4's own rule — telemetry only ever supplies a *candidate*
+  // operator to check onchain, never the authorisation fact itself). The
+  // owner's own typed address takes priority once it's a well-formed
+  // address — it's what they're about to authorise, telemetry pairing (if
+  // any) is what the runtime has already reported on its own.
   const telemetry = useSolverTelemetry(chainId, vaultAddress);
+  const candidateOperator = operatorValid
+    ? (solverOperator.trim() as Address)
+    : telemetry.status === "ready"
+      ? telemetry.data.operatorAddress
+      : null;
+  const metrics = useSolverMetrics(chainId, vaultAddress, {
+    candidateOperator,
+    telemetryOnline: telemetry.status === "ready" ? telemetry.data.online : null,
+  });
   const fills = useVaultFills(chainId, vaultAddress);
 
   const authorised = metrics.status === "ready" && metrics.data.authState === "AUTHORISED";
@@ -180,7 +196,6 @@ function EarnPage() {
   const funded = parseUsdc(funding) ?? 0n;
   const reserveFloor = funded / 10n;
   const usable = funded - reserveFloor;
-  const operatorValid = isAddressLike(solverOperator.trim());
 
 
   return (

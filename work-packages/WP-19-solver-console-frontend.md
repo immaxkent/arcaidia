@@ -46,29 +46,58 @@ because no Relay existed. This WP replaces those stubs; it does not redesign the
       `apps/web`'s test harness from scratch (`vitest` + `@testing-library/react` + `jsdom` — none
       existed before this) with a controllable fake `EventSource`, wired into `test:web` /
       `test:global`.
-- [ ] **19.3 Solver Console state machine**, reading from the right source per stage: `SCANNING →
-      INTENT DISCOVERED → VERIFYING SOURCE → FORMULATING FILL → SUBMITTED` from telemetry;
-      `FAST FILL CONFIRMED → AWAITING CCTP → SETTLED` from RPC/contract/Graph, overriding telemetry
-      the moment onchain state exists; `LOST RACE → SCANNING` when another vault's `filledBy` wins.
-- [ ] **19.4 `SOLVER DETECTED → SOLVER AUTHORISED` transition.** Reads authorisation directly from
-      the vault contract (`isAuthorisedSigner`), never inferred from telemetry pairing alone —
-      telemetry proves the runtime is alive; the vault contract is the only source of whether it
-      may act.
+- [x] **19.3 Solver Console state machine.** New `useIntentOutcome(chainId, intentId)`
+      (`apps/web/src/hooks/arcaidia/use-intent-outcome.ts`) queries the Nest's `fills`/
+      `settlements` directly for whatever `intentId` telemetry is currently reporting on — the
+      real onchain fact telemetry itself cannot know (it only knows what *this* vault submitted,
+      never whether it actually landed, or whether a different vault's fill won first).
+      `deriveOnchainStage()` (`apps/web/src/lib/arcaidia/solver-stage.ts`) is the pure merge: no
+      fill yet → telemetry's own stage stands (`SolverOrb`'s existing `onchainStage ?? telemetry`
+      logic, unchanged); a fill exists for a *different* vault → `LOST_RACE`; this vault's own fill
+      exists, unsettled → `AWAITING_CANONICAL_SETTLEMENT`; also settled → `SETTLED`. Deliberately
+      does not attempt `AWAITING_CONFIRMATION` (submitted-but-not-yet-mined) — an indexer only ever
+      reports confirmed state, so that stage would need a real tx-hash-to-receipt RPC watch, a
+      genuinely different capability; telemetry's own `SUBMITTING_SETTLEMENT` already covers that
+      window honestly, and this hook only ever asserts what the chain has actually confirmed.
+- [x] **19.4 `SOLVER DETECTED → SOLVER AUTHORISED` transition.** `use-solver-metrics.ts`, no longer
+      a stub, reads `isAuthorisedSigner(candidateOperator)` directly from the vault contract for
+      whatever operator address is actually in play — the owner's own typed address on `/earn`, or
+      telemetry's reported pairing on `/console` — never inferring the *authorisation fact itself*
+      from telemetry, only borrowing telemetry for *which address to ask the contract about*.
+      `runtimeStatus` follows the same rule one layer up: the contract's own `paused` always wins;
+      otherwise it's telemetry's own `online` (WP-18.2's real heartbeat-timeout sweep), never a
+      second, locally-guessed timeout. **Known, stated limitation:** the contract read only
+      distinguishes `AUTHORISED`/`UNAUTHORISED` — `PENDING_SIGNATURE`/`REVOKED` would need indexed
+      `AuthorisedSignerSet` history, which doesn't exist yet; not fabricated as a middle state.
+      `averageSettlementSeconds` stays `null` for the same reason `totalVolume`/`totalFees` don't:
+      no cheap indexer aggregate exists for a cross-chain (source-intent-creation vs.
+      destination-settlement) latency, and computing it here would mean an expensive full fills
+      scan duplicating what `useVaultFills` already does per-row for its own table.
 - [x] **19.5 Re-link `/earn` and `/console` in `top-bar.tsx`**, removing the comment that gated
       them out pending this phase — both are now backed by real WP-16/WP-18 infrastructure.
 
 ## Tests
 
-- Component/hook tests mirroring the existing `DataState` conventions: loading/ready/empty/
-  unavailable/error all render correctly, no fabricated values on any path.
-- State machine: a telemetry-reported stage is correctly superseded the instant a matching
-  onchain event/receipt exists.
-- Authorisation reads only ever come from the contract, verified by a test that has telemetry
-  claim pairing with no matching onchain grant and asserts the console still shows unauthorised.
+- [x] Component/hook tests mirroring the existing `DataState` conventions
+      (`use-intent-outcome.test.tsx`, `use-solver-metrics.test.tsx`, `solver-stage.test.ts`, 19
+      tests total): loading/ready/empty/unavailable/error all render correctly, no fabricated
+      values on any path.
+- [x] State machine: `deriveOnchainStage` tested against every transition explicitly — not filled,
+      filled-and-settled, filled-by-this-vault-unsettled, and filled-by-a-*different*-vault
+      (`LOST_RACE`) — plus case-insensitive vault comparison.
+- [x] Authorisation: a test asserts `isAuthorisedSigner` is never even called with no candidate
+      operator (authState stays `null`, not a guess), a separate test confirms `false` from the
+      contract reports `UNAUTHORISED` outright rather than staying ambiguous, and `paused`
+      overriding a live telemetry heartbeat is its own explicit test.
 
 ## Acceptance gate
 
 A freshly deployed, freshly funded vault, run through the reference solver container from WP-17,
 shows a correct, live `SCANNING → ... → SETTLED` (or `LOST RACE`) progression on `/console`, and
 `/earn`'s authorisation state matches the vault contract exactly, with no fabricated data anywhere
-in the DataState chain.
+in the DataState chain. **Structurally provable today for the House Vault path** (the one vault
+genuinely live); the *independent*-vault path (`useOwnedVaults`) still returns
+`unavailableState` — that hook needs vault discovery via a factory/registry that does not exist in
+this codebase yet (see WP-21's identical finding: `ArcaidiaIntentMarket` has no vault registry
+either). Closing that gap is WP-20's own job (20.2: "stand up a second, independent vault + solver
+— not a mock"), not this WP's.
