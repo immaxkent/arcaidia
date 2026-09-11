@@ -61,6 +61,9 @@ interface RawIntent {
   deadline: string;
   created_at_timestamp: number;
   created_tx_hash: string;
+  intent_version: number | string;
+  token_out: string;
+  target_min_out: string;
 }
 
 interface RawFill {
@@ -107,7 +110,7 @@ async function fetchIntentRows(
       queryNest<RawIntent>(
         source.subgraphUrl,
         "SELECT id, sender, recipient, input_token, amount, source_chain_id, destination_chain_id, " +
-          `max_fee_bps, deadline, created_at_timestamp, created_tx_hash FROM intents ` +
+          `max_fee_bps, deadline, intent_version, token_out, target_min_out, created_at_timestamp, created_tx_hash FROM intents ` +
           `${whereClause}ORDER BY created_at_timestamp DESC LIMIT 200`,
       ),
     ),
@@ -168,6 +171,9 @@ async function fetchIntentRows(
       sourceChainId: Number(raw.source_chain_id),
       destinationChainId,
       maxFeeBps: raw.max_fee_bps,
+      intentVersion: Number(raw.intent_version),
+      tokenOut: raw.token_out as Address,
+      targetMinOut: BigInt(raw.target_min_out),
       deadline: Number(raw.deadline),
       createdAt,
       sourceTxHash: raw.created_tx_hash as Hex,

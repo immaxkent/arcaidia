@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
 import { SolverOrb } from "@/components/solver/solver-orb";
-import { VaultUtilisationChart } from "@/components/solver/utilisation-chart";
+import { VaultFeeTierChart, VaultUtilisationChart } from "@/components/solver/utilisation-chart";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { CHAINS, type ActivityRow, type SolverAuthState, type SolverRuntimeStatus } from "@/lib/arcaidia/types";
@@ -300,6 +300,10 @@ function ConsolePage() {
               />
             </section>
             <VaultUtilisationChart state={vaultUtilisation} />
+          </div>
+
+          <div className="mt-6">
+            <VaultFeeTierChart state={vaultUtilisation} />
           </div>
 
           {isVaultOwner ? (

@@ -43,6 +43,9 @@ export const intentRouterAbi = ABIS.ArcaidiaIntentRouter;
 /** ArcaidiaLiquidityVault (ERC-4626 + solver-authorisation surface). */
 export const solverVaultAbi = ABIS.ArcaidiaLiquidityVault;
 
+/** ArcaidiaVaultFactory — permissionless standard-vault creation (WP-26, D10). */
+export const vaultFactoryAbi = ABIS.ArcaidiaVaultFactory;
+
 export type VaultCapability = "pause" | "revokeSolver" | "replaceSolver";
 
 /**

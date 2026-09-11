@@ -50,6 +50,9 @@ function stubReadContract(byAddress: Record<string, Partial<Record<string, unkno
       availableLiquidity: 0n,
       outstandingExposure: 0n,
       paused: false,
+      // v2 (WP-26): the vault's live tier and immutable policy, as viem returns them.
+      currentFeeBps: 10,
+      feePolicy: [10, 25, 60, 120, 5_000, 7_500, 9_000],
     };
     const overrides = byAddress[address.toLowerCase()] ?? {};
     return functionName in overrides ? overrides[functionName] : defaults[functionName];
@@ -69,7 +72,7 @@ describe("useVaults — ecosystem-wide directory", () => {
       "fetch",
       vi.fn(async (url: string) => {
         const sql = decodeSql(url);
-        if (sql === "SELECT DISTINCT vault FROM fills") return nestResponse([]);
+        if (sql === "SELECT id, label FROM vaults") return nestResponse([]);
         return nestResponse([{ fill_count: 0 }]);
       }),
     );
@@ -88,9 +91,12 @@ describe("useVaults — ecosystem-wide directory", () => {
       "fetch",
       vi.fn(async (url: string) => {
         const sql = decodeSql(url);
-        if (sql === "SELECT DISTINCT vault FROM fills") {
-          // House Vault appears in fill history too — must not produce a duplicate row.
-          return nestResponse([{ vault: HOUSE_VAULT.toLowerCase() }, { vault: INDEPENDENT_VAULT.toLowerCase() }]);
+        if (sql === "SELECT id, label FROM vaults") {
+          // The House Vault is a factory vault too — must not produce a duplicate row.
+          return nestResponse([
+            { id: HOUSE_VAULT.toLowerCase(), label: "Arcaidia House Vault" },
+            { id: INDEPENDENT_VAULT.toLowerCase(), label: "Midnight Runner" },
+          ]);
         }
         return nestResponse([{ fill_count: 1 }]);
       }),
@@ -106,13 +112,13 @@ describe("useVaults — ecosystem-wide directory", () => {
     expect(byType["INDEPENDENT"]?.vaultAddress.toLowerCase()).toBe(INDEPENDENT_VAULT.toLowerCase());
   });
 
-  it("labels a discovered-but-not-house vault INDEPENDENT, with no fabricated operator label", async () => {
-    stubReadContract({});
+  it("labels a factory vault INDEPENDENT with the label its creator chose, and carries its on-chain price", async () => {
+    stubReadContract({ [INDEPENDENT_VAULT.toLowerCase()]: { currentFeeBps: 60 } });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         const sql = decodeSql(url);
-        if (sql === "SELECT DISTINCT vault FROM fills") return nestResponse([{ vault: INDEPENDENT_VAULT.toLowerCase() }]);
+        if (sql === "SELECT id, label FROM vaults") return nestResponse([{ id: INDEPENDENT_VAULT.toLowerCase(), label: "Midnight Runner" }]);
         return nestResponse([{ fill_count: 1 }]);
       }),
     );
@@ -122,6 +128,32 @@ describe("useVaults — ecosystem-wide directory", () => {
     if (result.current.status !== "ready") throw new Error("expected ready");
 
     const independent = result.current.data.find((row) => row.operatorType === "INDEPENDENT");
-    expect(independent?.operatorLabel).toBeNull();
+    expect(independent?.operatorLabel).toBe("Midnight Runner");
+    expect(independent?.currentFeeBps).toBe(60);
+    expect(independent?.pricingModelId).toBe("tiered-v1");
+    expect(independent?.feePolicy).toEqual({
+      baseFeeBps: 10, midFeeBps: 25, highFeeBps: 60, criticalFeeBps: 120,
+      midThresholdBps: 5_000, highThresholdBps: 7_500, criticalThresholdBps: 9_000,
+    });
+  });
+
+  it("falls back to fill-history discovery when the Nest has no vaults view yet (pre re-seed)", async () => {
+    stubReadContract({});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const sql = decodeSql(url);
+        if (sql === "SELECT id, label FROM vaults") return new Response("no such view", { status: 500 });
+        if (sql === "SELECT DISTINCT vault FROM fills") return nestResponse([{ vault: INDEPENDENT_VAULT.toLowerCase() }]);
+        return nestResponse([{ fill_count: 1 }]);
+      }),
+    );
+
+    const { result } = renderHook(() => useVaults(ARC_TESTNET), { wrapper });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    if (result.current.status !== "ready") throw new Error("expected ready");
+
+    expect(result.current.data.map((r) => r.operatorType).sort()).toEqual(["HOUSE", "INDEPENDENT"]);
+    expect(result.current.data.find((r) => r.operatorType === "INDEPENDENT")?.operatorLabel).toBeNull();
   });
 });

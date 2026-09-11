@@ -10,14 +10,20 @@ export type CanonicalOutcome = "LP_REIMBURSED" | "RECIPIENT_FALLBACK";
 
 export interface Intent {
   intentId: Hex;
+  /** Schema version stamped by the router (v1.1 = 1). */
+  intentVersion: number;
   sender: Address;
   recipient: Address;
   inputToken: Address;
   amount: bigint; // 6 decimals (USDC)
   sourceChainId: number; // 11155111 Ethereum Sepolia | 5042002 Arc testnet
   destinationChainId: number;
+  /** The user's hard ceiling on the fast-fill fee — enforced on chain by the vault. */
   maxFeeBps: number;
   deadline: number;
+  /** address(0) = the destination's USDC; anything else is a trade intent. */
+  tokenOut: Address;
+  targetMinOut: bigint;
   createdAt: number;
   sourceTxHash?: Hex;
 }
@@ -40,6 +46,8 @@ export interface DecisionInputs {
   outstandingExposure: bigint;
   utilisationBps: number;
   userMaxFeeBps: number;
+  /** The vault's posted tier at decision time — the price the solver charges. */
+  vaultFeeBps: number;
   sourceConfirmations: number;
   requiredConfirmations: number;
   observationAgeSeconds: number;

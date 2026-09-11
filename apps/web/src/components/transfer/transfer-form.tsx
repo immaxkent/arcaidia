@@ -9,12 +9,30 @@ import {
   parseUsdc,
   truncateAddress,
 } from "@/lib/arcaidia/format";
-import { PROTOCOL_LIMITS, chainConfig } from "@/lib/arcaidia/config";
+import { PROTOCOL_LIMITS, TRADE_INTENTS_ENABLED, chainConfig } from "@/lib/arcaidia/config";
+import { SWAP_INFRASTRUCTURE, type DestinationMarket } from "@arcaidia/domain";
 import { StateValue } from "@/components/data/state-views";
 import { useIntent, useIntentQuote, type IntentRequest } from "@/hooks/arcaidia/use-intent";
 import { cn } from "@/lib/utils";
+import { parseUnits as viemParseUnits } from "viem";
+
+function parseUnits(value: string, decimals: number): bigint | null {
+  const trimmed = value.trim();
+  if (!/^\d*(\.\d*)?$/.test(trimmed) || trimmed === "" || trimmed === ".") return null;
+  try {
+    return viemParseUnits(trimmed, decimals);
+  } catch {
+    return null;
+  }
+}
 
 const FEE_OPTIONS = [10, 30, 50, 100];
+
+/** The destination markets Line 1 has committed for a chain — none until WP-34. */
+function marketsFor(chainId: number): readonly DestinationMarket[] {
+  const key = chainId === ETHEREUM_SEPOLIA ? "ethereum-sepolia" : "arc-testnet";
+  return SWAP_INFRASTRUCTURE[key]?.markets ?? [];
+}
 const DEADLINES = [
   { label: "30 minutes", value: 1800 },
   { label: "1 hour", value: 3600 },
@@ -53,6 +71,9 @@ export function TransferForm({
   const [maxFeeBps, setMaxFeeBps] = useState(PROTOCOL_LIMITS.defaultMaxFeeBps ?? 30);
   const [deadline, setDeadline] = useState(3600);
   const [advanced, setAdvanced] = useState(false);
+  /** Trade intent: what the recipient wants on the destination (null = USDC) and their floor. */
+  const [tokenOut, setTokenOut] = useState<Address | null>(null);
+  const [targetMinOutInput, setTargetMinOutInput] = useState("");
 
   const destination = source === ETHEREUM_SEPOLIA ? ARC_TESTNET : ETHEREUM_SEPOLIA;
   const balanceState = useWalletBalance(source);
@@ -61,9 +82,13 @@ export function TransferForm({
   const recipient = (recipientInput || address || "") as Address;
   const recipientValid = isAddressLike(recipient);
   const routerConfigured = chainConfig(source)?.intentRouter !== null;
+  const markets = TRADE_INTENTS_ENABLED ? marketsFor(destination) : [];
+  const market = markets.find((m) => m.tokenOut.address.toLowerCase() === tokenOut?.toLowerCase()) ?? null;
+  const targetMinOut = market ? parseUnits(targetMinOutInput, market.tokenOut.decimals) : null;
+  const tradeTermsValid = market === null || (targetMinOut !== null && targetMinOut > 0n);
 
   const request = useMemo<IntentRequest | null>(() => {
-    if (!amount || amount === 0n || !recipientValid) return null;
+    if (!amount || amount === 0n || !recipientValid || !tradeTermsValid) return null;
     return {
       sourceChainId: source,
       destinationChainId: destination,
@@ -71,8 +96,9 @@ export function TransferForm({
       recipient,
       maxFeeBps,
       deadlineSeconds: deadline,
+      ...(market && targetMinOut ? { tokenOut: market.tokenOut.address as Address, targetMinOut } : {}),
     };
-  }, [amount, recipientValid, source, destination, recipient, maxFeeBps, deadline]);
+  }, [amount, recipientValid, tradeTermsValid, source, destination, recipient, maxFeeBps, deadline, market, targetMinOut]);
 
   const quote = useIntentQuote(request);
   const { submitting, submitError, createIntent } = useIntent();
@@ -103,7 +129,11 @@ export function TransferForm({
 
   const disabled =
     status === "CONNECTED" &&
-    (!amount || !!amountError || !recipientValid || submitting || !routerConfigured);
+    (!amount || !!amountError || !recipientValid || !tradeTermsValid || submitting || !routerConfigured);
+
+  /** The destination vault's posted tier, as the live quote reported it — real or absent. */
+  const vaultFeeBps = quote.status === "ready" ? quote.data.inputsUsed.vaultFeeBps : null;
+  const ceilingBelowVaultPrice = vaultFeeBps !== null && maxFeeBps < vaultFeeBps;
 
   function handlePrimary() {
     if (status !== "CONNECTED") return connect();
@@ -205,10 +235,10 @@ export function TransferForm({
         )}
       </div>
 
-      {/* Max fee */}
+      {/* Max fast-fill fee — the user's own ceiling, submitted verbatim on chain (D6). */}
       <div className="mt-4">
         <div className="flex items-baseline justify-between">
-          <span className="text-sm text-text">Most you&apos;ll pay</span>
+          <span className="text-sm text-text">Maximum fast-fill fee</span>
           <span className="num text-sm text-text-dim" title={`${maxFeeBps} bps`}>
             {formatBps(maxFeeBps)}
             {amount ? ` · up to ${formatUsdc(maxPayable)} USDC` : ""}
@@ -232,7 +262,66 @@ export function TransferForm({
             </button>
           ))}
         </div>
+        <p className="mt-2 text-xs text-text-dim">
+          A hard cap the destination vault enforces on chain. A solver whose current price is above it
+          simply won&apos;t fill — you still receive USDC through canonical CCTP settlement, just slower.
+        </p>
+        {vaultFeeBps !== null ? (
+          <p
+            className={cn("num mt-1 text-xs", ceilingBelowVaultPrice ? "text-warning" : "text-text-dim")}
+            data-testid="vault-price"
+          >
+            Vault price right now: {formatBps(vaultFeeBps)}
+            {ceilingBelowVaultPrice ? " — above your cap, so no fast fill at this price" : ""}
+          </p>
+        ) : null}
       </div>
+
+      {/* Trade intent — receive a different asset on the destination (schema v1.1, WP-30). Hidden
+          until Line 1's markets are committed; the protocol accepts these on chain today. */}
+      {markets.length > 0 ? (
+        <div className="panel-raised mt-4 px-3 py-3">
+          <label htmlFor="token-out" className="text-xs tracking-wide text-text-dim uppercase">
+            Receive as
+          </label>
+          <select
+            id="token-out"
+            value={tokenOut ?? ""}
+            onChange={(e) => {
+              setTokenOut((e.target.value || null) as Address | null);
+              setTargetMinOutInput("");
+            }}
+            className="num mt-1 w-full bg-transparent text-sm text-text outline-none"
+          >
+            <option value="" className="bg-surface-raised">
+              USDC
+            </option>
+            {markets.map((m) => (
+              <option key={m.tokenOut.address} value={m.tokenOut.address} className="bg-surface-raised">
+                {m.tokenOut.symbol}
+              </option>
+            ))}
+          </select>
+          {market ? (
+            <div className="mt-2">
+              <label htmlFor="target-min-out" className="text-xs tracking-wide text-text-dim uppercase">
+                Minimum {market.tokenOut.symbol} to accept
+              </label>
+              <input
+                id="target-min-out"
+                inputMode="decimal"
+                placeholder="0.0"
+                value={targetMinOutInput}
+                onChange={(e) => setTargetMinOutInput(e.target.value)}
+                className="num mt-1 w-full bg-transparent text-sm text-text outline-none placeholder:text-text-dim/50"
+              />
+              <p className="mt-1 text-xs text-text-dim">
+                If no solver can deliver at least this much, you receive USDC instead — nothing is stranded.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Advanced */}
       <button

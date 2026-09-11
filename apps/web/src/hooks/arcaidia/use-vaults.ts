@@ -28,6 +28,7 @@
  * fabricated number.
  */
 import { useQuery } from "@tanstack/react-query";
+import { feeBpsAt, type FeePolicy } from "@arcaidia/domain";
 import { solverVaultAbi } from "@/lib/arcaidia/abis";
 import { chainConfig } from "@/lib/arcaidia/config";
 import {
@@ -55,7 +56,7 @@ export async function readVaultAggregates(
   try {
     const idLiteral = sqlHex20Literal(vaultAddress);
     const [vaultResult, protocolStateResult] = await Promise.all([
-      queryNest<{ fill_count: number }>(endpoint, `SELECT fill_count FROM vault WHERE id = ${idLiteral}`),
+      queryNest<{ fill_count: number }>(endpoint, `SELECT fill_count FROM vaults WHERE id = ${idLiteral}`),
       queryNest<{ total_fees_earned: string }>(
         endpoint,
         "SELECT total_fees_earned FROM protocol_state WHERE id = 'arcaidia'",
@@ -83,8 +84,12 @@ export interface VaultDirectoryRow {
   availableLiquidity: bigint | null;
   outstandingExposure: bigint | null;
   utilisationBps: number | null;
+  /** "tiered-v1" for every factory vault (D7): four utilisation bands, fixed at creation. */
   pricingModelId: string | null;
+  /** The vault's posted tier right now — `currentFeeBps()` read from the chain. */
   currentFeeBps: number | null;
+  /** The immutable policy behind it — `feePolicy()` read from the chain. */
+  feePolicy: FeePolicy | null;
   successfulFillCount: number | null;
   lifetimeFees: bigint | null;
   status: VaultStatus | null;
@@ -101,41 +106,52 @@ function utilisationBps(available: bigint, exposure: bigint): number | null {
   return Number((exposure * 10_000n) / total);
 }
 
+/** `feePolicy()`'s public struct getter returns the seven uint16s in declaration order. */
+function feePolicyFromTuple(raw: unknown): FeePolicy | null {
+  if (!Array.isArray(raw) || raw.length !== 7) return null;
+  const [baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps] =
+    raw.map(Number) as [number, number, number, number, number, number, number];
+  if ([baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps].some(Number.isNaN)) {
+    return null;
+  }
+  return { baseFeeBps, midFeeBps, highFeeBps, criticalFeeBps, midThresholdBps, highThresholdBps, criticalThresholdBps };
+}
+
 async function readVaultRow(
   chainId: number,
   vaultAddress: Address,
   houseVault: Address | null,
+  label: string | null = null,
 ): Promise<VaultDirectoryRow> {
   const client = publicClientFor(chainId);
   if (!client) throw new Error("RPC not configured");
-  const [owner, availableLiquidity, outstandingExposure, paused, aggregates] = await Promise.all([
-    client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "owner" }),
-    client.readContract({
-      address: vaultAddress,
-      abi: solverVaultAbi,
-      functionName: "availableLiquidity",
-    }),
-    client.readContract({
-      address: vaultAddress,
-      abi: solverVaultAbi,
-      functionName: "outstandingExposure",
-    }),
-    client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "paused" }),
+  const read = (functionName: "owner" | "availableLiquidity" | "outstandingExposure" | "paused" | "currentFeeBps" | "feePolicy") =>
+    client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName });
+  const [owner, availableLiquidity, outstandingExposure, paused, rawFeeBps, rawPolicy, aggregates] = await Promise.all([
+    read("owner") as Promise<Address>,
+    read("availableLiquidity") as Promise<bigint>,
+    read("outstandingExposure") as Promise<bigint>,
+    read("paused") as Promise<boolean>,
+    read("currentFeeBps") as Promise<number>,
+    read("feePolicy") as Promise<unknown>,
     readVaultAggregates(chainId, vaultAddress),
   ]);
 
   const isHouse = houseVault !== null && vaultAddress.toLowerCase() === houseVault.toLowerCase();
+  const feePolicy = feePolicyFromTuple(rawPolicy);
+  const currentFeeBps = Number.isFinite(Number(rawFeeBps)) ? Number(rawFeeBps) : null;
   return {
     chainId,
     vaultAddress,
-    operatorLabel: isHouse ? "Arcaidia House Vault" : null,
+    operatorLabel: isHouse ? "Arcaidia House Vault" : label,
     operatorType: isHouse ? "HOUSE" : "INDEPENDENT",
     ownerAddress: owner,
     availableLiquidity,
     outstandingExposure,
     utilisationBps: utilisationBps(availableLiquidity, outstandingExposure),
-    pricingModelId: null,
-    currentFeeBps: null,
+    pricingModelId: feePolicy ? "tiered-v1" : null,
+    currentFeeBps,
+    feePolicy,
     successfulFillCount: aggregates.successfulFillCount,
     lifetimeFees: aggregates.lifetimeFees,
     status: paused ? "PAUSED" : "ACTIVE",
@@ -144,12 +160,28 @@ async function readVaultRow(
   };
 }
 
-/** Every vault address that has ever won a fastFill on this chain — see this file's own SOURCE doc comment for the known limitation. */
-async function discoverParticipantVaults(chainId: number): Promise<Address[]> {
+interface DiscoveredVault {
+  address: Address;
+  label: string | null;
+}
+
+/**
+ * The vault directory (D10): every vault the factory created on this chain, from the Nest's
+ * `vaults` view (one row per `VaultCreated`) — a vault that has joined but never yet won a race
+ * is visible from its first block. Falls back to the pre-v2 "derive participants from fill
+ * history" query only when the `vaults` view is absent (a Nest not yet re-seeded), so the page
+ * keeps working across the migration rather than erroring.
+ */
+async function discoverParticipantVaults(chainId: number): Promise<DiscoveredVault[]> {
   const endpoint = chainConfig(chainId)?.subgraphUrl;
   if (!endpoint) return [];
-  const result = await queryNest<{ vault: string }>(endpoint, "SELECT DISTINCT vault FROM fills");
-  return result.rows.map((row) => row.vault as Address);
+  try {
+    const result = await queryNest<{ id: string; label: string | null }>(endpoint, "SELECT id, label FROM vaults");
+    return result.rows.map((row) => ({ address: row.id as Address, label: row.label || null }));
+  } catch {
+    const legacy = await queryNest<{ vault: string }>(endpoint, "SELECT DISTINCT vault FROM fills");
+    return legacy.rows.map((row) => ({ address: row.vault as Address, label: null }));
+  }
 }
 
 async function fetchVaultDirectory(chainId: number, houseVault: Address | null): Promise<VaultDirectoryRow[]> {
@@ -158,12 +190,12 @@ async function fetchVaultDirectory(chainId: number, houseVault: Address | null):
   // to read from and display — the committed houseVault's own casing wins
   // for that one address, since it's already the canonical form used
   // everywhere else in the app.
-  const addressByKey = new Map<string, Address>(participants.map((a) => [a.toLowerCase(), a]));
-  if (houseVault) addressByKey.set(houseVault.toLowerCase(), houseVault);
-  if (addressByKey.size === 0) return [];
+  const byKey = new Map<string, DiscoveredVault>(participants.map((v) => [v.address.toLowerCase(), v]));
+  if (houseVault) byKey.set(houseVault.toLowerCase(), { address: houseVault, label: byKey.get(houseVault.toLowerCase())?.label ?? null });
+  if (byKey.size === 0) return [];
 
   const rows = await Promise.all(
-    [...addressByKey.values()].map((address) => readVaultRow(chainId, address, houseVault)),
+    [...byKey.values()].map((v) => readVaultRow(chainId, v.address, houseVault, v.label)),
   );
   // House Vault first, then by available liquidity — a stable, meaningful order rather than
   // whatever arbitrary order the SQL/Set iteration happened to produce.
@@ -221,6 +253,12 @@ export interface VaultAnalytics {
   volumeSeries: Array<{ at: number; value: bigint }>;
   feeSeries: Array<{ at: number; value: bigint }>;
   utilisationSeries: Array<{ at: number; bps: number }>;
+  /**
+   * The vault's posted fee tier at each utilisation point — `feeBpsAt(policy, utilisation)`,
+   * the same step function the contract runs (D7). Empty when the policy could not be read
+   * from the chain, never guessed.
+   */
+  feeTierSeries: Array<{ at: number; bps: number }>;
   /**
    * The raw balance/exposure this vault's own `utilisationSeries` was
    * derived from, at each event — kept so a caller combining *several*
@@ -309,11 +347,12 @@ export async function fetchVaultAnalyticsData(chainId: number, vaultAddress: Add
   if (!endpoint) throw new Error("Indexer not connected");
 
   const idLiteral = sqlHex20Literal(vaultAddress);
-  const [events, currentRowResult] = await Promise.all([
+  const [events, policy, currentRowResult] = await Promise.all([
     fetchBalanceEvents(endpoint, vaultAddress),
+    readFeePolicy(chainId, vaultAddress),
     queryNest<{ liquid_balance: string; outstanding_exposure: string }>(
       endpoint,
-      `SELECT liquid_balance, outstanding_exposure FROM vault WHERE id = ${idLiteral}`,
+      `SELECT liquid_balance, outstanding_exposure FROM vaults WHERE id = ${idLiteral}`,
     ),
   ]);
 
@@ -362,7 +401,21 @@ export async function fetchVaultAnalyticsData(chainId: number, vaultAddress: Add
     }
   }
 
-  return { volumeSeries, feeSeries, utilisationSeries, stateSeries };
+  const feeTierSeries = policy ? utilisationSeries.map((p) => ({ at: p.at, bps: feeBpsAt(policy, p.bps) })) : [];
+  return { volumeSeries, feeSeries, utilisationSeries, feeTierSeries, stateSeries };
+}
+
+/** The vault's immutable policy, from the chain; `null` when no RPC is configured or the read fails. */
+async function readFeePolicy(chainId: number, vaultAddress: Address): Promise<FeePolicy | null> {
+  const client = publicClientFor(chainId);
+  if (!client) return null;
+  try {
+    return feePolicyFromTuple(
+      await client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "feePolicy" }),
+    );
+  } catch {
+    return null;
+  }
 }
 
 const ANALYTICS_POLL_INTERVAL_MS = 30_000;

@@ -32,6 +32,9 @@ const INTENT = {
   destination_chain_id: String(ARC_TESTNET),
   max_fee_bps: 30,
   deadline: "1800005000",
+  intent_version: 1,
+  token_out: "0x0000000000000000000000000000000000000000",
+  target_min_out: "0",
   created_at_timestamp: 1_800_000_000,
   created_tx_hash: "0x" + "33".repeat(32),
 };

@@ -1,5 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { decodeEventLog, encodeEventTopics, keccak256, toHex } from "viem";
+import { InvalidFeePolicyError, feeBpsAt, validateFeePolicy, type FeePolicy } from "@arcaidia/domain";
+import { solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
+import { publicClientFor } from "@/lib/arcaidia/viem-clients";
+import { viemChainFor } from "@/lib/arcaidia/viem-chains";
 import { toast } from "sonner";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
@@ -143,7 +148,8 @@ ARCAIDIA_TELEMETRY_URL=${telemetryUrl ?? "# not configured for this deployment y
  * unavailable states until those are wired.
  */
 function EarnPage() {
-  const { status: walletStatus, address, connect } = useWallet();
+  const wallet = useWallet();
+  const { status: walletStatus, address, connect } = wallet;
   const connected = walletStatus === "CONNECTED";
 
   const [step, setStep] = useState(1);
@@ -165,10 +171,107 @@ function EarnPage() {
   const [deployTarget, setDeployTarget] = useState<SolverDeployTarget>("DOCKER");
   const [solverOperator, setSolverOperator] = useState("");
 
-  /** Set only from a confirmed factory deployment receipt. */
-  const [vaultAddress] = useState<Address | null>(null);
+  /**
+   * The vault's fee policy (D7) — four utilisation tiers, fixed at creation. Defaults are the
+   * plan's House Vault proposal; the tier preview below is the same arithmetic the vault runs.
+   */
+  const [policy, setPolicy] = useState<FeePolicy>({
+    baseFeeBps: 10,
+    midFeeBps: 25,
+    highFeeBps: 60,
+    criticalFeeBps: 120,
+    midThresholdBps: 5_000,
+    highThresholdBps: 7_500,
+    criticalThresholdBps: 9_000,
+  });
+  const policyError = useMemo(() => {
+    try {
+      validateFeePolicy(policy);
+      return null;
+    } catch (error) {
+      return error instanceof InvalidFeePolicyError ? error.message : "Invalid fee policy.";
+    }
+  }, [policy]);
+  const RESERVE_FLOOR_BPS = 1_000;
+
+  /** Set only from a confirmed factory deployment receipt (`VaultCreated`). */
+  const [vaultAddress, setVaultAddress] = useState<Address | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [authorising, setAuthorising] = useState(false);
+  const [authoriseError, setAuthoriseError] = useState<string | null>(null);
   const deployed = vaultAddress !== null;
-  const factoryReady = chainConfig(chainId)?.vaultFactory !== null;
+  const factory = chainConfig(chainId)?.vaultFactory ?? null;
+  const factoryReady = factory !== null;
+
+  /** The real thing: `ArcaidiaVaultFactory.createVault(...)`, owner-signed through Privy. */
+  async function deployVault() {
+    if (!connected || !address || !factory) return;
+    const publicClient = publicClientFor(chainId);
+    if (!publicClient) {
+      setDeployError("RPC is not configured for this chain yet.");
+      return;
+    }
+    setDeployError(null);
+    setDeploying(true);
+    try {
+      const walletClient = await wallet.getWalletClient(chainId);
+      const salt = keccak256(toHex(`${vaultName.trim()}:${Date.now()}`));
+      const hash = await walletClient.writeContract({
+        address: factory,
+        abi: vaultFactoryAbi,
+        functionName: "createVault",
+        args: [salt, RESERVE_FLOOR_BPS, maxFillBps, maxExposureBps, policy, vaultName.trim()],
+        chain: viemChainFor(chainId),
+        account: address,
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      const [topic] = encodeEventTopics({ abi: vaultFactoryAbi, eventName: "VaultCreated" });
+      const log = receipt.logs.find(
+        (l) => l.address.toLowerCase() === factory.toLowerCase() && l.topics[0] === topic,
+      );
+      if (!log) {
+        setDeployError("Transaction confirmed but no VaultCreated event was found.");
+        return;
+      }
+      const decoded = decodeEventLog({ abi: vaultFactoryAbi, data: log.data, topics: log.topics, eventName: "VaultCreated" });
+      setVaultAddress(decoded.args.vault);
+      toast.success("Vault created", { description: decoded.args.vault });
+    } catch (error) {
+      setDeployError(error instanceof Error ? error.message : "Transaction failed.");
+    } finally {
+      setDeploying(false);
+    }
+  }
+
+  /** `setAuthorisedSigner(operator, true)` — the owner's own call on their own vault. */
+  async function authoriseSolver() {
+    if (!connected || !address || !vaultAddress || !operatorValid) return;
+    const publicClient = publicClientFor(chainId);
+    if (!publicClient) {
+      setAuthoriseError("RPC is not configured for this chain yet.");
+      return;
+    }
+    setAuthoriseError(null);
+    setAuthorising(true);
+    try {
+      const walletClient = await wallet.getWalletClient(chainId);
+      const hash = await walletClient.writeContract({
+        address: vaultAddress,
+        abi: solverVaultAbi,
+        functionName: "setAuthorisedSigner",
+        args: [solverOperator.trim() as Address, true],
+        chain: viemChainFor(chainId),
+        account: address,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      toast.success("Solver authorised", { description: truncateAddress(solverOperator.trim() as Address) });
+    } catch (error) {
+      setAuthoriseError(error instanceof Error ? error.message : "Transaction failed.");
+    } finally {
+      setAuthorising(false);
+    }
+  }
 
   const vaultNameValid = vaultName.trim().length > 0;
   // A step is reachable by clicking its own tab only once every step before
@@ -304,10 +407,8 @@ function EarnPage() {
                 />
               </dl>
 
-              {/* No per-vault fee to set — the intent market's one fixed fee
-                  ceiling applies under first-valid-fill. What you control
-                  here is risk exposure, and it's part of the same deploy
-                  transaction as the vault itself. */}
+              {/* Risk exposure — the two caps, part of the same createVault transaction as the
+                  fee policy below. Unlike the policy, the owner may adjust these later. */}
               <div className="mt-5 space-y-4 border-t border-border/60 pt-4">
                 <p className="text-[11px] uppercase tracking-wide text-text-dim">Risk exposure</p>
                 <Field label={`Max single fill — ${formatBps(maxFillBps)} of available liquidity`} id="max-fill-bps">
@@ -343,18 +444,74 @@ function EarnPage() {
                 </p>
               </div>
 
+              {/* Fee policy (D7): this vault's own price at each utilisation band, immutable once
+                  created and enforced by the vault on chain — a solver can never charge above it. */}
+              <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
+                <p className="text-[11px] uppercase tracking-wide text-text-dim">Fee policy — belongs to this vault, fixed at creation</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {(
+                    [
+                      ["baseFeeBps", "Base fee", `below ${formatBps(policy.midThresholdBps)} utilised`],
+                      ["midFeeBps", "Mid fee", `from ${formatBps(policy.midThresholdBps)}`],
+                      ["highFeeBps", "High fee", `from ${formatBps(policy.highThresholdBps)}`],
+                      ["criticalFeeBps", "Critical fee", `from ${formatBps(policy.criticalThresholdBps)}`],
+                    ] as const
+                  ).map(([key, label, hint]) => (
+                    <Field key={key} label={`${label} (bps)`} id={`policy-${key}`}>
+                      <input
+                        id={`policy-${key}`}
+                        inputMode="numeric"
+                        value={policy[key]}
+                        onChange={(e) => setPolicy((p) => ({ ...p, [key]: Number(e.target.value) || 0 }))}
+                        className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                      />
+                      <span className="num block text-[10px] text-text-dim">{hint}</span>
+                    </Field>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {(
+                    [
+                      ["midThresholdBps", "Mid threshold"],
+                      ["highThresholdBps", "High threshold"],
+                      ["criticalThresholdBps", "Critical threshold"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <Field key={key} label={`${label} (bps utilised)`} id={`policy-${key}`}>
+                      <input
+                        id={`policy-${key}`}
+                        inputMode="numeric"
+                        value={policy[key]}
+                        onChange={(e) => setPolicy((p) => ({ ...p, [key]: Number(e.target.value) || 0 }))}
+                        className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                      />
+                    </Field>
+                  ))}
+                </div>
+                {policyError ? (
+                  <p className="num text-[11px] text-warning">{policyError}</p>
+                ) : (
+                  <p className="num text-[11px] text-text-dim" data-testid="policy-preview">
+                    Preview: {[0, 2_500, 5_000, 7_500, 9_000, 10_000]
+                      .map((u) => `${formatBps(u)} → ${formatBps(feeBpsAt(policy, u))}`)
+                      .join(" · ")}
+                  </p>
+                )}
+              </div>
+
               <dl className="mt-4 space-y-1.5 text-sm">
+                <Row k="Reserve floor" v={formatBps(RESERVE_FLOOR_BPS)} />
                 <Row k="Vault" v={vaultAddress ? truncateAddress(vaultAddress) : "Not deployed yet"} />
               </dl>
-              {/* WIRE: factory deployment tx (name + maxFillBps + maxExposureBps) -> receipt -> vault address. */}
               <button
                 type="button"
-                disabled={!connected || !factoryReady}
-                onClick={() => (connected ? undefined : connect())}
+                disabled={!connected || !factoryReady || !vaultNameValid || policyError !== null || deploying || deployed}
+                onClick={() => (connected ? void deployVault() : connect())}
                 className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
               >
-                Deploy vault
+                {deployed ? "Vault deployed" : deploying ? "Deploying…" : "Deploy vault"}
               </button>
+              {deployError ? <p className="mt-2 text-xs text-warning">{deployError}</p> : null}
               {!connected ? (
                 <button
                   type="button"
@@ -517,14 +674,15 @@ function EarnPage() {
                     : "Not a valid 20-byte address"}
               </p>
 
-              {/* WIRE: owner-signed authoriseSolver(operator) transaction on the vault. */}
               <button
                 type="button"
-                disabled={!connected || !deployed || !operatorValid || authorised}
+                disabled={!connected || !deployed || !operatorValid || authorised || authorising}
+                onClick={() => void authoriseSolver()}
                 className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
               >
-                {authorised ? "Solver authorised" : "Sign authorisation transaction"}
+                {authorised ? "Solver authorised" : authorising ? "Signing…" : "Sign authorisation transaction"}
               </button>
+              {authoriseError ? <p className="mt-2 text-xs text-warning">{authoriseError}</p> : null}
               <p className="num mt-2 text-[11px] text-text-dim">
                 You sign as the vault owner through Privy. This writes the authorised operator to your vault.
               </p>

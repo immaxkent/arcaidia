@@ -56,8 +56,12 @@ export interface IntentRequest {
   destinationChainId: number;
   amount: bigint;
   recipient: string;
+  /** The user's hard ceiling on the fast-fill fee, submitted verbatim on chain (D6). */
   maxFeeBps: number;
   deadlineSeconds: number;
+  /** Trade-intent terms (schema v1.1). Omitted = a plain USDC transfer. */
+  tokenOut?: Address;
+  targetMinOut?: bigint;
 }
 
 /** WP-14's `estimatedUnderAssumption` marker, kept off the shared `AgentDecision` shape. */
@@ -88,6 +92,7 @@ function parseQuote(raw: Record<string, unknown>): IntentEstimate {
       outstandingExposure: BigInt(inputsUsed["outstandingExposure"] as string),
       utilisationBps: inputsUsed["utilisationBps"] as number,
       userMaxFeeBps: inputsUsed["userMaxFeeBps"] as number,
+      vaultFeeBps: inputsUsed["vaultFeeBps"] as number,
       sourceConfirmations: inputsUsed["sourceConfirmations"] as number,
       requiredConfirmations: inputsUsed["requiredConfirmations"] as number,
       observationAgeSeconds: inputsUsed["observationAgeSeconds"] as number,
@@ -112,6 +117,7 @@ async function fetchQuote(baseUrl: string, request: IntentRequest): Promise<Inte
       maxFeeBps: request.maxFeeBps,
       sourceChainId: request.sourceChainId,
       destinationChainId: request.destinationChainId,
+      ...(request.tokenOut ? { tokenOut: request.tokenOut, targetMinOut: (request.targetMinOut ?? 0n).toString() } : {}),
     }),
   });
 
@@ -151,6 +157,8 @@ export function useIntentQuote(request: IntentRequest | null): DataState<AgentDe
       debounced?.destinationChainId,
       debounced?.amount.toString(),
       debounced?.maxFeeBps,
+      debounced?.tokenOut,
+      debounced?.targetMinOut?.toString(),
     ],
     queryFn: () => fetchQuote(quoteUrl as string, debounced as IntentRequest),
     enabled,
@@ -249,10 +257,10 @@ export function IntentProvider({ children }: { children: ReactNode }) {
             request.maxFeeBps,
             deadline,
             nonce,
-            // Schema v1.1 (WP-25): the Transfer form offers plain USDC transfers only until
-            // WP-30 lands the trade-intent fields — `(USDC_TOKEN_OUT, 0)` is exactly that.
-            USDC_TOKEN_OUT,
-            0n,
+            // Schema v1.1: a plain transfer is (USDC_TOKEN_OUT, 0); a trade intent names what the
+            // recipient wants and the least they will accept (WP-30, behind TRADE_INTENTS_ENABLED).
+            request.tokenOut ?? USDC_TOKEN_OUT,
+            request.tokenOut ? (request.targetMinOut ?? 0n) : 0n,
           ],
           chain,
           account: owner,
@@ -285,6 +293,7 @@ export function IntentProvider({ children }: { children: ReactNode }) {
 
         setIntent({
           intentId: decoded.args.intentId,
+          intentVersion: Number(decoded.args.intentVersion),
           sender: decoded.args.sender,
           recipient: decoded.args.recipient,
           inputToken: decoded.args.inputToken,
@@ -293,6 +302,8 @@ export function IntentProvider({ children }: { children: ReactNode }) {
           destinationChainId: Number(decoded.args.destinationChainId),
           maxFeeBps: decoded.args.maxFeeBps,
           deadline: Number(decoded.args.deadline),
+          tokenOut: decoded.args.tokenOut,
+          targetMinOut: decoded.args.targetMinOut,
           createdAt: Math.floor(Date.now() / 1000),
           sourceTxHash: createHash,
         });

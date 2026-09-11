@@ -411,6 +411,20 @@ function VaultDetail({
                 tone: "text-acid",
               },
               { k: "Pricing model", v: vault.pricingModelId ?? NOT_AVAILABLE, tone: "text-text" },
+              {
+                k: "Fee tiers (base / mid / high / critical)",
+                v: vault.feePolicy
+                  ? `${vault.feePolicy.baseFeeBps} / ${vault.feePolicy.midFeeBps} / ${vault.feePolicy.highFeeBps} / ${vault.feePolicy.criticalFeeBps} bps`
+                  : NOT_AVAILABLE,
+                tone: "text-text",
+              },
+              {
+                k: "Tier thresholds",
+                v: vault.feePolicy
+                  ? `${formatBps(vault.feePolicy.midThresholdBps)} · ${formatBps(vault.feePolicy.highThresholdBps)} · ${formatBps(vault.feePolicy.criticalThresholdBps)} utilised`
+                  : NOT_AVAILABLE,
+                tone: "text-text-dim",
+              },
               { k: "Utilisation", v: value(vault.utilisationBps, formatBps), tone: "text-text" },
             ].map((m) => (
               <div key={m.k} className="instrument p-3">

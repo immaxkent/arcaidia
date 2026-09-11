@@ -225,3 +225,62 @@ export function VaultUtilisationChart({ state }: { state: DataState<VaultAnalyti
     </section>
   );
 }
+
+/**
+ * The vault's posted fee tier over time (D7) — derived point-for-point from the utilisation
+ * series above through the vault's own immutable policy, so the two charts read together:
+ * the tier steps exactly where utilisation crosses a threshold.
+ */
+export function VaultFeeTierChart({ state }: { state: DataState<VaultAnalytics> }) {
+  return (
+    <section className="panel p-5">
+      <h3 className="text-sm font-semibold tracking-wide text-text uppercase">Posted fee tier over time</h3>
+      <StateSection
+        state={state}
+        emptyTitle="No history yet"
+        emptyNote="The fee tier appears here once this vault has history and its policy is readable."
+        unavailableTitle="Not available yet"
+        unavailableNote="Fee history needs the indexer connected and the vault's policy readable from the chain."
+      >
+        {(data) => {
+          const rows = data.feeTierSeries;
+          if (rows.length === 0) {
+            return <p className="mt-3 text-xs text-text-dim">No fee history yet.</p>;
+          }
+          return (
+            <div className="mt-3 h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="at"
+                    tickFormatter={formatTime}
+                    stroke="var(--text-dim)"
+                    tick={{ fontSize: 10 }}
+                    minTickGap={40}
+                  />
+                  <YAxis
+                    tickFormatter={(bps: number) => `${bps} bps`}
+                    stroke="var(--text-dim)"
+                    tick={{ fontSize: 10 }}
+                    width={56}
+                  />
+                  <Tooltip
+                    labelFormatter={(at: number) => formatTime(at)}
+                    formatter={(value: number) => [`${value} bps`, "Posted tier"]}
+                    contentStyle={{
+                      background: "var(--void)",
+                      border: "1px solid var(--border)",
+                      fontSize: 11,
+                    }}
+                  />
+                  <Line type="stepAfter" dataKey="bps" name="Posted tier" stroke="var(--gold-glow, var(--acid))" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        }}
+      </StateSection>
+    </section>
+  );
+}

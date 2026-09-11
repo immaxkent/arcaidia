@@ -132,6 +132,6 @@ describe("fetchVaultAnalyticsData (WP-19.3 feedback — utilisation-over-time ch
 
     const { fetchVaultAnalyticsData } = await import("./use-vaults");
     const result = await fetchVaultAnalyticsData(ARC_TESTNET, VAULT);
-    expect(result).toEqual({ volumeSeries: [], feeSeries: [], utilisationSeries: [], stateSeries: [] });
+    expect(result).toEqual({ volumeSeries: [], feeSeries: [], utilisationSeries: [], feeTierSeries: [], stateSeries: [] });
   });
 });
