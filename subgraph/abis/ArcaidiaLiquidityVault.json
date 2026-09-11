@@ -494,6 +494,19 @@
   },
   {
     "type": "function",
+    "name": "market",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "maxDeposit",
     "inputs": [
       {
@@ -907,6 +920,19 @@
         "name": "maxFeeBps_",
         "type": "uint16",
         "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMarket",
+    "inputs": [
+      {
+        "name": "market_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -1384,6 +1410,19 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MarketConfigured",
+    "inputs": [
+      {
+        "name": "market",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1909,6 +1948,11 @@
   {
     "type": "error",
     "name": "NoFeesAccrued",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoMarketConfigured",
     "inputs": []
   },
   {

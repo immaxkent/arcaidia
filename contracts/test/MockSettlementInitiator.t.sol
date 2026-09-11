@@ -39,7 +39,7 @@ contract MockSettlementInitiatorTest is ChainFixture {
 
     function test_initiatePullsFundsFromCaller() public {
         vm.prank(router);
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID);
+        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID, "");
 
         assertEq(asset.balanceOf(router), 9_000e6);
         assertEq(asset.balanceOf(address(initiator)), 1_000e6);
@@ -49,7 +49,7 @@ contract MockSettlementInitiatorTest is ChainFixture {
     function test_initiateReturnsANonZeroReference() public {
         vm.prank(router);
         bytes32 ref =
-            initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID);
+            initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID, "");
         assertTrue(ref != bytes32(0));
     }
 
@@ -58,12 +58,18 @@ contract MockSettlementInitiatorTest is ChainFixture {
     function test_referencesAreUniquePerCommitment() public {
         vm.startPrank(router);
         bytes32 first =
-            initiator.initiateSettlement(address(asset), 100e6, destinationChainId, receiver, INTENT_ID);
+            initiator.initiateSettlement(address(asset), 100e6, destinationChainId, receiver, INTENT_ID, "");
         bytes32 second =
-            initiator.initiateSettlement(address(asset), 100e6, destinationChainId, receiver, INTENT_ID);
+            initiator.initiateSettlement(address(asset), 100e6, destinationChainId, receiver, INTENT_ID, "");
         vm.stopPrank();
 
         assertTrue(first != second);
+    }
+
+    function test_recordsTheHookItWasAskedToCarry() public {
+        vm.prank(router);
+        initiator.initiateSettlement(address(asset), 100e6, destinationChainId, receiver, INTENT_ID, hex"c0ffee");
+        assertEq(initiator.hookDataOf(INTENT_ID), hex"c0ffee");
     }
 
     function test_initiateRevertsWhenTransportFails() public {
@@ -71,7 +77,7 @@ contract MockSettlementInitiatorTest is ChainFixture {
 
         vm.prank(router);
         vm.expectRevert(MockSettlementInitiator.SettlementInitiationFailed.selector);
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID);
+        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID, "");
     }
 
     /// A failed commitment must move no funds at all. If it took the money and
@@ -81,7 +87,7 @@ contract MockSettlementInitiatorTest is ChainFixture {
         initiator.setShouldSucceed(false);
 
         vm.prank(router);
-        try initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID) {
+        try initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID, "") {
             revert("expected failure");
         } catch {}
 
@@ -95,6 +101,6 @@ contract MockSettlementInitiatorTest is ChainFixture {
 
         vm.prank(stranger);
         vm.expectRevert();
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID);
+        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, receiver, INTENT_ID, "");
     }
 }

@@ -48,6 +48,11 @@ library ArcaidiaDeployment {
     ///      for the same reason the others above must never change.
     bytes32 internal constant ROUTER_CCTP_SALT = keccak256("arcaidia.v1.intent-router.cctp");
 
+    /// @dev WP-25: the v1.1-schema router (`createIntent` gains `tokenOut`/`targetMinOut`,
+    ///      `IntentCreated` v2, intent hook through the initiator) — new ABI, new event, new
+    ///      init code, so a new salt. Deployed by `deployAllV2` (WP-26), never by `deployAll`.
+    bytes32 internal constant ROUTER_V2_SALT = keccak256("arcaidia.v2.intent-router");
+
     struct Config {
         /// Final owner, after wiring.
         address owner;

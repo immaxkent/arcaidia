@@ -14,7 +14,10 @@ import {ITokenMessengerV2} from "../interfaces/ITokenMessengerV2.sol";
 ///      Actually pulls and holds the token via `transferFrom`, mirroring the
 ///      real contract's custody of the burnt amount, so a test asserting the
 ///      initiator's own balance afterwards sees what it would against the real
-///      TokenMessenger.
+///      TokenMessenger. `hookDataOf[i]` records the hook the i-th call carried
+///      (empty for a plain `depositForBurn`), and `withHook[i]` which entry
+///      point was used — the real contract rejects an empty hook on the hook
+///      entry point, and this mock does too.
 contract MockTokenMessengerV2 is ITokenMessengerV2 {
     struct Call {
         uint256 amount;
@@ -27,9 +30,12 @@ contract MockTokenMessengerV2 is ITokenMessengerV2 {
     }
 
     Call[] public calls;
+    mapping(uint256 => bytes) public hookDataOf;
+    mapping(uint256 => bool) public withHook;
     bool public shouldRevert;
 
     error MockDepositForBurnFailed();
+    error HookDataIsEmpty();
 
     function setShouldRevert(bool value) external {
         shouldRevert = value;
@@ -48,8 +54,38 @@ contract MockTokenMessengerV2 is ITokenMessengerV2 {
         uint256 maxFee,
         uint32 minFinalityThreshold
     ) external {
+        _record(amount, destinationDomain, mintRecipient, burnToken, destinationCaller, maxFee, minFinalityThreshold, "", false);
+    }
+
+    function depositForBurnWithHook(
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 mintRecipient,
+        address burnToken,
+        bytes32 destinationCaller,
+        uint256 maxFee,
+        uint32 minFinalityThreshold,
+        bytes calldata hookData
+    ) external {
+        // Mirrors the real contract's `require(hookData.length > 0, "Hook data is empty")`.
+        if (hookData.length == 0) revert HookDataIsEmpty();
+        _record(amount, destinationDomain, mintRecipient, burnToken, destinationCaller, maxFee, minFinalityThreshold, hookData, true);
+    }
+
+    function _record(
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 mintRecipient,
+        address burnToken,
+        bytes32 destinationCaller,
+        uint256 maxFee,
+        uint32 minFinalityThreshold,
+        bytes memory hookData,
+        bool usedHook
+    ) private {
         if (shouldRevert) revert MockDepositForBurnFailed();
 
+        uint256 index = calls.length;
         calls.push(
             Call({
                 amount: amount,
@@ -61,6 +97,8 @@ contract MockTokenMessengerV2 is ITokenMessengerV2 {
                 minFinalityThreshold: minFinalityThreshold
             })
         );
+        hookDataOf[index] = hookData;
+        withHook[index] = usedHook;
 
         IERC20(burnToken).transferFrom(msg.sender, address(this), amount);
     }

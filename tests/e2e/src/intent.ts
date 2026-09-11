@@ -9,7 +9,7 @@
 
 import { createWalletClient, decodeEventLog, http, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { LEGACY_V1_INTENT_FIELDS, type Intent } from '@arcaidia/domain';
+import { USDC_TOKEN_OUT, type Address as DomainAddress, type Intent } from '@arcaidia/domain';
 import { ARTIFACTS } from './artifacts.js';
 import type { AnvilChain } from './anvil.js';
 import type { ChainDeployment } from './deploy.js';
@@ -22,6 +22,9 @@ export interface CreateIntentParams {
   readonly maxFeeBps: number;
   readonly deadline: number;
   readonly nonce: bigint;
+  /** Trade-intent terms (schema v1.1). Omitted means a plain USDC transfer. */
+  readonly tokenOut?: DomainAddress;
+  readonly targetMinOut?: bigint;
 }
 
 export async function createIntent(
@@ -51,6 +54,8 @@ export async function createIntent(
       params.maxFeeBps,
       BigInt(params.deadline),
       params.nonce,
+      params.tokenOut ?? USDC_TOKEN_OUT,
+      params.targetMinOut ?? 0n,
     ] as never,
   } as never);
 
@@ -74,6 +79,7 @@ export async function createIntent(
         intentId: Hex;
         sender: Address;
         recipient: Address;
+        intentVersion: number;
         inputToken: Address;
         amount: bigint;
         sourceChainId: bigint;
@@ -81,12 +87,13 @@ export async function createIntent(
         maxFeeBps: number;
         deadline: bigint;
         nonce: bigint;
+        tokenOut: Address;
+        targetMinOut: bigint;
         settlementRef: Hex;
       };
 
       return {
-        // The router's v1 event carries no trade fields yet (WP-25 adds them).
-        ...LEGACY_V1_INTENT_FIELDS,
+        intentVersion: Number(args.intentVersion),
         intentId: args.intentId,
         sender: args.sender,
         recipient: args.recipient,
@@ -97,6 +104,8 @@ export async function createIntent(
         maxFeeBps: Number(args.maxFeeBps),
         deadline: Number(args.deadline),
         nonce: args.nonce,
+        tokenOut: args.tokenOut,
+        targetMinOut: args.targetMinOut,
         sourceTxHash: hash,
         sourceBlockNumber: receipt.blockNumber,
         createdAt: Number(block.timestamp),

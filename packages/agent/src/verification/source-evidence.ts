@@ -16,6 +16,8 @@ import type { Address, Bytes32, TxHash } from '@arcaidia/domain';
 /** The `IntentCreated` event as decoded from the source receipt. */
 export interface IntentCreatedEvidence {
   readonly intentId: Bytes32;
+  /** Schema version the router stamped (v1.1 = 1). */
+  readonly intentVersion: number;
   readonly sender: Address;
   readonly recipient: Address;
   readonly inputToken: Address;
@@ -25,6 +27,8 @@ export interface IntentCreatedEvidence {
   readonly maxFeeBps: number;
   readonly deadline: number;
   readonly nonce: bigint;
+  readonly tokenOut: Address;
+  readonly targetMinOut: bigint;
   /**
    * The canonical settlement handle recorded by the router. Zero would mean the
    * router emitted an intent without committing the funds — which the contract

@@ -47,8 +47,17 @@ abstract contract RouterFixture is ChainFixture {
         return uint64(block.timestamp + 1 hours);
     }
 
+    address internal constant MOCK_TOKEN_OUT = 0x3333333333333333333333333333333333333333;
+
     function _createDefaultIntent(uint256 amount, uint256 nonce) internal returns (bytes32) {
         vm.prank(alice);
-        return router.createIntent(bob, amount, destinationChainId, 30, _defaultDeadline(), nonce);
+        return router.createIntent(bob, amount, destinationChainId, 30, _defaultDeadline(), nonce, address(0), 0);
+    }
+
+    function _createTradeIntent(uint256 amount, uint256 nonce, uint256 targetMinOut) internal returns (bytes32) {
+        vm.prank(alice);
+        return router.createIntent(
+            bob, amount, destinationChainId, 30, _defaultDeadline(), nonce, MOCK_TOKEN_OUT, targetMinOut
+        );
     }
 }

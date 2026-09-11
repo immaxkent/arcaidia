@@ -8,10 +8,12 @@ import {ISettlementInitiator} from "../interfaces/ISettlementInitiator.sol";
 /// @title MockSettlementInitiator
 /// @notice Test double for canonical settlement initiation.
 /// @dev Models the parts of CCTP that matter to the router: it pulls the funds,
-///      returns an opaque reference, and can be made to fail. The failure mode
-///      is not decoration — the router must revert the entire transaction if
-///      commitment fails, so that an intent can never exist without its
-///      canonical commitment.
+///      returns an opaque reference, can be made to fail, and — since WP-25 —
+///      records the `hookData` it was asked to carry, so tests and the e2e
+///      harness can assert the intent hook survives the router verbatim.
+///      The failure mode is not decoration — the router must revert the entire
+///      transaction if commitment fails, so that an intent can never exist
+///      without its canonical commitment.
 contract MockSettlementInitiator is ISettlementInitiator {
     using SafeERC20 for IERC20;
 
@@ -23,6 +25,9 @@ contract MockSettlementInitiator is ISettlementInitiator {
 
     /// @notice Total committed, so tests can assert funds actually moved.
     uint256 public totalCommitted;
+
+    /// @notice The hook the router asked this transport to carry, per intent.
+    mapping(bytes32 => bytes) public hookDataOf;
 
     uint256 private _refNonce;
 
@@ -49,12 +54,14 @@ contract MockSettlementInitiator is ISettlementInitiator {
         uint256 amount,
         uint256 destinationChainId,
         address destinationReceiver,
-        bytes32 intentId
+        bytes32 intentId,
+        bytes calldata hookData
     ) external returns (bytes32 settlementRef) {
         if (!shouldSucceed) revert SettlementInitiationFailed();
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         totalCommitted += amount;
+        hookDataOf[intentId] = hookData;
 
         settlementRef = keccak256(abi.encode(intentId, destinationChainId, destinationReceiver, _refNonce++));
         emit SettlementInitiated(intentId, settlementRef, amount, destinationChainId);

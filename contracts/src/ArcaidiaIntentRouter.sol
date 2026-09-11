@@ -6,6 +6,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "./libraries/ArcaidiaTypes.sol";
 import {IntentLib} from "./libraries/IntentLib.sol";
+import {IntentHookLib} from "./libraries/IntentHookLib.sol";
 import {ISettlementInitiator} from "./interfaces/ISettlementInitiator.sol";
 
 /// @title ArcaidiaIntentRouter
@@ -25,6 +26,15 @@ import {ISettlementInitiator} from "./interfaces/ISettlementInitiator.sol";
 ///      This is one contract deployed to both chains. It names no chain: the
 ///      source is `block.chainid` and the destination is a parameter, so the
 ///      same bytecode is the Ethereum router and the Arc router.
+///
+///      **v2 (WP-25).** Intents carry the v1.1 schema (`tokenOut`/`targetMinOut`,
+///      DECISIONS.md D5) and the router hands the settlement transport an intent
+///      hook — `IntentHookLib.encode(intentId, recipient)` — that CCTP carries
+///      under its own attestation to the destination (D8). Trade intents are
+///      accepted on chain from day one: if no solver can satisfy the swap, canonical
+///      settlement delivers USDC to `recipient` exactly as for a plain transfer, so
+///      accepting them never strands funds. `tradeIntentsAllowed` is an emergency
+///      brake only.
 ///
 ///      Constructor takes no arguments so that init code — and therefore the
 ///      CREATE2 address — is identical on every chain. All chain-specific
@@ -66,6 +76,9 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
     /// @notice Current aggregate committed value.
     uint256 public totalInFlight;
 
+    /// @notice Emergency brake for trade intents (`tokenOut != USDC_TOKEN_OUT`). True by default.
+    bool public tradeIntentsAllowed;
+
     // -----------------------------------------------------------------------
     // Intent state
     // -----------------------------------------------------------------------
@@ -84,6 +97,7 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         bytes32 indexed intentId,
         address indexed sender,
         address indexed recipient,
+        uint8 intentVersion,
         address inputToken,
         uint256 amount,
         uint256 sourceChainId,
@@ -91,8 +105,11 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         uint16 maxFeeBps,
         uint64 deadline,
         uint256 nonce,
+        address tokenOut,
+        uint256 targetMinOut,
         bytes32 settlementRef
     );
+    event TradeIntentsAllowedSet(bool allowed);
 
     event RouterInitialized(address owner, address settlementAsset, address settlementInitiator);
     event DestinationConfigured(uint256 indexed chainId, address receiver);
@@ -121,6 +138,9 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
     error FeeCeilingAboveDenominator(uint16 maxFeeBps);
     error UnknownIntent(bytes32 intentId);
     error NothingInFlight();
+    /// `tokenOut == USDC_TOKEN_OUT` requires `targetMinOut == 0`; any other `tokenOut` requires `targetMinOut > 0`.
+    error InvalidTradeTerms(address tokenOut, uint256 targetMinOut);
+    error TradeIntentsDisabled();
 
     uint16 internal constant BPS_DENOMINATOR = 10_000;
 
@@ -152,6 +172,7 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
 
         initialized = true;
         owner = owner_;
+        tradeIntentsAllowed = true;
         settlementAsset = IERC20(settlementAsset_);
         settlementInitiator = ISettlementInitiator(settlementInitiator_);
         maxIntentAmount = maxIntentAmount_;
@@ -182,6 +203,11 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         emit PausedSet(paused_);
     }
 
+    function setTradeIntentsAllowed(bool allowed) external onlyOwner {
+        tradeIntentsAllowed = allowed;
+        emit TradeIntentsAllowedSet(allowed);
+    }
+
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
         emit OwnerTransferred(owner, newOwner);
@@ -206,6 +232,10 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
     // -----------------------------------------------------------------------
 
     /// @notice Commit funds and create an intent.
+    /// @param tokenOut `USDC_TOKEN_OUT` (zero) for a plain USDC transfer; otherwise the asset the
+    ///        recipient wants on the destination chain (a trade intent).
+    /// @param targetMinOut Minimum acceptable `tokenOut` delivered; must be 0 for a plain transfer
+    ///        and non-zero for a trade intent.
     /// @return intentId The canonical identifier, identical to the one the
     ///         shared TypeScript domain package computes off-chain.
     function createIntent(
@@ -214,7 +244,9 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         uint256 destinationChainId,
         uint16 maxFeeBps,
         uint64 deadline,
-        uint256 nonce
+        uint256 nonce,
+        address tokenOut,
+        uint256 targetMinOut
     ) external nonReentrant returns (bytes32 intentId) {
         if (paused) revert RouterPaused();
         if (recipient == address(0)) revert ZeroAddress();
@@ -223,6 +255,7 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         if (amount > maxIntentAmount) revert IntentAmountAboveCap(amount, maxIntentAmount);
         if (deadline <= block.timestamp) revert DeadlineInPast(deadline);
         if (nonceUsed[msg.sender][nonce]) revert NonceAlreadyUsed(msg.sender, nonce);
+        _validateTradeTerms(tokenOut, targetMinOut);
 
         address receiver = destinationReceiver[destinationChainId];
         if (receiver == address(0)) revert DestinationNotAllowed(destinationChainId);
@@ -236,8 +269,6 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         uint256 newInFlight = totalInFlight + amount;
         if (newInFlight > maxInFlightValue) revert InFlightCapExceeded(newInFlight, maxInFlightValue);
 
-        // WP-24: schema v1.1 struct, USDC-only terms until WP-25 exposes
-        // `tokenOut`/`targetMinOut` on `createIntent` itself.
         Intent memory intent = Intent({
             intentVersion: INTENT_VERSION,
             sender: msg.sender,
@@ -249,8 +280,8 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
             maxFeeBps: maxFeeBps,
             deadline: deadline,
             nonce: nonce,
-            tokenOut: USDC_TOKEN_OUT,
-            targetMinOut: 0
+            tokenOut: tokenOut,
+            targetMinOut: targetMinOut
         });
 
         intentId = intent.computeIntentId();
@@ -261,31 +292,65 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         nonceUsed[msg.sender][nonce] = true;
         totalInFlight = newInFlight;
 
-        settlementAsset.safeTransferFrom(msg.sender, address(this), amount);
-        settlementAsset.forceApprove(address(settlementInitiator), amount);
+        bytes32 settlementRef = _commit(intent, intentId, receiver);
+        _emitCreated(intent, intentId, settlementRef);
+    }
 
-        // If this reverts, the whole transaction reverts: no intent, no event,
-        // and the user keeps their funds.
-        bytes32 settlementRef = settlementInitiator.initiateSettlement(
-            address(settlementAsset), amount, destinationChainId, receiver, intentId
+    /// @dev Pull the principal and commit it to canonical settlement, carrying the intent hook.
+    ///      If the transport reverts, the whole transaction reverts: no intent, no event, and
+    ///      the user keeps their funds. Split out of `createIntent` to keep that frame within
+    ///      stack depth under `via_ir = false`.
+    function _commit(Intent memory intent, bytes32 intentId, address receiver)
+        private
+        returns (bytes32 settlementRef)
+    {
+        settlementAsset.safeTransferFrom(msg.sender, address(this), intent.amount);
+        settlementAsset.forceApprove(address(settlementInitiator), intent.amount);
+
+        settlementRef = settlementInitiator.initiateSettlement(
+            address(settlementAsset),
+            intent.amount,
+            intent.destinationChainId,
+            receiver,
+            intentId,
+            IntentHookLib.encode(intentId, intent.recipient)
         );
 
         // Leave no standing allowance if the initiator pulled less than approved.
         settlementAsset.forceApprove(address(settlementInitiator), 0);
+    }
 
+    /// @dev Its own frame for the same stack-depth reason as `_commit`. Flat parameters — the
+    ///      shape `IArcaidiaEventsV2.IntentCreated` freezes — rather than a tuple, so the
+    ///      indexer's ABI-driven views stay column-per-field.
+    function _emitCreated(Intent memory intent, bytes32 intentId, bytes32 settlementRef) private {
         emit IntentCreated(
             intentId,
-            msg.sender,
-            recipient,
-            address(settlementAsset),
-            amount,
-            block.chainid,
-            destinationChainId,
-            maxFeeBps,
-            deadline,
-            nonce,
+            intent.sender,
+            intent.recipient,
+            intent.intentVersion,
+            intent.inputToken,
+            intent.amount,
+            intent.sourceChainId,
+            intent.destinationChainId,
+            intent.maxFeeBps,
+            intent.deadline,
+            intent.nonce,
+            intent.tokenOut,
+            intent.targetMinOut,
             settlementRef
         );
+    }
+
+    /// @dev A plain transfer is `(USDC_TOKEN_OUT, 0)`; a trade intent is any other `tokenOut`
+    ///      with a non-zero floor. Anything else is a malformed request, refused before funds move.
+    function _validateTradeTerms(address tokenOut, uint256 targetMinOut) private view {
+        if (tokenOut == USDC_TOKEN_OUT) {
+            if (targetMinOut != 0) revert InvalidTradeTerms(tokenOut, targetMinOut);
+            return;
+        }
+        if (targetMinOut == 0) revert InvalidTradeTerms(tokenOut, targetMinOut);
+        if (!tradeIntentsAllowed) revert TradeIntentsDisabled();
     }
 
     /// @notice Recompute an intent id off a set of terms, for clients and tests.
@@ -296,7 +361,9 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         uint256 destinationChainId,
         uint16 maxFeeBps,
         uint64 deadline,
-        uint256 nonce
+        uint256 nonce,
+        address tokenOut,
+        uint256 targetMinOut
     ) external view returns (bytes32) {
         return IntentLib.computeIntentId(
             Intent({
@@ -310,8 +377,8 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
                 maxFeeBps: maxFeeBps,
                 deadline: deadline,
                 nonce: nonce,
-                tokenOut: USDC_TOKEN_OUT,
-                targetMinOut: 0
+                tokenOut: tokenOut,
+                targetMinOut: targetMinOut
             })
         );
     }

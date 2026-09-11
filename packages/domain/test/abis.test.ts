@@ -58,6 +58,7 @@ describe('generated ABI barrel', () => {
         'bytes32', // intentId
         'address', // sender
         'address', // recipient
+        'uint8', // intentVersion (v1.1, WP-25)
         'address', // inputToken
         'uint256', // amount
         'uint256', // sourceChainId
@@ -65,6 +66,8 @@ describe('generated ABI barrel', () => {
         'uint16', // maxFeeBps
         'uint64', // deadline
         'uint256', // nonce
+        'address', // tokenOut
+        'uint256', // targetMinOut
         'bytes32', // settlementRef
       ]);
     });

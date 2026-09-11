@@ -37,6 +37,7 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { decodeEventLog, encodeEventTopics } from "viem";
+import { USDC_TOKEN_OUT } from "@arcaidia/domain";
 import { erc20Abi, intentRouterAbi } from "@/lib/arcaidia/abis";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { chainConfig, SERVICES } from "@/lib/arcaidia/config";
@@ -248,6 +249,10 @@ export function IntentProvider({ children }: { children: ReactNode }) {
             request.maxFeeBps,
             deadline,
             nonce,
+            // Schema v1.1 (WP-25): the Transfer form offers plain USDC transfers only until
+            // WP-30 lands the trade-intent fields — `(USDC_TOKEN_OUT, 0)` is exactly that.
+            USDC_TOKEN_OUT,
+            0n,
           ],
           chain,
           account: owner,

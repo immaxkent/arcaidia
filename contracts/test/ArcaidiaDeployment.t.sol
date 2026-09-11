@@ -251,7 +251,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         bytes32 intentId = ArcaidiaIntentRouter(d.router)
             .createIntent(
                 makeAddr("recipient"), 1_000e6, destinationChainId, 30, uint64(block.timestamp + 1 hours), 1
-            );
+            , address(0), 0);
         vm.stopPrank();
 
         assertTrue(ArcaidiaIntentRouter(d.router).intentExists(intentId));
@@ -386,7 +386,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         bytes32 intentId = ArcaidiaIntentRouter(router)
             .createIntent(
                 makeAddr("recipient"), 1_000e6, destinationChainId, 30, uint64(block.timestamp + 1 hours), 1
-            );
+            , address(0), 0);
         vm.stopPrank();
 
         assertTrue(ArcaidiaIntentRouter(router).intentExists(intentId));

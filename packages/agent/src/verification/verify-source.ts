@@ -149,6 +149,7 @@ function fieldMismatches(intent: Intent, event: SourceEvidence['intentCreated'])
   };
 
   check('intentId', intent.intentId, event.intentId);
+  check('intentVersion', intent.intentVersion, event.intentVersion);
   check('sender', intent.sender, event.sender);
   check('recipient', intent.recipient, event.recipient);
   check('inputToken', intent.inputToken, event.inputToken);
@@ -158,6 +159,10 @@ function fieldMismatches(intent: Intent, event: SourceEvidence['intentCreated'])
   check('maxFeeBps', intent.maxFeeBps, event.maxFeeBps);
   check('deadline', intent.deadline, event.deadline);
   check('nonce', intent.nonce, event.nonce);
+  // The trade terms are part of the id (D5) and of what the vault enforces (D6):
+  // a candidate that disagrees with the chain on them is a different intent.
+  check('tokenOut', intent.tokenOut, event.tokenOut);
+  check('targetMinOut', intent.targetMinOut, event.targetMinOut);
 
   return problems;
 }

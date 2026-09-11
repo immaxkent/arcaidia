@@ -22,6 +22,7 @@ interface IntentCreatedValues {
   intentId: `0x${string}`;
   sender: Address;
   recipient: Address;
+  intentVersion: number;
   inputToken: Address;
   amount: bigint;
   sourceChainId: bigint;
@@ -29,6 +30,8 @@ interface IntentCreatedValues {
   maxFeeBps: number;
   deadline: bigint;
   nonce: bigint;
+  tokenOut: Address;
+  targetMinOut: bigint;
   settlementRef: `0x${string}`;
 }
 
@@ -41,6 +44,7 @@ function intentCreatedLog(
     intentId: source.intentId,
     sender: source.sender,
     recipient: source.recipient,
+    intentVersion: source.intentVersion,
     inputToken: source.inputToken,
     amount: source.amount,
     sourceChainId: BigInt(source.sourceChainId),
@@ -48,6 +52,8 @@ function intentCreatedLog(
     maxFeeBps: source.maxFeeBps,
     deadline: BigInt(source.deadline),
     nonce: source.nonce,
+    tokenOut: source.tokenOut,
+    targetMinOut: source.targetMinOut,
     settlementRef: source.settlementRef,
     ...overrides,
   };
@@ -62,8 +68,10 @@ function intentCreatedLog(
     },
   });
 
+  // Non-indexed words of `IntentCreated` v2, in emitted order (IArcaidiaEventsV2).
   const data = encodeAbiParameters(
     [
+      { name: 'intentVersion', type: 'uint8' },
       { name: 'inputToken', type: 'address' },
       { name: 'amount', type: 'uint256' },
       { name: 'sourceChainId', type: 'uint256' },
@@ -71,9 +79,12 @@ function intentCreatedLog(
       { name: 'maxFeeBps', type: 'uint16' },
       { name: 'deadline', type: 'uint64' },
       { name: 'nonce', type: 'uint256' },
+      { name: 'tokenOut', type: 'address' },
+      { name: 'targetMinOut', type: 'uint256' },
       { name: 'settlementRef', type: 'bytes32' },
     ],
     [
+      values.intentVersion,
       values.inputToken,
       values.amount,
       values.sourceChainId,
@@ -81,6 +92,8 @@ function intentCreatedLog(
       values.maxFeeBps,
       values.deadline,
       values.nonce,
+      values.tokenOut,
+      values.targetMinOut,
       values.settlementRef,
     ],
   );
@@ -125,6 +138,7 @@ describe('decodeIntentCreated', () => {
 
     expect(decoded).toEqual({
       intentId: source.intentId,
+      intentVersion: source.intentVersion,
       sender: source.sender,
       recipient: source.recipient,
       inputToken: source.inputToken,
@@ -134,6 +148,8 @@ describe('decodeIntentCreated', () => {
       maxFeeBps: source.maxFeeBps,
       deadline: source.deadline,
       nonce: source.nonce,
+      tokenOut: source.tokenOut,
+      targetMinOut: source.targetMinOut,
       settlementRef: source.settlementRef,
       emitter: ROUTER,
     });

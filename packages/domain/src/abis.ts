@@ -41,6 +41,16 @@ export const ABIS = {
           "name": "nonce",
           "type": "uint256",
           "internalType": "uint256"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "targetMinOut",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [
@@ -250,6 +260,16 @@ export const ABIS = {
           "name": "nonce",
           "type": "uint256",
           "internalType": "uint256"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "targetMinOut",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
       "outputs": [
@@ -330,6 +350,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "setTradeIntentsAllowed",
+      "inputs": [
+        {
+          "name": "allowed",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "settlementAsset",
       "inputs": [],
       "outputs": [
@@ -363,6 +396,19 @@ export const ABIS = {
           "name": "",
           "type": "uint256",
           "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "tradeIntentsAllowed",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
         }
       ],
       "stateMutability": "view"
@@ -441,6 +487,12 @@ export const ABIS = {
           "internalType": "address"
         },
         {
+          "name": "intentVersion",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
           "name": "inputToken",
           "type": "address",
           "indexed": false,
@@ -478,6 +530,18 @@ export const ABIS = {
         },
         {
           "name": "nonce",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "targetMinOut",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
@@ -563,6 +627,19 @@ export const ABIS = {
           "type": "address",
           "indexed": false,
           "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "TradeIntentsAllowedSet",
+      "inputs": [
+        {
+          "name": "allowed",
+          "type": "bool",
+          "indexed": false,
+          "internalType": "bool"
         }
       ],
       "anonymous": false
@@ -655,6 +732,22 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "InvalidTradeTerms",
+      "inputs": [
+        {
+          "name": "tokenOut",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "targetMinOut",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "NonceAlreadyUsed",
       "inputs": [
         {
@@ -710,6 +803,11 @@ export const ABIS = {
           "internalType": "uint256"
         }
       ]
+    },
+    {
+      "type": "error",
+      "name": "TradeIntentsDisabled",
+      "inputs": []
     },
     {
       "type": "error",
@@ -3852,6 +3950,25 @@ export const ABIS = {
   MockSettlementInitiator: [
     {
       "type": "function",
+      "name": "hookDataOf",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "initiateSettlement",
       "inputs": [
         {
@@ -3878,6 +3995,11 @@ export const ABIS = {
           "name": "intentId",
           "type": "bytes32",
           "internalType": "bytes32"
+        },
+        {
+          "name": "hookData",
+          "type": "bytes",
+          "internalType": "bytes"
         }
       ],
       "outputs": [
@@ -4120,6 +4242,11 @@ export const ABIS = {
           "name": "intentId",
           "type": "bytes32",
           "internalType": "bytes32"
+        },
+        {
+          "name": "hookData",
+          "type": "bytes",
+          "internalType": "bytes"
         }
       ],
       "outputs": [

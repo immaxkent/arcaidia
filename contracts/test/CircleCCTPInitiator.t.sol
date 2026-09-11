@@ -106,7 +106,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.prank(router);
         initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
 
         assertEq(tokenMessenger.callCount(), 1);
         (
@@ -128,13 +128,59 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         assertEq(minFinalityThreshold, 2000);
     }
 
+    /// The router's normal path (WP-25 / D8): a hook means `depositForBurnWithHook`, and the
+    /// destination receiver is named as the only address allowed to receive the message.
+    function test_initiateWithHookNamesTheReceiverAsDestinationCaller() public {
+        _configureDestination();
+        bytes memory hook = abi.encode(uint8(1), INTENT_ID, makeAddr("recipient"));
+
+        vm.prank(router);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID, hook
+        );
+
+        assertEq(tokenMessenger.callCount(), 1);
+        assertTrue(tokenMessenger.withHook(0), "must use depositForBurnWithHook");
+        assertEq(tokenMessenger.hookDataOf(0), hook, "hook must be forwarded verbatim");
+        (, uint32 domain, bytes32 mintRecipient,, bytes32 destinationCaller, uint256 maxFee, uint32 finality) =
+            tokenMessenger.calls(0);
+        assertEq(domain, _domainOf(destinationChainId));
+        assertEq(mintRecipient, bytes32(uint256(uint160(destinationReceiver))));
+        assertEq(destinationCaller, bytes32(uint256(uint160(destinationReceiver))));
+        assertEq(maxFee, 0);
+        assertEq(finality, 2000);
+    }
+
+    /// An empty hook keeps the v1 shape: hookless burn, permissionless receive.
+    function test_initiateWithoutHookStaysPermissionless() public {
+        _configureDestination();
+        vm.prank(router);
+        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID, "");
+        assertFalse(tokenMessenger.withHook(0));
+        (,,,, bytes32 destinationCaller,,) = tokenMessenger.calls(0);
+        assertEq(destinationCaller, bytes32(0));
+    }
+
+    function test_initiateWithHookRevertsAtomicallyWhenTokenMessengerFails() public {
+        _configureDestination();
+        tokenMessenger.setShouldRevert(true);
+        uint256 before = asset.balanceOf(router);
+
+        vm.expectRevert(MockTokenMessengerV2.MockDepositForBurnFailed.selector);
+        vm.prank(router);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID, hex"01"
+        );
+        assertEq(asset.balanceOf(router), before, "funds must not move if the burn fails");
+    }
+
     function test_initiatePullsFundsFromCallerAndForwardsToTokenMessenger() public {
         _configureDestination();
 
         vm.prank(router);
         initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
 
         assertEq(asset.balanceOf(router), 9_000e6);
         assertEq(asset.balanceOf(address(initiator)), 0, "initiator must not retain the burnt asset");
@@ -147,7 +193,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.prank(router);
         initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
 
         assertEq(asset.allowance(address(initiator), address(tokenMessenger)), 0);
     }
@@ -158,7 +204,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.prank(router);
         bytes32 ref = initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
         assertTrue(ref != bytes32(0));
     }
 
@@ -169,10 +215,10 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.startPrank(router);
         bytes32 first = initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
         bytes32 second = initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
         vm.stopPrank();
 
         assertTrue(first != second);
@@ -187,7 +233,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.prank(router);
         initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
 
         (,,,,, uint256 maxFee, uint32 minFinalityThreshold) = tokenMessenger.calls(0);
         assertEq(maxFee, 5e6);
@@ -205,7 +251,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         );
         initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
     }
 
     function test_initiateRevertsForWrongAsset() public {
@@ -223,7 +269,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         );
         initiator.initiateSettlement(
             address(wrongAsset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
     }
 
     /// The router must be able to revert the whole transaction — including its
@@ -237,7 +283,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.expectRevert(MockTokenMessengerV2.MockDepositForBurnFailed.selector);
         initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
 
         assertEq(asset.balanceOf(router), 10_000e6, "no funds should move on failure");
     }
@@ -251,6 +297,6 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.expectRevert();
         initiator.initiateSettlement(
             address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
-        );
+        , "");
     }
 }

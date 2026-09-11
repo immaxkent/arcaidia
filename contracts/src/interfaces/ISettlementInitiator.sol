@@ -6,11 +6,17 @@ pragma solidity 0.8.28;
 /// @dev The router must commit the user's funds to canonical settlement in the
 ///      same transaction that records the intent. It does so through this
 ///      interface so that no Circle-specific call appears in the protocol
-///      itself: `MockSettlementInitiator` implements it for tests, and a CCTP
-///      implementation replaces it in WP-10 without the router changing.
+///      itself: `MockSettlementInitiator` implements it for tests, and
+///      `CircleCCTPInitiator` is the CCTP implementation.
 ///
 ///      The implementation pulls `amount` of `asset` from the caller, so the
 ///      router approves it immediately before calling.
+///
+///      v2 (WP-25, DECISIONS.md D8): `hookData` is opaque metadata the transport
+///      must carry to the destination under its own attestation. The router
+///      passes `IntentHookLib.encode(intentId, recipient)`; the initiator does
+///      not interpret it. Empty `hookData` means "no metadata" — a transport
+///      may then use a hookless message.
 interface ISettlementInitiator {
     /// @notice Commit funds to canonical settlement toward the destination chain.
     /// @param asset The settlement asset being committed.
@@ -18,6 +24,7 @@ interface ISettlementInitiator {
     /// @param destinationChainId Chain the canonical funds are destined for.
     /// @param destinationReceiver Contract that will receive canonical funds.
     /// @param intentId Correlation key, so settlement can be tied back to the intent.
+    /// @param hookData Opaque metadata to carry with the canonical message (see above).
     /// @return settlementRef Opaque handle identifying the canonical message.
     ///         For CCTP this is derived from the message; consumers treat it as opaque.
     function initiateSettlement(
@@ -25,7 +32,8 @@ interface ISettlementInitiator {
         uint256 amount,
         uint256 destinationChainId,
         address destinationReceiver,
-        bytes32 intentId
+        bytes32 intentId,
+        bytes calldata hookData
     ) external returns (bytes32 settlementRef);
 
     /// @notice Whether this initiator can currently commit funds toward a chain.

@@ -9,6 +9,9 @@ import {ITokenMessengerV2} from "./interfaces/ITokenMessengerV2.sol";
 /// @title CircleCCTPInitiator
 /// @notice Real canonical settlement transport: burns via Circle's CCTP V2
 ///         `TokenMessengerV2`, replacing `MockSettlementInitiator` (WP-06).
+///         Since WP-25 it carries the router's intent hook in the burn message
+///         (`depositForBurnWithHook`) so the destination can associate the
+///         canonical mint with its intent from attested bytes (DECISIONS.md D8).
 /// @dev The router pulls no design knowledge of CCTP from this — it only sees
 ///      `ISettlementInitiator`. Everything CCTP-specific (domains, finality,
 ///      fee) lives here and in `CircleCCTPAdapter` on the destination side.
@@ -98,18 +101,24 @@ contract CircleCCTPInitiator is ISettlementInitiator {
     }
 
     /// @inheritdoc ISettlementInitiator
-    /// @dev `destinationCaller` is left as `bytes32(0)` (permissionless): CCTP
-    ///      mints to `mintRecipient` regardless of who calls `receiveMessage`
-    ///      on the destination, so restricting the caller would add no
-    ///      protection here — it would only add an operational way for the
-    ///      settlement worker to lock itself out. See `SettlementReceiver`'s
-    ///      own note on the equivalent "anyone may submit" property.
+    /// @dev With `hookData` (the router's normal path, WP-25 / D8) this burns through
+    ///      `depositForBurnWithHook` and names `destinationReceiver` as the
+    ///      `destinationCaller`: only that contract may `receiveMessage` on the
+    ///      destination, so the mint and its routing become one atomic, permissionless
+    ///      `SettlementReceiver.settleWithProof` call — no race with a third party
+    ///      calling `receiveMessage` first, and the attested `hookData` is what the
+    ///      receiver routes by. That is safe, not a lockout, precisely because
+    ///      `settleWithProof` needs no key: anyone holding the public attestation can
+    ///      submit it. An empty `hookData` keeps the v1 behaviour (hookless burn,
+    ///      `destinationCaller = 0`, reporter-driven settlement) for any caller that
+    ///      has nothing to carry.
     function initiateSettlement(
         address asset,
         uint256 amount,
         uint256 destinationChainId,
         address destinationReceiver,
-        bytes32 intentId
+        bytes32 intentId,
+        bytes calldata hookData
     ) external returns (bytes32 settlementRef) {
         if (!domainConfigured[destinationChainId]) {
             revert UnsupportedDestination(destinationChainId);
@@ -119,15 +128,28 @@ contract CircleCCTPInitiator is ISettlementInitiator {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
 
         IERC20(asset).forceApprove(address(tokenMessenger), amount);
-        tokenMessenger.depositForBurn(
-            amount,
-            domainFor[destinationChainId],
-            _toBytes32(destinationReceiver),
-            asset,
-            bytes32(0),
-            maxFee,
-            minFinalityThreshold
-        );
+        if (hookData.length > 0) {
+            tokenMessenger.depositForBurnWithHook(
+                amount,
+                domainFor[destinationChainId],
+                _toBytes32(destinationReceiver),
+                asset,
+                _toBytes32(destinationReceiver),
+                maxFee,
+                minFinalityThreshold,
+                hookData
+            );
+        } else {
+            tokenMessenger.depositForBurn(
+                amount,
+                domainFor[destinationChainId],
+                _toBytes32(destinationReceiver),
+                asset,
+                bytes32(0),
+                maxFee,
+                minFinalityThreshold
+            );
+        }
         IERC20(asset).forceApprove(address(tokenMessenger), 0);
 
         settlementRef = keccak256(abi.encode(intentId, destinationChainId, destinationReceiver, _refNonce++));

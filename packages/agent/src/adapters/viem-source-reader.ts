@@ -54,6 +54,7 @@ export function decodeIntentCreated(
       intentId: Bytes32;
       sender: Address;
       recipient: Address;
+      intentVersion: number;
       inputToken: Address;
       amount: bigint;
       sourceChainId: bigint;
@@ -61,11 +62,14 @@ export function decodeIntentCreated(
       maxFeeBps: number;
       deadline: bigint;
       nonce: bigint;
+      tokenOut: Address;
+      targetMinOut: bigint;
       settlementRef: Bytes32;
     };
 
     return {
       intentId: args.intentId,
+      intentVersion: Number(args.intentVersion),
       sender: args.sender,
       recipient: args.recipient,
       inputToken: args.inputToken,
@@ -75,6 +79,8 @@ export function decodeIntentCreated(
       maxFeeBps: Number(args.maxFeeBps),
       deadline: Number(args.deadline),
       nonce: args.nonce,
+      tokenOut: args.tokenOut,
+      targetMinOut: args.targetMinOut,
       settlementRef: args.settlementRef,
       emitter: log.address,
     };

@@ -19,6 +19,7 @@ function evidence(overrides: Partial<SourceEvidence> = {}): SourceEvidence {
     currentBlockNumber: 105n,
     intentCreated: {
       intentId: baseIntent.intentId,
+      intentVersion: baseIntent.intentVersion,
       sender: baseIntent.sender,
       recipient: baseIntent.recipient,
       inputToken: baseIntent.inputToken,
@@ -28,6 +29,8 @@ function evidence(overrides: Partial<SourceEvidence> = {}): SourceEvidence {
       maxFeeBps: baseIntent.maxFeeBps,
       deadline: baseIntent.deadline,
       nonce: baseIntent.nonce,
+      tokenOut: baseIntent.tokenOut,
+      targetMinOut: baseIntent.targetMinOut,
       settlementRef: baseIntent.settlementRef,
       emitter: ROUTER,
     },
@@ -131,6 +134,9 @@ describe('verifySourceTransaction', () => {
     ['maxFeeBps', { maxFeeBps: 999 }],
     ['deadline', { deadline: NOW + 7_200 }],
     ['nonce', { nonce: 99n }],
+    ['intentVersion', { intentVersion: 2 }],
+    ['tokenOut', { tokenOut: '0x3333333333333333333333333333333333333333' as `0x${string}`, targetMinOut: 1n }],
+    ['targetMinOut', { targetMinOut: 1n }],
   ] as const;
 
   it.each(fields)('rejects when the onchain %s differs', (_name, override) => {
