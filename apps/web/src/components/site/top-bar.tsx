@@ -7,9 +7,13 @@ import { WalletControl } from "./wallet-control";
 // out of the nav until their backend (the permissionless market, WP-16, and the
 // Telemetry Relay, WP-18) actually existed. Both are real now, so both are
 // linked; each route still self-gates on config independently.
+//
+// The old single-solver "/solver" decision-log page predates the market —
+// it has no data source wired to it and the market-wide "/console" has since
+// superseded it, so it's held out of the nav (not deleted: still routable
+// directly, but no longer a first-class surface).
 const ROUTES = [
   { to: "/transfer", label: "Transfer" },
-  { to: "/solver", label: "Solver" },
   { to: "/liquidity", label: "Liquidity" },
   { to: "/earn", label: "Earn" },
   { to: "/console", label: "Console" },

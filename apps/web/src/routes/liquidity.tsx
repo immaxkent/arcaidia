@@ -25,6 +25,8 @@ import {
 } from "@/hooks/arcaidia/use-vaults";
 import { useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
 import { useMarketIntelligence } from "@/hooks/arcaidia/use-market-intelligence";
+import { useEcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
+import { UtilisationChart } from "@/components/solver/utilisation-chart";
 
 export const Route = createFileRoute("/liquidity")({
   head: () => ({
@@ -66,6 +68,7 @@ function LiquidityPage() {
   const directory = useVaults(chainId);
   const market = useMarketIntelligence(chainId);
   const aggregate = useAggregateVaultState(directory);
+  const ecosystemUtilisation = useEcosystemUtilisation(chainId, directory);
   const vault =
     directory.status === "ready"
       ? (directory.data.find((v) => v.vaultAddress === selected) ?? null)
@@ -78,18 +81,23 @@ function LiquidityPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
-      <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">
-        Liquidity market
-      </h1>
-      <p className="measure mt-2 text-sm text-text-dim">
-        Arcaidia is not one pool. Every destination chain has its own directory of vaults: the{" "}
-        <span className="text-gold-glow">Arcaidia House Vault</span> plus{" "}
-        <span className="text-acid">permissionless independent solver vaults</span>. Each vault
-        risks capital it owns to advance USDC to a recipient, and{" "}
-        <span className="text-text">the first valid fill wins</span>. Canonical CCTP settlement
-        later reimburses whichever vault filled — it is not best-price execution, and reimbursement
-        is not yet trustless.
-      </p>
+      <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
+        <div>
+          <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">
+            Liquidity market
+          </h1>
+          <p className="measure mt-2 text-sm text-text-dim">
+            Arcaidia is not one pool. Every destination chain has its own directory of vaults: the{" "}
+            <span className="text-gold-glow">Arcaidia House Vault</span> plus{" "}
+            <span className="text-acid">permissionless independent solver vaults</span>. Each vault
+            risks capital it owns to advance USDC to a recipient, and{" "}
+            <span className="text-text">the first valid fill wins</span>. Canonical CCTP settlement
+            later reimburses whichever vault filled — it is not best-price execution, and
+            reimbursement is not yet trustless.
+          </p>
+        </div>
+        <UtilisationChart state={ecosystemUtilisation} />
+      </div>
 
       {/* Aggregate liquidity/utilisation/exposure are real, computed client-side
           from the same vault directory read below — V1 has exactly one vault

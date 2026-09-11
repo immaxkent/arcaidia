@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
 import { SolverOrb } from "@/components/solver/solver-orb";
-import { UtilisationChart } from "@/components/solver/utilisation-chart";
+import { VaultUtilisationChart } from "@/components/solver/utilisation-chart";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { CHAINS, type ActivityRow, type SolverAuthState, type SolverRuntimeStatus } from "@/lib/arcaidia/types";
@@ -12,12 +12,11 @@ import { explorerTxUrl, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
 import { NOT_AVAILABLE, errorState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateSection, StateValue } from "@/components/data/state-views";
 import { solverVaultAbi, vaultCapabilitiesFromAbi, type VaultCapability } from "@/lib/arcaidia/abis";
-import { useEcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
 import { useIntentOutcome } from "@/hooks/arcaidia/use-intent-outcome";
 import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
 import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
 import { useVaultActivity, useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
-import { useVaults, type VaultDirectoryRow } from "@/hooks/arcaidia/use-vaults";
+import { useVaultAnalytics, useVaults, type VaultDirectoryRow } from "@/hooks/arcaidia/use-vaults";
 import { deriveOnchainStage } from "@/lib/arcaidia/solver-stage";
 
 export const Route = createFileRoute("/console")({
@@ -27,7 +26,7 @@ export const Route = createFileRoute("/console")({
       {
         name: "description",
         content:
-          "Every vault competing in the intent market, on both chains: authorised solver status, settled volume, fees earned, ecosystem-wide utilisation over time, and a stage-by-stage execution timeline separating solver telemetry from onchain-confirmed state.",
+          "Every vault competing in the intent market, on both chains: authorised solver status, settled volume, fees earned, its own utilisation over time, and a stage-by-stage execution timeline separating solver telemetry from onchain-confirmed state.",
       },
       { property: "og:title", content: "Solver console — Arcaidia" },
       {
@@ -100,14 +99,7 @@ function ConsolePage() {
     connected && address && vault?.ownerAddress && vault.ownerAddress.toLowerCase() === address.toLowerCase(),
   );
   const capabilities = vaultCapabilitiesFromAbi(solverVaultAbi as unknown as ReadonlyArray<{ type: string; name?: string }>);
-  // Scoped to the currently viewed vault's own chain — Sepolia and Arc are
-  // separate liquidity pools, so an aggregate blending both would conflate
-  // two independent markets into one number that doesn't mean anything.
-  const chainVaults: DataState<VaultDirectoryRow[]> =
-    vault && list.status === "ready"
-      ? readyState(list.data.filter((row) => row.chainId === vault.chainId))
-      : list;
-  const ecosystemUtilisation = useEcosystemUtilisation(vault?.chainId ?? SUPPORTED_CHAIN_IDS[0]!, chainVaults);
+  const vaultUtilisation = useVaultAnalytics(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
   // Telemetry first: its reported operator/online state feeds useSolverMetrics
   // below (WP-19.4's own rule — telemetry only ever supplies a *candidate*
   // operator to check onchain, never the authorisation fact itself).
@@ -307,7 +299,7 @@ function ConsolePage() {
                 onchainStage={onchainStage}
               />
             </section>
-            <UtilisationChart state={ecosystemUtilisation} />
+            <VaultUtilisationChart state={vaultUtilisation} />
           </div>
 
           {isVaultOwner ? (
