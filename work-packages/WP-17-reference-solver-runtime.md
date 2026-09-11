@@ -65,10 +65,19 @@ entirely without stopping a single fill.
       service, its logs show the same live proof, and `curl localhost:8787/quote` from the host got a
       real HTTP response through the `8787:8787` mapping — the compose networking works, not only the
       image.
-- [ ] **17.4 Kill-the-Relay test.** The full discover/verify/decide/fill/reimburse cycle passes
-      unmodified with `TELEMETRY_ENABLED=false` and the Relay unreachable — this is the load-bearing
-      proof that telemetry is observation, never authorisation, the same rule WP-08 already holds
-      for The Graph.
+- [x] **17.4 Kill-the-Relay test.** `tests/e2e/src/harness.ts`'s `WorldOptions` now takes an
+      optional `telemetry` client (`solverDeps()` defaults it to `NoopTelemetryClient`, the same
+      "correct without telemetry" default the real entrypoint uses) — the harness prerequisite this
+      sub-task was blocked on. `tests/e2e/test/kill-the-relay.test.ts` then runs the golden run's own
+      fast-path/canonical-path/books assertions, verbatim, with a genuine `HttpTelemetryClient` (not
+      a mock) pointed at `http://127.0.0.1:1` — a port nothing listens on, chosen so the connection is
+      refused immediately rather than waiting out a routable-but-blackholed address's TCP timeout.
+      Every fill and settlement outcome, and every balance assertion, matches `golden.test.ts`
+      exactly. A companion assertion confirms the client wasn't inert: `onError` recorded a real
+      failed POST for every pre-chain stage the run passed through, proving telemetry was genuinely
+      exercised and genuinely failed, not merely configured off. This is the full e2e-harness version
+      of the claim `process-intent.test.ts`'s hostile-telemetry-client unit test already made at the
+      unit level.
 
 ## Tests
 
@@ -85,11 +94,10 @@ entirely without stopping a single fill.
       synchronously on every call still lets a fill complete end to end, and each outcome
       (`FILLED`/`DECLINED`/`UNVERIFIED`/`SKIPPED`) reports exactly the stages that outcome actually
       passed through, no more.
-- [ ] Kill-the-Relay: full golden-run-equivalent lifecycle, Relay never started, solver completes
-      every fill exactly as WP-07's golden run does. (The unit-level version of this claim — a
-      telemetry client that fails/throws on everything still lets a fill complete — is done, above;
-      this is the full e2e-harness version, once the harness itself is wired to pass a telemetry
-      client through.)
+- [x] Kill-the-Relay: `tests/e2e/test/kill-the-relay.test.ts` — full golden-run-equivalent
+      lifecycle, a real `HttpTelemetryClient` posting against a dead port, solver completes every
+      fill and reimbursement exactly as `golden.test.ts`'s golden run does, and a second assertion
+      confirms the dead-Relay posts genuinely happened and genuinely failed.
 
 ## Acceptance gate
 
