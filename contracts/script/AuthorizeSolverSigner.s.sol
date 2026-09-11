@@ -19,9 +19,10 @@ import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 ///          --broadcast
 ///      Usage (revoke): same, with REVOKE=true in the environment.
 contract AuthorizeSolverSignerScript is Script {
-    address internal constant VAULT = 0x9F5813cD0Ea34403f78769076043436E67736da3;
 
     function run() external {
+        // v2 (WP-31): any vault — the House Vault or an operator's own factory vault.
+        address VAULT = vm.envAddress("VAULT_ADDRESS");
         address signer = vm.envAddress("SOLVER_SIGNER_ADDRESS");
         bool allowed = !vm.envOr("REVOKE", false);
 

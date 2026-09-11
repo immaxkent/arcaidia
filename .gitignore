@@ -19,3 +19,7 @@ apps/web/.vinxi/
 # the live solver's own decision log (packages/agent/src/entrypoint/main.ts)
 solver-decisions*.jsonl
 .circle-recovery/
+
+# Per-operator solver env files (WP-28.6 / WP-31) — keys, never committed
+.env.solver-*
+!.env.solver-*.example

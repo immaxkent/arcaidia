@@ -23,9 +23,9 @@ import {SettlementReceiver} from "../src/SettlementReceiver.sol";
 ///          --broadcast
 ///      Usage (revoke): same, with REVOKE=true in the environment.
 contract AuthorizeSettlementReporterScript is Script {
-    address internal constant SETTLEMENT_RECEIVER = 0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC;
 
     function run() external {
+        address SETTLEMENT_RECEIVER = vm.envAddress("SETTLEMENT_RECEIVER_ADDRESS");
         address reporter = vm.envAddress("SETTLEMENT_REPORTER_ADDRESS");
         bool allowed = !vm.envOr("REVOKE", false);
 
