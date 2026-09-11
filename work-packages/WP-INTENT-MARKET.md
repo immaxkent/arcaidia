@@ -152,6 +152,20 @@ it already is.
   competition to fill a user's order has no clear anti-spam justification here, since the
   intents are read openly rather than broadcast at volume. If Sybil/spam pressure on the
   opportunity feed becomes real, revisit.
+- **Propagating the intent's real `maxFeeBps`/deadline to the destination chain, discussed
+  2026-09-11, deliberately not built.** V1's flat, universal, market-enforced fee ceiling (§3)
+  makes this unnecessary today — under first-valid-fill, price isn't a winning factor, so every
+  vault rationally charges the ceiling regardless of the user's real per-intent number, and a
+  user's own lower preference is already protected off-chain (an honest agent won't sign a fill
+  that violates it). Extending `FillAuthorization` with the real value would be **agent-asserted,
+  not trustless** — the same trusted-signer model every other field in that struct already uses,
+  not a new verification primitive. **Only worth revisiting if the market mechanism itself moves
+  away from first-valid-fill toward genuine price competition** (a sealed-bid/RFQ model, §6 above)
+  — and even then, only via the same trusted-agent-assertion pattern, never as a claim of
+  trustless cross-chain verification. Actual trustless verification of source-chain data on the
+  destination chain would need a light client (Merkle-proof block-header verification) or an
+  external message-passing oracle/bridge — both real, heavy, separate infrastructure, and both
+  contrary to this project's own stated trust assumption (`README.md`, "Trust assumption").
 
 ## 7. The reference solver runtime — Docker, telemetry, operator pairing
 
