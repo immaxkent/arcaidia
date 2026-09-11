@@ -19,7 +19,7 @@ contract SettlementReceiverTest is VaultFixture {
         _deployVault();
 
         receiver = new SettlementReceiver();
-        receiver.initialize(vaultOwner, address(asset), address(vault));
+        receiver.initialize(vaultOwner, address(asset), address(market));
 
         vm.startPrank(vaultOwner);
         receiver.setReporter(reporter, true);
@@ -47,18 +47,18 @@ contract SettlementReceiverTest is VaultFixture {
         assertTrue(receiver.initialized());
         assertEq(receiver.owner(), vaultOwner);
         assertEq(address(receiver.asset()), address(asset));
-        assertEq(address(receiver.vault()), address(vault));
+        assertEq(address(receiver.market()), address(market));
     }
 
     function test_initializeCannotBeCalledTwice() public {
         vm.expectRevert(SettlementReceiver.AlreadyInitialized.selector);
-        receiver.initialize(lpAlice, address(asset), address(vault));
+        receiver.initialize(lpAlice, address(asset), address(market));
     }
 
     function test_initializeRejectsZeroAddresses() public {
         SettlementReceiver fresh = new SettlementReceiver();
         vm.expectRevert(SettlementReceiver.ZeroAddress.selector);
-        fresh.initialize(address(0), address(asset), address(vault));
+        fresh.initialize(address(0), address(asset), address(market));
     }
 
     // -----------------------------------------------------------------------

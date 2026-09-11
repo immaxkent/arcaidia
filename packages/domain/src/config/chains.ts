@@ -64,6 +64,16 @@ export interface ChainConfig {
    */
   readonly graphNetwork: string;
   /**
+   * Where the solver discovers pending intents and reads live vault/protocol
+   * state (WP-08, WP-22). Defaults to Arcaidia's own shared, unlimited
+   * indexer ("the Nest") — SQL-over-HTTP, not GraphQL; see
+   * `packages/agent/src/observation/sql-nest-observation-provider.ts`.
+   * `SUBGRAPH_URL_{PREFIX}` overrides it for an operator pointing at their
+   * own subgraph or indexer instead — same override-with-committed-default
+   * shape as `rpcUrl` above.
+   */
+  readonly subgraphUrl: string;
+  /**
    * The settlement asset. Selecting MockUSDC or real USDC is a change to this
    * field and nothing else — there is no runtime mock/real switch anywhere in
    * the protocol, which sees only a configured IERC20.
@@ -106,6 +116,9 @@ export const CHAINS: Readonly<Record<ChainKey, ChainConfig>> = {
     rpcUrl: process.env['ETHEREUM_SEPOLIA_RPC_URL'] ?? 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
     graphNetwork: 'sepolia',
+    subgraphUrl:
+      process.env['SUBGRAPH_URL_ETHEREUM_SEPOLIA'] ??
+      'https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia',
     settlementAsset: {
       address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
       symbol: 'USDC',
@@ -123,6 +136,7 @@ export const CHAINS: Readonly<Record<ChainKey, ChainConfig>> = {
     rpcUrl: process.env['ARC_TESTNET_RPC_URL'] ?? 'https://rpc.testnet.arc.io',
     explorerUrl: 'https://testnet.arcscan.app',
     graphNetwork: 'arc-testnet',
+    subgraphUrl: process.env['SUBGRAPH_URL_ARC_TESTNET'] ?? 'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc',
     settlementAsset: {
       // ERC-20 facade over Arc's native USDC gas token. `decimals()` returns 6
       // and `symbol()` returns "USDC"; both confirmed by live eth_call.

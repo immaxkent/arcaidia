@@ -2,9 +2,12 @@
 pragma solidity 0.8.28;
 
 import {ChainFixture} from "./base/ChainFixture.sol";
+import {NeverSettledCheck} from "./base/VaultFixture.sol";
 import {VaultHarness} from "./harness/VaultHarness.sol";
 import {ReentrantToken} from "../src/mocks/ReentrantToken.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
+import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
+import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
 import {FillAuthorization} from "../src/libraries/ArcaidiaTypes.sol";
 
 /// @notice The vault against a hostile settlement asset.
@@ -33,6 +36,7 @@ contract VaultReentrancyTest is ChainFixture {
         (agent, agentKey) = makeAddrAndKey("agent");
         vm.startPrank(vaultOwner);
         vault.setFillLimits(2_500, 10_000, 100); // 25% fill cap, 100% exposure cap, 1% fee
+        vault.setMarket(address(new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())))));
         vault.setAuthorisedSigner(agent, true);
         vault.setSettlementReceiver(address(this));
         vm.stopPrank();

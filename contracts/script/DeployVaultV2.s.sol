@@ -53,7 +53,8 @@ contract DeployVaultV2Script is Script {
     function run() external {
         address owner = vm.envAddress("PROTOCOL_OWNER");
         address settlementAsset = vm.envOr("SETTLEMENT_ASSET", _defaultSettlementAsset(block.chainid));
-        uint256 destinationChainId = vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid));
+        uint256 destinationChainId =
+            vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid));
         uint16 reserveFloorBps = uint16(vm.envUint("RESERVE_FLOOR_BPS"));
         address treasury = vm.envOr("PROTOCOL_TREASURY", address(0));
         uint16 protocolFeeShareBps = uint16(vm.envOr("PROTOCOL_FEE_SHARE_BPS", uint256(0)));
@@ -73,19 +74,20 @@ contract DeployVaultV2Script is Script {
         console.log("solver signer to authorise   ", solverSigner);
         console.log("settlement reporter to grant ", settlementReporter);
 
-        ArcaidiaDeployment.VaultV2Deployment memory deployment = ArcaidiaDeployment.deployReplacementVaultAndReceiver(
-            deployer,
-            ArcaidiaDeployment.VaultV2Config({
-                settlementAsset: settlementAsset,
-                reserveFloorBps: reserveFloorBps,
-                treasury: treasury,
-                protocolFeeShareBps: protocolFeeShareBps,
-                solverSigner: solverSigner,
-                settlementReporter: settlementReporter,
-                owner: owner,
-                deployingAs: msg.sender
-            })
-        );
+        ArcaidiaDeployment.VaultV2Deployment memory deployment =
+            ArcaidiaDeployment.deployReplacementVaultAndReceiver(
+                deployer,
+                ArcaidiaDeployment.VaultV2Config({
+                    settlementAsset: settlementAsset,
+                    reserveFloorBps: reserveFloorBps,
+                    treasury: treasury,
+                    protocolFeeShareBps: protocolFeeShareBps,
+                    solverSigner: solverSigner,
+                    settlementReporter: settlementReporter,
+                    owner: owner,
+                    deployingAs: msg.sender
+                })
+            );
 
         // The router is untouched (WP-12 only replaces the vault + receiver),
         // but it must send this chain's canonical CCTP mint recipient at the
@@ -96,7 +98,8 @@ contract DeployVaultV2Script is Script {
 
         require(deployment.vault == predicted.vault, "vault address mismatch");
         require(
-            deployment.settlementReceiver == predicted.settlementReceiver, "settlement receiver address mismatch"
+            deployment.settlementReceiver == predicted.settlementReceiver,
+            "settlement receiver address mismatch"
         );
 
         console.log("--- deployed ---");

@@ -5,12 +5,14 @@
  *   V1            -> one Arcaidia House Vault per chain: chainConfig(chainId).houseVault
  *   Intent Market -> additional SolverVaults discovered from Factory/Registry events — not yet wired
  *   Current state -> direct contract reads via solverVaultAbi (liquidity, exposure, paused, owner)
- *   Aggregates    -> The Graph: Vault.fillCount and ProtocolState.totalFeesEarned. V1 has exactly
- *                    one vault per chain, so that chain's ProtocolState singleton is this vault's
- *                    lifetime fee figure (LP + protocol combined — the subgraph mapping sums both
- *                    into one running total, see subgraph/src/vault.ts's handleFeesAccrued).
- *                    Missing/unreachable subgraph degrades these two fields to null rather than
- *                    failing the whole row — the RPC-sourced fields are the more load-bearing ones.
+ *   Aggregates    -> Arcaidia's shared, unlimited indexer (WP-22/23): `vault.fill_count` and
+ *                    `protocol_state.total_fees_earned`. V1 has exactly one vault per chain, so
+ *                    that chain's protocol_state row is this vault's lifetime fee figure (LP +
+ *                    protocol combined — the indexer's own mapping sums both into one running
+ *                    total, see subgraph/src/vault.ts's handleFeesAccrued, which the Nest is
+ *                    seeded from). Missing/unreachable indexer degrades these two fields to null
+ *                    rather than failing the whole row — the RPC-sourced fields are the more
+ *                    load-bearing ones.
  *
  * `authorisedSolver` stays null: the real vault tracks an arbitrary *set* of
  * authorised signers (`isAuthorisedSigner`), not a single queryable address —
@@ -28,22 +30,16 @@ import {
   unavailableState,
   type DataState,
 } from "@/lib/arcaidia/data-state";
-import { querySubgraph } from "@/lib/arcaidia/subgraph";
+import { queryNest, sqlHex20Literal } from "@/lib/arcaidia/nest";
 import type { Address, OperatorType, VaultStatus } from "@/lib/arcaidia/types";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
-
-const VAULT_AGGREGATES = `
-  query VaultAggregates($id: Bytes!) {
-    vault(id: $id) { fillCount }
-    protocolState(id: "arcaidia") { totalFeesEarned }
-  }`;
 
 interface VaultAggregates {
   successfulFillCount: number | null;
   lifetimeFees: bigint | null;
 }
 
-async function readVaultAggregates(
+export async function readVaultAggregates(
   chainId: number,
   vaultAddress: Address,
 ): Promise<VaultAggregates> {
@@ -51,14 +47,18 @@ async function readVaultAggregates(
   if (!endpoint) return { successfulFillCount: null, lifetimeFees: null };
 
   try {
-    const data = await querySubgraph<{
-      vault: { fillCount: string } | null;
-      protocolState: { totalFeesEarned: string } | null;
-    }>(endpoint, VAULT_AGGREGATES, { id: vaultAddress.toLowerCase() });
+    const idLiteral = sqlHex20Literal(vaultAddress);
+    const [vaultResult, protocolStateResult] = await Promise.all([
+      queryNest<{ fill_count: number }>(endpoint, `SELECT fill_count FROM vault WHERE id = ${idLiteral}`),
+      queryNest<{ total_fees_earned: string }>(
+        endpoint,
+        "SELECT total_fees_earned FROM protocol_state WHERE id = 'arcaidia'",
+      ),
+    ]);
 
     return {
-      successfulFillCount: data.vault ? Number(data.vault.fillCount) : null,
-      lifetimeFees: data.protocolState ? BigInt(data.protocolState.totalFeesEarned) : null,
+      successfulFillCount: vaultResult.rows[0] ? Number(vaultResult.rows[0].fill_count) : null,
+      lifetimeFees: protocolStateResult.rows[0] ? BigInt(protocolStateResult.rows[0].total_fees_earned) : null,
     };
   } catch {
     // Indexer hiccup degrades to unavailable for these two fields only —

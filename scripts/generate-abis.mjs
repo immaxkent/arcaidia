@@ -21,6 +21,7 @@ const CONTRACTS = [
   'ArcaidiaIntentRouter',
   'ArcaidiaLiquidityVault',
   'SettlementReceiver',
+  'ArcaidiaIntentMarket',
   'ArcaidiaDeployer',
   'MockUSDC',
   'MockSettlementInitiator',

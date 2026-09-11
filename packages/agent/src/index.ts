@@ -88,6 +88,17 @@ export type {
 export { FetchGraphQueryClient } from './observation/graph-client.js';
 export type { GraphQueryClient } from './observation/graph-client.js';
 
+// SqlNestObservationProvider — Arcaidia's shared, unlimited indexer (WP-22),
+// the live entrypoint's default. Same ObservationProvider contract as
+// GraphObservationProvider above, SQL-over-HTTP instead of GraphQL.
+export { SqlNestObservationProvider } from './observation/sql-nest-observation-provider.js';
+export type {
+  NestChainSource,
+  SqlNestObservationOptions,
+} from './observation/sql-nest-observation-provider.js';
+export { FetchNestQueryClient } from './observation/nest-client.js';
+export type { NestQueryClient, NestQueryResult } from './observation/nest-client.js';
+
 // The worker — WP-11. runSolverPass is one discover-and-process cycle;
 // startSolverWorker is "keep doing that forever" around it.
 export { runSolverPass } from './worker/run-solver-pass.js';

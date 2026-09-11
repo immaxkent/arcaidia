@@ -42,6 +42,10 @@ export const ARTIFACTS = {
     bytecode: bytecodeOf('ArcaidiaLiquidityVault'),
   },
   SettlementReceiver: { abi: ABIS.SettlementReceiver, bytecode: bytecodeOf('SettlementReceiver') },
+  ArcaidiaIntentMarket: {
+    abi: ABIS.ArcaidiaIntentMarket,
+    bytecode: bytecodeOf('ArcaidiaIntentMarket'),
+  },
 } as const;
 
 /** Salts must be identical on every chain; they are half of what fixes the addresses. */
@@ -49,6 +53,7 @@ export const SALTS = {
   vault: keccakConstant('arcaidia.v1.liquidity-vault'),
   receiver: keccakConstant('arcaidia.v1.settlement-receiver'),
   router: keccakConstant('arcaidia.v1.intent-router'),
+  market: keccakConstant('arcaidia.v1.intent-market'),
 } as const;
 
 // Imported lazily to keep this module's surface small.

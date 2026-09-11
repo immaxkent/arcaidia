@@ -14,6 +14,7 @@ import {
   FakeObservationProvider,
   FakeSourceReader,
   FakeSubmitter,
+  FakeTelemetryClient,
   RecordingAuthority,
 } from './solver-fakes.js';
 
@@ -300,5 +301,85 @@ describe('processIntent', () => {
     registerDeployment('ethereum-sepolia', {});
     registerDeployment('arc-testnet', {});
     await expect(processIntent(baseIntent, deps)).rejects.toThrow();
+  });
+
+  // -----------------------------------------------------------------------
+  // Telemetry (WP-17.2) — pre-chain, purely observational, never load-bearing
+  // -----------------------------------------------------------------------
+
+  describe('telemetry', () => {
+    it('reports all four pre-chain stages, in order, for a fill that completes', async () => {
+      const telemetry = new FakeTelemetryClient();
+      const outcome = await processIntent(baseIntent, { ...deps, telemetry });
+
+      expect(outcome.kind).toBe('FILLED');
+      expect(telemetry.stages.map((e) => e.stage)).toEqual([
+        'INTENT_DISCOVERED',
+        'VERIFYING_SOURCE',
+        'FORMULATING_FILL',
+        'SUBMITTING_SETTLEMENT',
+      ]);
+      expect(telemetry.stages.every((e) => e.intentId === baseIntent.intentId)).toBe(true);
+      expect(telemetry.stages.every((e) => e.vaultAddress === ARC_VAULT)).toBe(true);
+    });
+
+    it('stops at FORMULATING_FILL for a declined intent — it never reaches submission', async () => {
+      const telemetry = new FakeTelemetryClient();
+      observation.vault = vault({ outstandingExposure: USDC(59_900) });
+
+      const outcome = await processIntent(baseIntent, { ...deps, telemetry });
+
+      expect(outcome.kind).toBe('DECLINED');
+      expect(telemetry.stages.map((e) => e.stage)).toEqual([
+        'INTENT_DISCOVERED',
+        'VERIFYING_SOURCE',
+        'FORMULATING_FILL',
+      ]);
+    });
+
+    it('stops at VERIFYING_SOURCE for an intent that fails source verification', async () => {
+      const telemetry = new FakeTelemetryClient();
+      sourceReader.set({ ...evidenceFor(), status: 'reverted' });
+      const outcome = await processIntent(baseIntent, { ...deps, telemetry });
+
+      expect(outcome.kind).toBe('UNVERIFIED');
+      expect(telemetry.stages.map((e) => e.stage)).toEqual([
+        'INTENT_DISCOVERED',
+        'VERIFYING_SOURCE',
+      ]);
+    });
+
+    it('reports nothing for an intent this pass already knows is done', async () => {
+      const telemetry = new FakeTelemetryClient();
+      observation.filled.add(baseIntent.intentId);
+      const outcome = await processIntent(baseIntent, { ...deps, telemetry });
+
+      expect(outcome.kind).toBe('SKIPPED');
+      expect(telemetry.stages).toHaveLength(0);
+    });
+
+    /// The actual WP-17 acceptance-gate claim, exercised directly: a telemetry
+    /// client that throws synchronously on every call must not stop a fill
+    /// from completing. `HttpTelemetryClient` is careful never to do this in
+    /// the first place; this proves processIntent doesn't merely trust that.
+    it('a telemetry client that throws on every call never breaks the fill', async () => {
+      const hostileTelemetry = {
+        reportStage: () => {
+          throw new Error('relay is on fire');
+        },
+        heartbeat: () => {
+          throw new Error('relay is on fire');
+        },
+      };
+
+      const outcome = await processIntent(baseIntent, { ...deps, telemetry: hostileTelemetry });
+
+      expect(outcome.kind).toBe('FILLED');
+    });
+
+    it('reports nothing when telemetry is entirely unset — TELEMETRY_ENABLED=false is correct, not just tolerated', async () => {
+      const outcome = await processIntent(baseIntent, deps);
+      expect(outcome.kind).toBe('FILLED');
+    });
   });
 });

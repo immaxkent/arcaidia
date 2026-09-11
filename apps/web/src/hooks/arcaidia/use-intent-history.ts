@@ -1,19 +1,18 @@
 /**
  * The connected owner's intent history (status / history surface).
  *
- * SOURCE: The Graph, both configured chains.
+ * SOURCE: Arcaidia's shared, unlimited indexer (WP-22/23) — SQL over HTTP,
+ * both configured chains.
  *
  * Two separate joins, for the same reason the backend's own
- * `GraphObservationProvider` and the subgraph mappings themselves document:
- * an intent's `Fill`/`Settlement` are indexed on the *destination* chain's
- * deployment, which never saw that intent's own `IntentCreated` event, so
- * `Intent.fill`/`Intent.settlement` never actually populate in this
- * architecture — see subgraph/src/vault.ts and subgraph/src/settlement.ts's
- * own "best-effort local join" comments. The real join happens here:
+ * `SqlNestObservationProvider`/`GraphObservationProvider` document: an
+ * intent's fill/settlement are indexed on the *destination* chain's
+ * deployment, which never saw that intent's own `IntentCreated` event. The
+ * real join happens here:
  *   1. query intents where sender = owner, on every configured chain
  *   2. group the results by destinationChainId
  *   3. query fills + settlements for those intentIds, on each destination
- *      chain's own subgraph
+ *      chain's own Nest
  *   4. merge on intentId
  *
  * `winningVault` is honestly answerable in V1 without an extra query: V1 has
@@ -31,7 +30,7 @@ import {
   unavailableState,
   type DataState,
 } from "@/lib/arcaidia/data-state";
-import { querySubgraph } from "@/lib/arcaidia/subgraph";
+import { queryNest, sqlHex20Literal, sqlHex32InClause } from "@/lib/arcaidia/nest";
 import type {
   Address,
   CanonicalOutcome,
@@ -50,49 +49,35 @@ export interface IntentHistoryRow {
   settlementLatencySeconds: number | null;
 }
 
-const INTENTS_BY_SENDER = `
-  query IntentsBySender($sender: Bytes!) {
-    intents(where: { sender: $sender }, orderBy: createdAtTimestamp, orderDirection: desc, first: 200) {
-      id sender recipient inputToken amount sourceChainId destinationChainId
-      maxFeeBps deadline createdAtTimestamp createdTxHash
-    }
-  }`;
-
-const FILLS_AND_SETTLEMENTS_FOR_INTENTS = `
-  query FillsAndSettlementsForIntents($ids: [Bytes!]!) {
-    fills(where: { intentId_in: $ids }) { id intentId outputAmount timestamp txHash }
-    settlements(where: { intentId_in: $ids }) { id intentId outcome amount timestamp txHash }
-  }`;
-
 interface RawIntent {
   id: string;
   sender: string;
   recipient: string;
-  inputToken: string;
+  input_token: string;
   amount: string;
-  sourceChainId: string;
-  destinationChainId: string;
-  maxFeeBps: number;
+  source_chain_id: string;
+  destination_chain_id: string;
+  max_fee_bps: number;
   deadline: string;
-  createdAtTimestamp: string;
-  createdTxHash: string;
+  created_at_timestamp: number;
+  created_tx_hash: string;
 }
 
 interface RawFill {
   id: string;
-  intentId: string;
-  outputAmount: string;
-  timestamp: string;
-  txHash: string;
+  intent_id: string;
+  output_amount: string;
+  timestamp: number;
+  tx_hash: string;
 }
 
 interface RawSettlement {
   id: string;
-  intentId: string;
+  intent_id: string;
   outcome: string;
   amount: string;
-  timestamp: string;
-  txHash: string;
+  timestamp: number;
+  tx_hash: string;
 }
 
 async function fetchIntentHistory(
@@ -110,22 +95,26 @@ async function fetchIntentHistory(
         c.subgraphUrl !== null,
     );
 
+  const senderLiteral = sqlHex20Literal(owner);
   const perChain = await Promise.all(
     endpoints.map((source) =>
-      querySubgraph<{ intents: RawIntent[] }>(source.subgraphUrl, INTENTS_BY_SENDER, {
-        sender: owner.toLowerCase(),
-      }),
+      queryNest<RawIntent>(
+        source.subgraphUrl,
+        "SELECT id, sender, recipient, input_token, amount, source_chain_id, destination_chain_id, " +
+          `max_fee_bps, deadline, created_at_timestamp, created_tx_hash FROM intents ` +
+          `WHERE sender = ${senderLiteral} ORDER BY created_at_timestamp DESC LIMIT 200`,
+      ),
     ),
   );
-  const rawIntents = perChain.flatMap((data) => data.intents);
+  const rawIntents = perChain.flatMap((data) => data.rows);
   if (rawIntents.length === 0) return [];
 
-  // Group by destination chain — that is where each intent's Fill/Settlement live.
-  const idsByDestination = new Map<number, string[]>();
+  // Group by destination chain — that is where each intent's fill/settlement live.
+  const idsByDestination = new Map<number, Hex[]>();
   for (const intent of rawIntents) {
-    const destinationChainId = Number(intent.destinationChainId);
+    const destinationChainId = Number(intent.destination_chain_id);
     const list = idsByDestination.get(destinationChainId) ?? [];
-    list.push(intent.id);
+    list.push(intent.id as Hex);
     idsByDestination.set(destinationChainId, list);
   }
 
@@ -134,12 +123,18 @@ async function fetchIntentHistory(
       const endpoint = chainConfig(destinationChainId)?.subgraphUrl;
       if (!endpoint)
         return { destinationChainId, fills: [] as RawFill[], settlements: [] as RawSettlement[] };
-      const data = await querySubgraph<{ fills: RawFill[]; settlements: RawSettlement[] }>(
-        endpoint,
-        FILLS_AND_SETTLEMENTS_FOR_INTENTS,
-        { ids },
-      );
-      return { destinationChainId, fills: data.fills, settlements: data.settlements };
+      const idsClause = sqlHex32InClause(ids);
+      const [fillsResult, settlementsResult] = await Promise.all([
+        queryNest<RawFill>(
+          endpoint,
+          `SELECT id, intent_id, output_amount, timestamp, tx_hash FROM fills WHERE intent_id IN (${idsClause})`,
+        ),
+        queryNest<RawSettlement>(
+          endpoint,
+          `SELECT id, intent_id, outcome, amount, timestamp, tx_hash FROM settlements WHERE intent_id IN (${idsClause})`,
+        ),
+      ]);
+      return { destinationChainId, fills: fillsResult.rows, settlements: settlementsResult.rows };
     }),
   );
 
@@ -147,29 +142,29 @@ async function fetchIntentHistory(
   const settlementByIntentId = new Map<string, RawSettlement>();
   const houseVaultByChain = new Map(endpoints.map((e) => [e.id, e.houseVault]));
   for (const result of destinationResults) {
-    for (const fill of result.fills) fillByIntentId.set(fill.intentId, fill);
+    for (const fill of result.fills) fillByIntentId.set(fill.intent_id, fill);
     for (const settlement of result.settlements)
-      settlementByIntentId.set(settlement.intentId, settlement);
+      settlementByIntentId.set(settlement.intent_id, settlement);
   }
 
   return rawIntents.map((raw): IntentHistoryRow => {
     const fill = fillByIntentId.get(raw.id) ?? null;
     const settlement = settlementByIntentId.get(raw.id) ?? null;
-    const destinationChainId = Number(raw.destinationChainId);
-    const createdAt = Number(raw.createdAtTimestamp);
+    const destinationChainId = Number(raw.destination_chain_id);
+    const createdAt = raw.created_at_timestamp;
 
     const intent: Intent = {
       intentId: raw.id as Hex,
       sender: raw.sender as Address,
       recipient: raw.recipient as Address,
-      inputToken: raw.inputToken as Address,
+      inputToken: raw.input_token as Address,
       amount: BigInt(raw.amount),
-      sourceChainId: Number(raw.sourceChainId),
+      sourceChainId: Number(raw.source_chain_id),
       destinationChainId,
-      maxFeeBps: raw.maxFeeBps,
+      maxFeeBps: raw.max_fee_bps,
       deadline: Number(raw.deadline),
       createdAt,
-      sourceTxHash: raw.createdTxHash as Hex,
+      sourceTxHash: raw.created_tx_hash as Hex,
     };
 
     return {
@@ -179,14 +174,14 @@ async function fetchIntentHistory(
         fastStatus: fill ? "FAST_FILLED" : "PENDING",
         canonicalStatus: settlement ? "SETTLED" : "PENDING",
         ...(settlement ? { canonicalOutcome: settlement.outcome as CanonicalOutcome } : {}),
-        ...(fill ? { fastFilledAt: Number(fill.timestamp) } : {}),
-        ...(settlement ? { settledAt: Number(settlement.timestamp) } : {}),
+        ...(fill ? { fastFilledAt: fill.timestamp } : {}),
+        ...(settlement ? { settledAt: settlement.timestamp } : {}),
       },
       winningVault: fill ? (houseVaultByChain.get(destinationChainId) ?? null) : null,
-      feeCharged: fill ? intent.amount - BigInt(fill.outputAmount) : null,
-      destinationTxHash: fill?.txHash ?? null,
-      settlementTxHash: settlement?.txHash ?? null,
-      settlementLatencySeconds: settlement ? Number(settlement.timestamp) - createdAt : null,
+      feeCharged: fill ? intent.amount - BigInt(fill.output_amount) : null,
+      destinationTxHash: fill?.tx_hash ?? null,
+      settlementTxHash: settlement?.tx_hash ?? null,
+      settlementLatencySeconds: settlement ? settlement.timestamp - createdAt : null,
     };
   });
 }

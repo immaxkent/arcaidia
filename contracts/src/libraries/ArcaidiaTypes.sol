@@ -33,3 +33,23 @@ struct FillAuthorization {
     uint64 expiry;
     uint256 nonce;
 }
+
+/// @notice The on-chain-readable half of `Intent`, for a solver to price before bidding.
+/// @dev Deliberately not part of `FillAuthorization` — that struct's byte layout is locked by a
+///      cross-language hash-parity test (`packages/domain/src/eip712.ts` /
+///      `FillAuthorizationLib.sol`), and adding a field here would break every signature ever
+///      produced over it. This struct is constructed off-chain (from whatever the caller already
+///      trusts as the source of the real `Intent` — today, an agent's own verified observation of
+///      the source chain) and passed as plain calldata into `IArcaidiaSolverVault.quote`; nothing
+///      in `ArcaidiaIntentMarket` stores it, so there is no on-chain "registry" of opportunities
+///      to keep in sync.
+struct IntentOpportunity {
+    bytes32 intentId;
+    uint256 sourceChainId;
+    uint256 destinationChainId;
+    address recipient;
+    uint256 inputAmount;
+    uint16 maxFeeBps;
+    uint64 deadline;
+    bool consumed;
+}

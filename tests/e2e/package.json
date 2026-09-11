@@ -11,6 +11,7 @@
     "@arcaidia/agent": "workspace:*",
     "@arcaidia/domain": "workspace:*",
     "@arcaidia/settlement": "workspace:*",
+    "@arcaidia/telemetry": "workspace:*",
     "viem": "^2.39.4"
   },
   "devDependencies": {

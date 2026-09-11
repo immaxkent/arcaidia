@@ -1,0 +1,25 @@
+# The reference solver runtime (WP-17.3). Reads config entirely from .env —
+# copy .env.example to .env first, same file the non-Docker `pnpm solver:start`
+# path already uses.
+#
+#   docker compose up --build
+#
+# One service, not two: WP-INTENT-MARKET.md §7 originally described
+# arcaidia-telemetry as a separate sidecar container. WP-17.2 built it as an
+# in-process library instead (packages/telemetry, imported directly by the
+# solver) — it satisfies the same three guarantees the sidecar framing wanted
+# (outbound-only HTTPS, no custody, the solver survives a dead or unreachable
+# Relay), proven by tests, without the added complexity of inter-process
+# communication between two containers that would otherwise need to share the
+# solver's own in-flight state. See work-packages/WP-17-reference-solver-runtime.md.
+services:
+  arcaidia-solver:
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    env_file:
+      - .env
+    ports:
+      # POST /quote (WP-14) — colocated in this process.
+      - '8787:8787'
+    restart: unless-stopped

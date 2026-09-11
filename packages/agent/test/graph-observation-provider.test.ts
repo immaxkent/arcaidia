@@ -17,8 +17,11 @@ const ARC_VAULT = '0x5555555555555555555555555555555555555555';
 
 /** Serves canned responses per endpoint, and records what was asked. */
 class FakeGraph implements GraphQueryClient {
-  calls: Array<{ endpoint: string; document: string }> = [];
+  calls: Array<{ endpoint: string; document: string; variables?: Record<string, unknown> }> = [];
   failWith: Error | null = null;
+
+  /** Per-endpoint set of intentIds that endpoint's subgraph reports a fill for. */
+  private readonly filledByEndpoint = new Map<string, Set<string>>();
 
   constructor(
     private readonly responses: Record<string, Record<string, unknown>> = {},
@@ -28,8 +31,15 @@ class FakeGraph implements GraphQueryClient {
     this.responses[endpoint] = { ...(this.responses[endpoint] ?? {}), [key]: value };
   }
 
-  async query<T>(endpoint: string, document: string): Promise<T> {
-    this.calls.push({ endpoint, document });
+  /** As `markFilled` would be seen through the batched `FillsForIntents` query. */
+  markFilled(endpoint: string, intentId: string): void {
+    const set = this.filledByEndpoint.get(endpoint) ?? new Set<string>();
+    set.add(intentId.toLowerCase());
+    this.filledByEndpoint.set(endpoint, set);
+  }
+
+  async query<T>(endpoint: string, document: string, variables: Record<string, unknown> = {}): Promise<T> {
+    this.calls.push({ endpoint, document, variables });
     if (this.failWith) throw this.failWith;
 
     const forEndpoint = this.responses[endpoint] ?? {};
@@ -42,6 +52,16 @@ class FakeGraph implements GraphQueryClient {
       return { protocolState: forEndpoint.protocolState ?? null, _meta } as T;
     }
     if (document.includes('FillForIntent')) return { fills: forEndpoint.fills ?? [] } as T;
+    if (document.includes('FillsForIntents')) {
+      const filled = this.filledByEndpoint.get(endpoint) ?? new Set<string>();
+      const result: Record<string, Array<{ id: string }>> = {};
+      for (const [key, value] of Object.entries(variables)) {
+        const index = /^id(\d+)$/.exec(key)?.[1];
+        if (index === undefined) continue;
+        result[`f${index}`] = filled.has(String(value).toLowerCase()) ? [{ id: 'fill' }] : [];
+      }
+      return result as T;
+    }
     throw new Error(`unexpected query: ${document.slice(0, 40)}`);
   }
 }
@@ -174,7 +194,7 @@ describe('GraphObservationProvider', () => {
   it('excludes intents the other chain has already filled', async () => {
     const graph = new FakeGraph();
     graph.set(SEPOLIA_ENDPOINT, 'intents', [rawIntent()]);
-    graph.set(ARC_ENDPOINT, 'fills', [{ id: '0xfill' }]);
+    graph.markFilled(ARC_ENDPOINT, rawIntent().id);
 
     expect(await provider(graph).pendingIntents()).toHaveLength(0);
   });
@@ -184,6 +204,51 @@ describe('GraphObservationProvider', () => {
     graph.set(ARC_ENDPOINT, 'fills', [{ id: '0xfill' }]);
 
     expect(await provider(graph).isFilled('0x'.padEnd(66, 'a') as `0x${string}`)).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // Batched fill-checking (the actual fix for the Graph free-tier rate limit)
+  // -----------------------------------------------------------------------
+
+  /// The whole point: a poll with many candidates must not cost one
+  /// fill-check request per candidate. Before this, N candidates on a 2s
+  /// poll interval meant N subgraph requests per chain, every poll — which is
+  /// what actually burns through a 3k-request daily cap.
+  it('checks every candidate for a fill in one request per chain, not one request per candidate', async () => {
+    const graph = new FakeGraph();
+    graph.set(SEPOLIA_ENDPOINT, 'intents', [
+      rawIntent({ id: '0x'.padEnd(66, '1') }),
+      rawIntent({ id: '0x'.padEnd(66, '2') }),
+      rawIntent({ id: '0x'.padEnd(66, '3') }),
+    ]);
+
+    await provider(graph).pendingIntents();
+
+    // 1 PendingIntents query per chain (2) + 1 batched FillsForIntents query
+    // per chain (2) = 4 total, regardless of the 3 candidates found.
+    const fillsCalls = graph.calls.filter((c) => c.document.includes('FillsForIntents'));
+    expect(fillsCalls).toHaveLength(2);
+    expect(graph.calls).toHaveLength(4);
+  });
+
+  it('only marks the specific candidate a chain reports as filled, not every candidate', async () => {
+    const graph = new FakeGraph();
+    const filled = rawIntent({ id: '0x'.padEnd(66, '1') });
+    const unfilled = rawIntent({ id: '0x'.padEnd(66, '2') });
+    graph.set(SEPOLIA_ENDPOINT, 'intents', [filled, unfilled]);
+    graph.markFilled(ARC_ENDPOINT, filled.id);
+
+    const pending = await provider(graph).pendingIntents();
+
+    expect(pending.map((i) => i.intentId)).toEqual([unfilled.id]);
+  });
+
+  it('issues no fill-check request at all when there are no candidates', async () => {
+    const graph = new FakeGraph();
+
+    await provider(graph).pendingIntents();
+
+    expect(graph.calls.some((c) => c.document.includes('FillsForIntents'))).toBe(false);
   });
 
   // -----------------------------------------------------------------------

@@ -5,6 +5,8 @@ import {ArcaidiaDeployer} from "./ArcaidiaDeployer.sol";
 import {ArcaidiaIntentRouter} from "../ArcaidiaIntentRouter.sol";
 import {ArcaidiaLiquidityVault} from "../ArcaidiaLiquidityVault.sol";
 import {SettlementReceiver} from "../SettlementReceiver.sol";
+import {ArcaidiaIntentMarket} from "../ArcaidiaIntentMarket.sol";
+import {ISettlementCheck} from "../interfaces/ISettlementCheck.sol";
 
 /// @title ArcaidiaDeployment
 /// @notice The deployment itself, as a testable library rather than script-only
@@ -27,6 +29,15 @@ library ArcaidiaDeployment {
     bytes32 internal constant ROUTER_SALT = keccak256("arcaidia.v1.intent-router");
     bytes32 internal constant VAULT_SALT = keccak256("arcaidia.v1.liquidity-vault");
     bytes32 internal constant RECEIVER_SALT = keccak256("arcaidia.v1.settlement-receiver");
+
+    /// @dev WP-16 (intent market): added after the real v1.0.0 addresses (router/vault/receiver
+    ///      at the three salts above) were already frozen and recorded in README.md — this salt
+    ///      never existed in the historical deployment, so `deployAll` deploying a market now
+    ///      does not change or reproduce that frozen history, it only extends what a *fresh*
+    ///      from-scratch deploy on this branch does going forward. Same constructor-arg CREATE2
+    ///      safety note as `MARKET_V2_SALT` below: the receiver address baked into the market's
+    ///      init code is itself identical across chains by construction.
+    bytes32 internal constant MARKET_SALT = keccak256("arcaidia.v1.intent-market");
 
     /// @dev WP-10: the original router (`ROUTER_SALT`) was initialized against
     ///      `MockSettlementInitiator`, and `settlementInitiator` is fixed at
@@ -68,17 +79,29 @@ library ArcaidiaDeployment {
         address router;
         address vault;
         address settlementReceiver;
+        address market;
     }
 
-    /// @notice Where the three contracts will land, before deploying anything.
+    /// @notice Where the four contracts will land, before deploying anything.
     /// @dev The deployment script prints these and asserts against them, so a
     ///      mismatch is caught before broadcasting rather than after.
     function predict(ArcaidiaDeployer deployer) internal view returns (Deployment memory) {
+        address predictedReceiver = deployer.predictAddress(
+            RECEIVER_SALT, keccak256(type(SettlementReceiver).creationCode)
+        );
+
         return Deployment({
             router: deployer.predictAddress(ROUTER_SALT, keccak256(type(ArcaidiaIntentRouter).creationCode)),
             vault: deployer.predictAddress(VAULT_SALT, keccak256(type(ArcaidiaLiquidityVault).creationCode)),
-            settlementReceiver: deployer.predictAddress(
-                RECEIVER_SALT, keccak256(type(SettlementReceiver).creationCode)
+            settlementReceiver: predictedReceiver,
+            market: deployer.predictAddress(
+                MARKET_SALT,
+                keccak256(
+                    abi.encodePacked(
+                        type(ArcaidiaIntentMarket).creationCode,
+                        abi.encode(ISettlementCheck(predictedReceiver))
+                    )
+                )
             )
         });
     }
@@ -114,10 +137,23 @@ library ArcaidiaDeployment {
             )
         );
 
-        deployment.settlementReceiver = deployer.deploy(
-            RECEIVER_SALT,
-            type(SettlementReceiver).creationCode,
-            abi.encodeCall(SettlementReceiver.initialize, (self, config.settlementAsset, deployment.vault))
+        // The receiver's init code takes no constructor arguments, so its address is fixed the
+        // instant it's deployed — deployed here without initializing yet, since `initialize` now
+        // needs the market's address, and the market needs the receiver's.
+        deployment.settlementReceiver =
+            deployer.deploy(RECEIVER_SALT, type(SettlementReceiver).creationCode, "");
+
+        deployment.market = deployer.deploy(
+            MARKET_SALT,
+            abi.encodePacked(
+                type(ArcaidiaIntentMarket).creationCode,
+                abi.encode(ISettlementCheck(deployment.settlementReceiver))
+            ),
+            ""
+        );
+
+        SettlementReceiver(deployment.settlementReceiver).initialize(
+            self, config.settlementAsset, deployment.market
         );
 
         deployment.router = deployer.deploy(
@@ -142,6 +178,7 @@ library ArcaidiaDeployment {
     function _wire(Deployment memory deployment, Config memory config) private {
         // Only the local receiver may reimburse the local vault.
         ArcaidiaLiquidityVault(deployment.vault).setSettlementReceiver(deployment.settlementReceiver);
+        ArcaidiaLiquidityVault(deployment.vault).setMarket(deployment.market);
 
         if (config.treasury != address(0)) {
             ArcaidiaLiquidityVault(deployment.vault).setTreasury(config.treasury);
@@ -217,7 +254,8 @@ library ArcaidiaDeployment {
             )
         );
 
-        ArcaidiaIntentRouter(router).setDestination(config.destinationChainId, config.destinationSettlementReceiver);
+        ArcaidiaIntentRouter(router)
+            .setDestination(config.destinationChainId, config.destinationSettlementReceiver);
         ArcaidiaIntentRouter(router).transferOwnership(config.owner);
     }
 
@@ -230,9 +268,19 @@ library ArcaidiaDeployment {
     bytes32 internal constant VAULT_V2_SALT = keccak256("arcaidia.v1.liquidity-vault.v2");
     bytes32 internal constant RECEIVER_V2_SALT = keccak256("arcaidia.v1.settlement-receiver.v2");
 
+    /// @dev WP-16 (intent market): `ArcaidiaIntentMarket`'s constructor takes the settlement
+    ///      receiver's address as an argument, which would ordinarily be exactly the
+    ///      chain-specific-constructor-argument trap `ArcaidiaDeployer.deploy`'s own doc warns
+    ///      about. It is safe here specifically because `deployment.settlementReceiver` above is
+    ///      itself CREATE2'd from this same deployer with the same salt and no constructor
+    ///      arguments of its own — identical on every chain by construction — so the value being
+    ///      baked into the market's init code is identical everywhere too.
+    bytes32 internal constant MARKET_V2_SALT = keccak256("arcaidia.v1.intent-market.v2");
+
     struct VaultV2Deployment {
         address vault;
         address settlementReceiver;
+        address market;
     }
 
     /// @dev Same stack-depth reasoning as `RouterConfig`.
@@ -258,10 +306,22 @@ library ArcaidiaDeployment {
         view
         returns (VaultV2Deployment memory)
     {
+        address predictedReceiver =
+            deployer.predictAddress(RECEIVER_V2_SALT, keccak256(type(SettlementReceiver).creationCode));
+
         return VaultV2Deployment({
-            vault: deployer.predictAddress(VAULT_V2_SALT, keccak256(type(ArcaidiaLiquidityVault).creationCode)),
-            settlementReceiver: deployer.predictAddress(
-                RECEIVER_V2_SALT, keccak256(type(SettlementReceiver).creationCode)
+            vault: deployer.predictAddress(
+                VAULT_V2_SALT, keccak256(type(ArcaidiaLiquidityVault).creationCode)
+            ),
+            settlementReceiver: predictedReceiver,
+            market: deployer.predictAddress(
+                MARKET_V2_SALT,
+                keccak256(
+                    abi.encodePacked(
+                        type(ArcaidiaIntentMarket).creationCode,
+                        abi.encode(ISettlementCheck(predictedReceiver))
+                    )
+                )
             )
         });
     }
@@ -287,16 +347,31 @@ library ArcaidiaDeployment {
         deployment.vault = deployer.deploy(
             VAULT_V2_SALT,
             type(ArcaidiaLiquidityVault).creationCode,
-            abi.encodeCall(ArcaidiaLiquidityVault.initialize, (self, config.settlementAsset, config.reserveFloorBps))
+            abi.encodeCall(
+                ArcaidiaLiquidityVault.initialize, (self, config.settlementAsset, config.reserveFloorBps)
+            )
         );
 
-        deployment.settlementReceiver = deployer.deploy(
-            RECEIVER_V2_SALT,
-            type(SettlementReceiver).creationCode,
-            abi.encodeCall(SettlementReceiver.initialize, (self, config.settlementAsset, deployment.vault))
+        // Deployed without initializing yet — `initialize` now needs the market's address, and
+        // the market needs the receiver's; same ordering as `deployAll` above.
+        deployment.settlementReceiver =
+            deployer.deploy(RECEIVER_V2_SALT, type(SettlementReceiver).creationCode, "");
+
+        deployment.market = deployer.deploy(
+            MARKET_V2_SALT,
+            abi.encodePacked(
+                type(ArcaidiaIntentMarket).creationCode,
+                abi.encode(ISettlementCheck(deployment.settlementReceiver))
+            ),
+            ""
+        );
+
+        SettlementReceiver(deployment.settlementReceiver).initialize(
+            self, config.settlementAsset, deployment.market
         );
 
         ArcaidiaLiquidityVault(deployment.vault).setSettlementReceiver(deployment.settlementReceiver);
+        ArcaidiaLiquidityVault(deployment.vault).setMarket(deployment.market);
 
         if (config.treasury != address(0)) {
             ArcaidiaLiquidityVault(deployment.vault).setTreasury(config.treasury);

@@ -52,6 +52,7 @@ import {
   deriveSettlementHealth,
   type SettlementDependencies,
 } from '@arcaidia/settlement';
+import { NoopTelemetryClient, type TelemetryClient } from '@arcaidia/telemetry';
 
 import { startAnvil, type AnvilChain } from './anvil.js';
 import { deployProtocol, type ChainDeployment } from './deploy.js';
@@ -121,6 +122,19 @@ export interface WorldOptions {
    * nonces, which silently breaks CREATE2 address parity.
    */
   readonly ports?: readonly [number, number];
+
+  /**
+   * Wired into every `solverDeps()` this world hands out.
+   *
+   * Defaults to `NoopTelemetryClient` — the same "correct without telemetry,
+   * not just tolerant of it" default `TELEMETRY_ENABLED=false` gives the real
+   * entrypoint (see `packages/agent/src/entrypoint/config.ts`). A test that
+   * wants to prove telemetry can vanish without affecting a single fill (WP-17.4)
+   * passes a real `HttpTelemetryClient` pointed at an unreachable URL here,
+   * rather than a mock — the golden run should not need to know the
+   * difference.
+   */
+  readonly telemetry?: TelemetryClient;
 }
 
 export async function startWorld(options: WorldOptions = {}): Promise<World> {
@@ -312,6 +326,7 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
       nonces: new SequentialNonceSource(BigInt(Date.now())),
       journal: new InMemorySubmissionJournal(),
       config: { policy: DEFAULT_RISK_POLICY, authorizationTtlSeconds: 45 },
+      telemetry: options.telemetry ?? new NoopTelemetryClient(),
     }),
 
     settlementDeps: () => ({

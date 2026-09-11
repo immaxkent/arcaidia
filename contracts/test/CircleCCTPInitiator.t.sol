@@ -104,7 +104,9 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         _configureDestination();
 
         vm.prank(router);
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
 
         assertEq(tokenMessenger.callCount(), 1);
         (
@@ -130,7 +132,9 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         _configureDestination();
 
         vm.prank(router);
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
 
         assertEq(asset.balanceOf(router), 9_000e6);
         assertEq(asset.balanceOf(address(initiator)), 0, "initiator must not retain the burnt asset");
@@ -141,7 +145,9 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         _configureDestination();
 
         vm.prank(router);
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
 
         assertEq(asset.allowance(address(initiator), address(tokenMessenger)), 0);
     }
@@ -179,7 +185,9 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         initiator.setFinality(1000, 5e6);
 
         vm.prank(router);
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
 
         (,,,,, uint256 maxFee, uint32 minFinalityThreshold) = tokenMessenger.calls(0);
         assertEq(maxFee, 5e6);
@@ -195,7 +203,9 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         vm.expectRevert(
             abi.encodeWithSelector(CircleCCTPInitiator.UnsupportedDestination.selector, destinationChainId)
         );
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
     }
 
     function test_initiateRevertsForWrongAsset() public {
@@ -207,9 +217,13 @@ contract CircleCCTPInitiatorTest is ChainFixture {
 
         vm.prank(router);
         vm.expectRevert(
-            abi.encodeWithSelector(CircleCCTPInitiator.AssetMismatch.selector, address(asset), address(wrongAsset))
+            abi.encodeWithSelector(
+                CircleCCTPInitiator.AssetMismatch.selector, address(asset), address(wrongAsset)
+            )
         );
-        initiator.initiateSettlement(address(wrongAsset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(wrongAsset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
     }
 
     /// The router must be able to revert the whole transaction — including its
@@ -221,7 +235,9 @@ contract CircleCCTPInitiatorTest is ChainFixture {
 
         vm.prank(router);
         vm.expectRevert(MockTokenMessengerV2.MockDepositForBurnFailed.selector);
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
 
         assertEq(asset.balanceOf(router), 10_000e6, "no funds should move on failure");
     }
@@ -233,6 +249,8 @@ contract CircleCCTPInitiatorTest is ChainFixture {
 
         vm.prank(router);
         vm.expectRevert();
-        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID);
+        initiator.initiateSettlement(
+            address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID
+        );
     }
 }

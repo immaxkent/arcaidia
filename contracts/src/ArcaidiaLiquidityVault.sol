@@ -10,6 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IFillRegistry} from "./interfaces/IFillRegistry.sol";
 import {ISettlementCheck} from "./interfaces/ISettlementCheck.sol";
+import {IIntentMarket} from "./interfaces/IIntentMarket.sol";
 import {FillAuthorization} from "./libraries/ArcaidiaTypes.sol";
 import {FillAuthorizationLib} from "./libraries/FillAuthorizationLib.sol";
 
@@ -93,6 +94,12 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     /// @notice The destination `SettlementReceiver` permitted to reimburse.
     address public settlementReceiver;
 
+    /// @notice The `ArcaidiaIntentMarket` this vault competes through.
+    /// @dev `address(0)` until set — a vault not yet wired to a market cannot fast-fill at all
+    ///      (see `fastFill`), rather than silently skipping the claim and behaving as if it had
+    ///      already won uncontested.
+    address public market;
+
     /// @notice Where protocol fees are swept.
     address public treasury;
 
@@ -152,6 +159,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     );
     event ReserveFloorConfigured(uint16 reserveFloorBps);
     event SettlementReceiverConfigured(address settlementReceiver);
+    event MarketConfigured(address market);
     event FillRecorded(bytes32 indexed intentId, address indexed recipient, uint256 outputAmount);
     event ReimbursementRecorded(bytes32 indexed intentId, uint256 amountReceived, uint256 exposureCleared);
     event FillLimitsConfigured(uint16 maxFillBps, uint16 maxExposureBps, uint16 maxFeeBps);
@@ -179,6 +187,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
     error NotOwner();
     error VaultPaused();
     error ZeroAddress();
+    error NoMarketConfigured();
     error ZeroAmount();
     error ReserveFloorTooHigh(uint16 bps);
     error ExceedsMaxDeposit(uint256 assets, uint256 max);
@@ -244,6 +253,12 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         if (receiver == address(0)) revert ZeroAddress();
         settlementReceiver = receiver;
         emit SettlementReceiverConfigured(receiver);
+    }
+
+    function setMarket(address market_) external onlyOwner {
+        if (market_ == address(0)) revert ZeroAddress();
+        market = market_;
+        emit MarketConfigured(market_);
     }
 
     function setFillLimits(uint16 maxFillBps_, uint16 maxExposureBps_, uint16 maxFeeBps_) external onlyOwner {
@@ -563,6 +578,14 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry {
         nonReentrant
         returns (address signer)
     {
+        // Winning the race and being allowed to pay are the same atomic event: if anything below
+        // this line reverts, the whole transaction — this claim included — rolls back, so a
+        // paused vault or an expired authorization can never leave a phantom claim behind on the
+        // market even though this runs before those checks.
+        if (market == address(0)) revert NoMarketConfigured();
+        IIntentMarket(market)
+            .claimIntent(authorization.intentId, authorization.outputAmount, authorization.feeAmount);
+
         if (paused) revert VaultPaused();
         if (authorization.expiry <= block.timestamp) {
             revert AuthorizationExpired(authorization.expiry, block.timestamp);

@@ -60,7 +60,8 @@ contract DeployCctpRouterScript is Script {
 
         address owner = vm.envAddress("PROTOCOL_OWNER");
         address settlementAsset = vm.envOr("SETTLEMENT_ASSET", _defaultSettlementAsset(block.chainid));
-        uint256 destinationChainId = vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid));
+        uint256 destinationChainId =
+            vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid));
         address destinationSettlementReceiver = vm.envAddress("DESTINATION_SETTLEMENT_RECEIVER");
         uint256 maxIntentAmount = vm.envUint("MAX_INTENT_AMOUNT");
         uint256 maxInFlightValue = vm.envUint("MAX_IN_FLIGHT_VALUE");

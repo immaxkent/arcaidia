@@ -2,9 +2,12 @@
 pragma solidity 0.8.28;
 
 import {ChainFixture} from "./base/ChainFixture.sol";
+import {NeverSettledCheck} from "./base/VaultFixture.sol";
 import {VaultHarness} from "./harness/VaultHarness.sol";
 import {VaultInvariantHandler} from "./harness/VaultInvariantHandler.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
+import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
 
 /// @notice What must hold no matter what sequence of legal actions occurs.
 ///
@@ -40,7 +43,11 @@ contract VaultInvariantsTest is ChainFixture {
         (, uint256 agentKey) = makeAddrAndKey("invAgent");
         handler = new VaultInvariantHandler(vault, asset, agentKey);
 
+        ArcaidiaIntentMarket market =
+            new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())));
+
         vm.startPrank(vaultOwner);
+        vault.setMarket(address(market));
         vault.setFillLimits(MAX_FILL_BPS, MAX_EXPOSURE_BPS, MAX_FEE_BPS);
         vault.setAuthorisedSigner(handler.agent(), true);
         vault.setSettlementReceiver(address(handler));

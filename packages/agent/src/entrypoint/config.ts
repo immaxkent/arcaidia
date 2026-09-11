@@ -2,12 +2,12 @@
  * Config for the live solver process.
  *
  * Takes an env record as a plain argument rather than reading `process.env`
- * itself, so parsing every failure mode — a missing subgraph URL, a malformed
- * private key — is a unit test, not something only discoverable by actually
- * starting the process. Per-chain contract addresses and default RPC URLs
- * come from `@arcaidia/domain`'s committed config, never retyped here — the
- * one thing this file adds is what that config doesn't know: secrets, and
- * where the subgraphs live.
+ * itself, so parsing every failure mode — a malformed private key, a
+ * malformed override — is a unit test, not something only discoverable by
+ * actually starting the process. Per-chain contract addresses, default RPC
+ * URLs and the default subgraph/indexer endpoint come from `@arcaidia/domain`'s
+ * committed config, never retyped here — the one thing this file adds is
+ * what that config doesn't know: secrets, and this operator's own overrides.
  */
 
 import { CHAINS, deploymentFor, type ChainKey } from '@arcaidia/domain';
@@ -18,6 +18,8 @@ export interface ChainEntrypointConfig {
   readonly intentRouter: `0x${string}`;
   readonly liquidityVault: `0x${string}`;
   readonly subgraphUrl: string;
+  /** The settlement asset's address — `SqlNestObservationProvider` needs it explicitly (WP-22). */
+  readonly asset: `0x${string}`;
 }
 
 /**
@@ -37,6 +39,18 @@ export type SignerAuthorityConfig =
       readonly address: `0x${string}`;
     };
 
+/**
+ * WP-17.2. Unset or explicitly `false` disables telemetry — a correct, first-class mode, not a
+ * degraded one; see `SolverDependencies.telemetry`'s own doc comment. Deliberately *not*
+ * defaulted to enabled the way `WP-INTENT-MARKET.md` §7 describes for the eventual production
+ * default: the Relay (WP-18) doesn't exist on this branch yet, so defaulting to "on" here would
+ * mean every instance silently fails every event/heartbeat post against nothing. Revisit the
+ * default once a real Relay exists to point at.
+ */
+export type TelemetryConfig =
+  | { readonly enabled: false }
+  | { readonly enabled: true; readonly relayUrl: string };
+
 export interface SolverEntrypointConfig {
   readonly signerAuthority: SignerAuthorityConfig;
   readonly submitterPrivateKey: `0x${string}`;
@@ -45,6 +59,7 @@ export interface SolverEntrypointConfig {
   /** POST /quote (WP-14) — colocated in this process; see quote-server.ts. */
   readonly quotePort: number;
   readonly chains: readonly [ChainEntrypointConfig, ChainEntrypointConfig];
+  readonly telemetry: TelemetryConfig;
 }
 
 export class ConfigError extends Error {}
@@ -58,16 +73,18 @@ function requireHex(env: Env, key: string): `0x${string}` {
   return value as `0x${string}`;
 }
 
-function requireUrl(env: Env, key: string): string {
+/**
+ * Unset means "use the committed default" — a malformed value present still fails loudly, the
+ * same as `requireHex`. WP-17.1: this is what makes the vault address genuinely per-instance
+ * config rather than compiled into `packages/domain`'s committed deployment table, which is
+ * exactly what a third-party operator running this same container needs and the House Solver
+ * (nothing set) never notices.
+ */
+function optionalHex(env: Env, key: string): `0x${string}` | undefined {
   const value = env[key];
-  if (!value) {
-    throw new ConfigError(
-      `${key} is not set. The solver reads pending intents from The Graph — it will ` +
-        'not fall back to a local/in-memory view for a live run, since that would look ' +
-        'like it is watching both chains when it is actually watching neither.',
-    );
-  }
-  return value;
+  if (!value) return undefined;
+  if (!/^0x[0-9a-fA-F]+$/.test(value)) throw new ConfigError(`${key} is not a 0x-prefixed hex value.`);
+  return value as `0x${string}`;
 }
 
 const CHAIN_ENV_PREFIX: Record<ChainKey, string> = {
@@ -80,9 +97,23 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
   const chain = CHAINS[key];
   const contracts = deploymentFor(key);
 
-  if (!contracts.intentRouter || !contracts.liquidityVault) {
+  if (!contracts.intentRouter) {
     throw new ConfigError(
-      `${chain.name} has no deployed IntentRouter/LiquidityVault in packages/domain/src/config/deployments.ts.`,
+      `${chain.name} has no deployed IntentRouter in packages/domain/src/config/deployments.ts. ` +
+        'The router is shared protocol infrastructure, not per-operator config — it cannot be ' +
+        'overridden the way the vault below can.',
+    );
+  }
+
+  // WP-17.1: an independent operator running this same container points it at their own vault
+  // via {PREFIX}_LIQUIDITY_VAULT; the House Solver, with nothing set, gets the committed default
+  // unchanged. Same override-with-fallback shape as the RPC URL just below.
+  const liquidityVault =
+    optionalHex(env, `${prefix}_LIQUIDITY_VAULT`) ?? contracts.liquidityVault;
+  if (!liquidityVault) {
+    throw new ConfigError(
+      `No liquidity vault for ${chain.name}: set ${prefix}_LIQUIDITY_VAULT, or deploy the House ` +
+        'Vault and commit its address to packages/domain/src/config/deployments.ts.',
     );
   }
 
@@ -90,8 +121,13 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
     chainId: chain.chainId,
     rpcUrl: env[`${prefix}_RPC_URL`] || chain.rpcUrl,
     intentRouter: contracts.intentRouter,
-    liquidityVault: contracts.liquidityVault,
-    subgraphUrl: requireUrl(env, `SUBGRAPH_URL_${prefix}`),
+    liquidityVault,
+    // WP-22: unset means Arcaidia's own shared, unlimited indexer (the
+    // committed default on `chain.subgraphUrl`) — same override-with-fallback
+    // shape as the RPC URL above. An operator overrides this only to point at
+    // their own subgraph or indexer instead.
+    subgraphUrl: env[`SUBGRAPH_URL_${prefix}`] || chain.subgraphUrl,
+    asset: chain.settlementAsset.address,
   };
 }
 
@@ -154,5 +190,18 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
     authorizationTtlSeconds,
     quotePort,
     chains: [chainConfig('ethereum-sepolia', env), chainConfig('arc-testnet', env)],
+    telemetry: loadTelemetryConfig(env),
   };
+}
+
+function loadTelemetryConfig(env: Env): TelemetryConfig {
+  if (env.TELEMETRY_ENABLED !== 'true') return { enabled: false };
+
+  const relayUrl = env.ARCAIDIA_TELEMETRY_URL;
+  if (!relayUrl) {
+    throw new ConfigError(
+      'TELEMETRY_ENABLED=true but ARCAIDIA_TELEMETRY_URL is not set — nowhere to send events to.',
+    );
+  }
+  return { enabled: true, relayUrl };
 }
