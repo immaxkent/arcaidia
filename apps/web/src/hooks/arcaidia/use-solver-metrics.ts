@@ -27,7 +27,7 @@ import { useQuery } from "@tanstack/react-query";
 import { solverVaultAbi } from "@/lib/arcaidia/abis";
 import { chainConfig } from "@/lib/arcaidia/config";
 import { errorState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
-import { queryNest, sqlHex20Literal } from "@/lib/arcaidia/nest";
+import { queryNest, queryVaultRow, sqlHex20Literal } from "@/lib/arcaidia/nest";
 import type { Address, SolverAuthState, SolverRuntimeStatus } from "@/lib/arcaidia/types";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 
@@ -72,7 +72,7 @@ async function fetchIndexedAggregates(
         endpoint,
         `SELECT SUM(output_amount) AS total_volume FROM fills WHERE vault = ${idLiteral}`,
       ),
-      queryNest<{ fill_count: number }>(endpoint, `SELECT fill_count FROM vault WHERE id = ${idLiteral}`),
+      queryVaultRow<{ fill_count: number }>(endpoint, "fill_count", idLiteral),
       queryNest<{ total_fees_earned: string }>(
         endpoint,
         "SELECT total_fees_earned FROM protocol_state WHERE id = 'arcaidia'",

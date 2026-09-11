@@ -37,7 +37,7 @@ import {
   unavailableState,
   type DataState,
 } from "@/lib/arcaidia/data-state";
-import { queryNest, sqlHex20Literal } from "@/lib/arcaidia/nest";
+import { queryNest, queryVaultRow, sqlHex20Literal } from "@/lib/arcaidia/nest";
 import type { Address, OperatorType, VaultStatus } from "@/lib/arcaidia/types";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 
@@ -56,7 +56,7 @@ export async function readVaultAggregates(
   try {
     const idLiteral = sqlHex20Literal(vaultAddress);
     const [vaultResult, protocolStateResult] = await Promise.all([
-      queryNest<{ fill_count: number }>(endpoint, `SELECT fill_count FROM vaults WHERE id = ${idLiteral}`),
+      queryVaultRow<{ fill_count: number }>(endpoint, "fill_count", idLiteral),
       queryNest<{ total_fees_earned: string }>(
         endpoint,
         "SELECT total_fees_earned FROM protocol_state WHERE id = 'arcaidia'",
@@ -132,14 +132,17 @@ async function readVaultRow(
     read("availableLiquidity") as Promise<bigint>,
     read("outstandingExposure") as Promise<bigint>,
     read("paused") as Promise<boolean>,
-    read("currentFeeBps") as Promise<number>,
-    read("feePolicy") as Promise<unknown>,
+    // v2-only surface (D7). A vault that predates the fee policy (the retired v1 House Vault,
+    // until WP-31) reverts here; that degrades these two fields to null rather than hiding the
+    // vault — the liquidity/exposure/status reads are the load-bearing ones.
+    (read("currentFeeBps") as Promise<number>).catch(() => null),
+    (read("feePolicy") as Promise<unknown>).catch(() => null),
     readVaultAggregates(chainId, vaultAddress),
   ]);
 
   const isHouse = houseVault !== null && vaultAddress.toLowerCase() === houseVault.toLowerCase();
   const feePolicy = feePolicyFromTuple(rawPolicy);
-  const currentFeeBps = Number.isFinite(Number(rawFeeBps)) ? Number(rawFeeBps) : null;
+  const currentFeeBps = rawFeeBps !== null && Number.isFinite(Number(rawFeeBps)) ? Number(rawFeeBps) : null;
   return {
     chainId,
     vaultAddress,
@@ -350,9 +353,10 @@ export async function fetchVaultAnalyticsData(chainId: number, vaultAddress: Add
   const [events, policy, currentRowResult] = await Promise.all([
     fetchBalanceEvents(endpoint, vaultAddress),
     readFeePolicy(chainId, vaultAddress),
-    queryNest<{ liquid_balance: string; outstanding_exposure: string }>(
+    queryVaultRow<{ liquid_balance: string; outstanding_exposure: string }>(
       endpoint,
-      `SELECT liquid_balance, outstanding_exposure FROM vaults WHERE id = ${idLiteral}`,
+      "liquid_balance, outstanding_exposure",
+      idLiteral,
     ),
   ]);
 

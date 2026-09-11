@@ -114,3 +114,17 @@ export function sqlHex20Literal(value: string): string {
   }
   return `'${value.toLowerCase()}'`;
 }
+
+/**
+ * One vault's row from the Nest — the v2 `vaults` view (one row per factory vault, WP-27) first,
+ * then the pre-v2 `vault` view for a Nest that has not been re-seeded yet. The migration window
+ * is real (the re-seed is a third party's action), and every vault-row reader degrading the same
+ * way beats each one failing differently.
+ */
+export async function queryVaultRow<T>(endpoint: string, columns: string, idLiteral: string): Promise<NestQueryResult<T>> {
+  try {
+    return await queryNest<T>(endpoint, `SELECT ${columns} FROM vaults WHERE id = ${idLiteral}`);
+  } catch {
+    return queryNest<T>(endpoint, `SELECT ${columns} FROM vault WHERE id = ${idLiteral}`);
+  }
+}
