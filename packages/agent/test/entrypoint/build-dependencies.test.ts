@@ -9,8 +9,10 @@ import {
   buildSolverDependencies,
   buildWriteClients,
   pairAllVaultsInBackground,
+  startHeartbeats,
+  HEARTBEAT_INTERVAL_MS,
 } from '../../src/entrypoint/build-dependencies.js';
-import { GraphObservationProvider, SqlNestObservationProvider } from '../../src/index.js';
+import { GraphObservationProvider, LocalAgentSigner, SqlNestObservationProvider } from '../../src/index.js';
 import type { SolverEntrypointConfig } from '../../src/entrypoint/config.js';
 
 const SIGNER_KEY = `0x${'11'.repeat(32)}` as const;
@@ -275,5 +277,59 @@ describe('pairAllVaultsInBackground', () => {
     // Both chains were still attempted independently.
     const challengeCalls = fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/pair/challenge'));
     expect(challengeCalls).toHaveLength(2);
+  });
+});
+
+describe('startHeartbeats (WP-18.2 — "solver online" on its own clock)', () => {
+  const telemetryOn = { enabled: true as const, relayUrl: 'http://relay.example' };
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('beats once immediately for every configured vault as the paired signer, then every interval, until stopped', () => {
+    const telemetry = { reportStage: vi.fn(), heartbeat: vi.fn() };
+    const authority = new LocalAgentSigner(SIGNER_KEY);
+    let now = 1_700_000_000;
+
+    const stop = startHeartbeats(config({ telemetry: telemetryOn }), authority, telemetry, { clock: () => now });
+
+    expect(telemetry.heartbeat).toHaveBeenCalledTimes(2);
+    expect(telemetry.heartbeat).toHaveBeenCalledWith({
+      chainId: SEPOLIA_CHAIN.chainId,
+      vaultAddress: SEPOLIA_CHAIN.liquidityVault,
+      operatorAddress: privateKeyToAccount(SIGNER_KEY).address,
+      at: 1_700_000_000,
+    });
+    expect(telemetry.heartbeat).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: ARC_CHAIN.chainId, vaultAddress: ARC_CHAIN.liquidityVault }),
+    );
+
+    now += 10;
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+    expect(telemetry.heartbeat).toHaveBeenCalledTimes(4);
+    expect(telemetry.heartbeat).toHaveBeenLastCalledWith(expect.objectContaining({ at: 1_700_000_010 }));
+
+    stop();
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 3);
+    expect(telemetry.heartbeat).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps the relay timeout comfortably: three beats per 30s sweep window', () => {
+    expect(HEARTBEAT_INTERVAL_MS * 3).toBeLessThanOrEqual(30_000);
+  });
+
+  it('sends nothing when telemetry is disabled', () => {
+    const telemetry = { reportStage: vi.fn(), heartbeat: vi.fn() };
+    startHeartbeats(config(), new LocalAgentSigner(SIGNER_KEY), telemetry);
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2);
+    expect(telemetry.heartbeat).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing for a signer that cannot have paired (no personal-sign path), so the relay never sees a 401 storm', () => {
+    const telemetry = { reportStage: vi.fn(), heartbeat: vi.fn() };
+    const circle = buildSolverDependencies({ ...circleConfig(), telemetry: telemetryOn }, { log: new InMemoryDecisionLog() });
+    startHeartbeats({ ...circleConfig(), telemetry: telemetryOn }, circle.deps.authority, telemetry);
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2);
+    expect(telemetry.heartbeat).not.toHaveBeenCalled();
   });
 });

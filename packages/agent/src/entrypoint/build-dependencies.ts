@@ -167,6 +167,43 @@ export function pairAllVaultsInBackground(
   }
 }
 
+/** Relay sweeps a paired operator to offline after 30s of silence; a third of that keeps it live. */
+export const HEARTBEAT_INTERVAL_MS = 10_000;
+
+/**
+ * WP-18.2: the "solver online" fact. A heartbeat says one thing — this process is still
+ * running for this vault — so it is sent on its own clock, whether or not the last pass
+ * found anything (an observation source being down is exactly when the operator wants to
+ * see that the solver itself is still up). Same guard as pairing: only a locally-held
+ * signer can have paired, and an unpaired heartbeat is a 401 the relay would log every tick.
+ *
+ * Returns the stop function; never throws — `HttpTelemetryClient` swallows delivery errors.
+ */
+export function startHeartbeats(
+  config: SolverEntrypointConfig,
+  authority: AgentAuthority,
+  telemetry: TelemetryClient,
+  options: { readonly intervalMs?: number; readonly clock?: () => number } = {},
+): () => void {
+  if (!config.telemetry.enabled || !(authority instanceof LocalAgentSigner)) return () => {};
+  const clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
+  const beat = () => {
+    const at = clock();
+    for (const chain of config.chains) {
+      telemetry.heartbeat({
+        chainId: chain.chainId,
+        vaultAddress: chain.liquidityVault,
+        operatorAddress: authority.address,
+        at,
+      });
+    }
+  };
+  beat();
+  const timer = setInterval(beat, options.intervalMs ?? HEARTBEAT_INTERVAL_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 export interface BuiltSolverDependencies {
   readonly deps: SolverDependencies;
   /** The signer's own address — log it at startup so it's obvious which key is live. */

@@ -13,8 +13,9 @@
  */
 
 import { appendFileSync } from 'node:fs';
+import { NoopTelemetryClient } from '@arcaidia/telemetry';
 import { JsonLinesDecisionLog, startSolverWorker, type SolverPassResult } from '../index.js';
-import { buildSolverDependencies, pairAllVaultsInBackground } from './build-dependencies.js';
+import { buildSolverDependencies, pairAllVaultsInBackground, startHeartbeats } from './build-dependencies.js';
 import { ConfigError, loadSolverConfig } from './config.js';
 import { startQuoteServer } from './quote-server.js';
 
@@ -69,6 +70,8 @@ async function main(): Promise<void> {
   // WP-18.1: fire-and-forget, never awaited — see this function's own doc
   // comment for why pairing must not be able to delay the solver starting.
   pairAllVaultsInBackground(config, deps.authority);
+  // WP-18.2: "solver online" on its own clock — see startHeartbeats.
+  const stopHeartbeats = startHeartbeats(config, deps.authority, deps.telemetry ?? new NoopTelemetryClient());
 
   const handle = startSolverWorker(deps, {
     pollIntervalMs: config.pollIntervalMs,
@@ -88,6 +91,7 @@ async function main(): Promise<void> {
     process.on(signal, () => {
       console.log(`[solver] ${signal} received, stopping after the current pass`);
       handle.stop();
+      stopHeartbeats();
       void quoteServer.close();
       process.exit(0);
     });
