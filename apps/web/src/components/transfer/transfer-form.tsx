@@ -70,7 +70,6 @@ export function TransferForm({
   const [recipientInput, setRecipientInput] = useState("");
   const [maxFeeBps, setMaxFeeBps] = useState(PROTOCOL_LIMITS.defaultMaxFeeBps ?? 30);
   const [deadline, setDeadline] = useState(3600);
-  const [advanced, setAdvanced] = useState(false);
   /** Trade intent: what the recipient wants on the destination (null = USDC) and their floor. */
   const [tokenOut, setTokenOut] = useState<Address | null>(null);
   const [targetMinOutInput, setTargetMinOutInput] = useState("");
@@ -320,35 +319,6 @@ export function TransferForm({
               </p>
             </div>
           ) : null}
-        </div>
-      ) : null}
-
-      {/* Advanced */}
-      <button
-        type="button"
-        onClick={() => setAdvanced((v) => !v)}
-        aria-expanded={advanced}
-        className="mt-4 text-xs text-text-dim hover:text-text"
-      >
-        Advanced {advanced ? "−" : "+"}
-      </button>
-      {advanced ? (
-        <div className="panel-raised mt-2 flex items-center justify-between px-3 py-2.5">
-          <label htmlFor="deadline" className="text-sm text-text-dim">
-            Deadline
-          </label>
-          <select
-            id="deadline"
-            value={deadline}
-            onChange={(e) => setDeadline(Number(e.target.value))}
-            className="num bg-transparent text-sm text-text outline-none"
-          >
-            {DEADLINES.map((d) => (
-              <option key={d.value} value={d.value} className="bg-surface-raised">
-                {d.label}
-              </option>
-            ))}
-          </select>
         </div>
       ) : null}
 
