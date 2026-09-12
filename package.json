@@ -35,7 +35,10 @@
     "test:scripts": "vitest run scripts",
     "solver:start": "tsx --env-file=.env packages/agent/src/entrypoint/main.ts",
     "settlement:start": "tsx --env-file=.env packages/settlement/src/entrypoint/main.ts",
-    "relay:start": "tsx --env-file=.env packages/relay/src/entrypoint/main.ts"
+    "relay:start": "tsx --env-file=.env packages/relay/src/entrypoint/main.ts",
+    "subgraph:codegen:arc": "graph codegen subgraph/subgraph.arc-testnet.yaml --output-dir subgraph/generated",
+    "subgraph:build:arc": "pnpm subgraph:generate && pnpm subgraph:codegen:arc && graph build subgraph/subgraph.arc-testnet.yaml --output-dir subgraph/build-arc",
+    "subgraph:build:all": "pnpm subgraph:build && pnpm subgraph:build:arc"
   },
   "devDependencies": {
     "@graphprotocol/graph-cli": "^0.98.1",

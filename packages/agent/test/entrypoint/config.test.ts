@@ -175,6 +175,26 @@ describe('loadSolverConfig', () => {
     expect(sepolia?.asset).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
+  it('reads from the Nest by default (WP-22), and accepts OBSERVATION_SOURCE=nest explicitly', () => {
+    expect(loadSolverConfig(baseEnv()).observationSource).toBe('nest');
+    expect(loadSolverConfig({ ...baseEnv(), OBSERVATION_SOURCE: 'nest' }).observationSource).toBe('nest');
+  });
+
+  it('OBSERVATION_SOURCE=graph needs an explicit GraphQL endpoint for every chain (WP-31 contingency)', () => {
+    const { SUBGRAPH_URL_ETHEREUM_SEPOLIA: _dropped, ...withoutSepolia } = baseEnv();
+    void _dropped;
+    expect(() => loadSolverConfig({ ...withoutSepolia, OBSERVATION_SOURCE: 'graph' })).toThrow(
+      /SUBGRAPH_URL_ETHEREUM_SEPOLIA/,
+    );
+    const config = loadSolverConfig({ ...baseEnv(), OBSERVATION_SOURCE: 'graph' });
+    expect(config.observationSource).toBe('graph');
+    expect(config.chains[0].subgraphUrl).toBe('https://api.studio.thegraph.com/query/sepolia');
+  });
+
+  it('refuses an unknown OBSERVATION_SOURCE', () => {
+    expect(() => loadSolverConfig({ ...baseEnv(), OBSERVATION_SOURCE: 'csv' })).toThrow(ConfigError);
+  });
+
   it('refuses a chain with no deployed contracts', () => {
     resetDeployments();
     registerDeployment('ethereum-sepolia', {});

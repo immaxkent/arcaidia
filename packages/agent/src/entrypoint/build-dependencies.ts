@@ -16,7 +16,9 @@ import {
   buildCircleSigningClient,
   CircleAgentWalletSigner,
   DEFAULT_RISK_POLICY,
+  FetchGraphQueryClient,
   FetchNestQueryClient,
+  GraphObservationProvider,
   InMemorySubmissionJournal,
   LocalAgentSigner,
   RandomNonceSource,
@@ -182,16 +184,30 @@ export function buildSolverDependencies(
 
   // WP-22: Arcaidia's shared, unlimited indexer by default — see
   // ChainEntrypointConfig.subgraphUrl's own doc comment for the override.
-  const observation = new SqlNestObservationProvider({
-    client: new FetchNestQueryClient(),
-    readClients: buildContractReadClients(config.chains),
-    sources: config.chains.map((chain) => ({
-      chainId: chain.chainId,
-      endpoint: chain.subgraphUrl,
-      vault: chain.liquidityVault,
-      asset: chain.asset,
-    })),
-  });
+  // WP-31: OBSERVATION_SOURCE=graph reads GraphQL subgraphs instead (Subgraph Studio), the
+  // contingency for the window before a Nest is re-seeded for a new deployment.
+  const readClients = buildContractReadClients(config.chains);
+  const observation =
+    config.observationSource === 'graph'
+      ? new GraphObservationProvider({
+          client: new FetchGraphQueryClient(),
+          readClients,
+          sources: config.chains.map((chain) => ({
+            chainId: chain.chainId,
+            endpoint: chain.subgraphUrl,
+            vault: chain.liquidityVault,
+          })),
+        })
+      : new SqlNestObservationProvider({
+          client: new FetchNestQueryClient(),
+          readClients,
+          sources: config.chains.map((chain) => ({
+            chainId: chain.chainId,
+            endpoint: chain.subgraphUrl,
+            vault: chain.liquidityVault,
+            asset: chain.asset,
+          })),
+        });
 
   const deps: SolverDependencies = {
     observation,

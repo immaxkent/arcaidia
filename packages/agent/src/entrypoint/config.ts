@@ -60,6 +60,14 @@ export interface SolverEntrypointConfig {
   readonly quotePort: number;
   readonly chains: readonly [ChainEntrypointConfig, ChainEntrypointConfig];
   readonly telemetry: TelemetryConfig;
+  /**
+   * Where pending intents and vault state are read from (WP-31 contingency):
+   * `nest` — Arcaidia's shared SQL indexer (the default, WP-22);
+   * `graph` — GraphQL subgraphs (e.g. Subgraph Studio), for the window before a Nest
+   * is re-seeded for a new deployment. `graph` requires an explicit `SUBGRAPH_URL_*`
+   * for both chains: the committed defaults are Nest SQL endpoints, not GraphQL.
+   */
+  readonly observationSource: 'nest' | 'graph';
 }
 
 export class ConfigError extends Error {}
@@ -183,6 +191,8 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
     throw new ConfigError('SOLVER_QUOTE_PORT must be a valid port number.');
   }
 
+  const observationSource = loadObservationSource(env);
+
   return {
     signerAuthority,
     submitterPrivateKey,
@@ -191,7 +201,26 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
     quotePort,
     chains: [chainConfig('ethereum-sepolia', env), chainConfig('arc-testnet', env)],
     telemetry: loadTelemetryConfig(env),
+    observationSource,
   };
+}
+
+function loadObservationSource(env: Env): 'nest' | 'graph' {
+  const raw = env.OBSERVATION_SOURCE ?? 'nest';
+  if (raw !== 'nest' && raw !== 'graph') {
+    throw new ConfigError(`OBSERVATION_SOURCE must be "nest" or "graph", got "${raw}".`);
+  }
+  if (raw === 'graph') {
+    for (const prefix of Object.values(CHAIN_ENV_PREFIX)) {
+      if (!env[`SUBGRAPH_URL_${prefix}`]) {
+        throw new ConfigError(
+          `OBSERVATION_SOURCE=graph needs SUBGRAPH_URL_${prefix} set to a GraphQL subgraph endpoint — ` +
+            'the committed default is a Nest SQL endpoint, which a GraphQL client cannot read.',
+        );
+      }
+    }
+  }
+  return raw;
 }
 
 function loadTelemetryConfig(env: Env): TelemetryConfig {

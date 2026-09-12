@@ -10,6 +10,7 @@ import {
   buildWriteClients,
   pairAllVaultsInBackground,
 } from '../../src/entrypoint/build-dependencies.js';
+import { GraphObservationProvider, SqlNestObservationProvider } from '../../src/index.js';
 import type { SolverEntrypointConfig } from '../../src/entrypoint/config.js';
 
 const SIGNER_KEY = `0x${'11'.repeat(32)}` as const;
@@ -33,7 +34,7 @@ const ARC_CHAIN = {
   asset: '0x7777777777777777777777777777777777777777' as const,
 };
 
-function config(): SolverEntrypointConfig {
+function config(overrides: Partial<SolverEntrypointConfig> = {}): SolverEntrypointConfig {
   return {
     signerAuthority: { mode: 'local', privateKey: SIGNER_KEY },
     submitterPrivateKey: SUBMITTER_KEY,
@@ -42,6 +43,8 @@ function config(): SolverEntrypointConfig {
     quotePort: 8787,
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
     telemetry: { enabled: false },
+    observationSource: 'nest',
+    ...overrides,
   };
 }
 
@@ -99,6 +102,13 @@ describe('buildSolverDependencies', () => {
     const { deps } = buildSolverDependencies(config(), { log: new InMemoryDecisionLog() });
     expect(deps.config.authorizationTtlSeconds).toBe(45);
     expect(deps.config.policy.version).toMatch(/^v2-testnet/);
+  });
+
+  it('wires the GraphQL provider when OBSERVATION_SOURCE=graph, the Nest provider otherwise', () => {
+    const nest = buildSolverDependencies(config(), { log: new InMemoryDecisionLog() });
+    expect(nest.deps.observation).toBeInstanceOf(SqlNestObservationProvider);
+    const graph = buildSolverDependencies(config({ observationSource: 'graph' }), { log: new InMemoryDecisionLog() });
+    expect(graph.deps.observation).toBeInstanceOf(GraphObservationProvider);
   });
 
   it('uses the log instance the caller provided, not one of its own', () => {

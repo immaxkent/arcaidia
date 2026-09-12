@@ -23,3 +23,5 @@ solver-decisions*.jsonl
 # Per-operator solver env files (WP-28.6 / WP-31) — keys, never committed
 .env.solver-*
 !.env.solver-*.example
+
+subgraph/build-arc
