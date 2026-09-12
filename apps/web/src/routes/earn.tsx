@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { decodeEventLog, encodeEventTopics, keccak256, toHex } from "viem";
+import { decodeEventLog, encodeEventTopics, keccak256, parseEther, toHex } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { InvalidFeePolicyError, feeBpsAt, validateFeePolicy, type FeePolicy } from "@arcaidia/domain";
 import { erc20Abi, solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
@@ -8,7 +9,7 @@ import { viemChainFor } from "@/lib/arcaidia/viem-chains";
 import { toast } from "sonner";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
-import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address, type SolverDeployTarget } from "@/lib/arcaidia/types";
+import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
 import { formatBps, formatUsdc, isAddressLike, parseUsdc, truncateAddress } from "@/lib/arcaidia/format";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
 import { useWallet } from "@/components/wallet/wallet-context";
@@ -17,6 +18,7 @@ import { NOT_AVAILABLE } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateValue } from "@/components/data/state-views";
 import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
 import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
+import { useOwnedVaults } from "@/hooks/arcaidia/use-owned-vaults";
 import { useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
 
 
@@ -48,42 +50,10 @@ const STEPS = [
   { n: 5, label: "Go live" },
 ] as const;
 
-type SolverMode = "REFERENCE" | "EXTERNAL";
-
-/**
- * Reference solver recipes — only what actually exists today. There is no
- * published image, installer or Helm chart; the reference solver is
- * `packages/agent` in this repository, run either through the committed
- * Docker Compose stack (WP-17.3, `docker-compose.yml`) or straight from a
- * checkout with `pnpm solver:start`. Every command below was run as written.
- * The solver owns its operator key, not Arcaidia.
- */
-const DEPLOY_TARGETS: Array<{ id: SolverDeployTarget; label: string; command: string }> = [
-  {
-    id: "DOCKER",
-    label: "Docker Compose",
-    command: `git clone https://github.com/immaxkent/arcaidia.git && cd arcaidia
-cp .env.example .env
-# paste the runtime config below into .env, then add your own
-# LOCAL_AGENT_PRIVATE_KEY and LOCAL_SUBMITTER_PRIVATE_KEY
-docker compose up --build -d
-docker compose logs -f arcaidia-solver
-
-# prints: [solver] signer 0x… — that is the operator address to authorise below`,
-  },
-  {
-    id: "NODE",
-    label: "Node (pnpm)",
-    command: `git clone https://github.com/immaxkent/arcaidia.git && cd arcaidia
-pnpm install
-cp .env.example .env
-# paste the runtime config below into .env, then add your own
-# LOCAL_AGENT_PRIVATE_KEY and LOCAL_SUBMITTER_PRIVATE_KEY
-pnpm solver:start
-
-# prints: [solver] signer 0x… — that is the operator address to authorise below`,
-  },
-];
+/** The one-command run for a solver whose whole config is the downloaded env file. */
+const RUN_COMMAND = `git clone https://github.com/immaxkent/arcaidia.git && cd arcaidia
+cp ~/Downloads/arcaidia-solver.env .env
+docker compose up --build -d && docker compose logs -f arcaidia-solver`;
 
 /** Matches `CHAIN_ENV_PREFIX` in packages/agent/src/entrypoint/config.ts exactly. */
 const CHAIN_ENV_PREFIX: Record<number, string> = {
@@ -135,6 +105,24 @@ ARCAIDIA_TELEMETRY_URL=${telemetryUrl ?? "# not configured for this deployment y
 }
 
 /**
+ * The complete solver env for download — `runtimeConfigText`'s non-secret block plus the two
+ * keys the browser just generated for this operator. Produced client-side only, handed to the
+ * user as a file, never sent anywhere: Arcaidia and the Privy wallet never see these keys.
+ */
+export function solverEnvText(
+  chainId: number,
+  vaultAddress: Address,
+  keys: { signerKey: `0x${string}`; submitterKey: `0x${string}` },
+  telemetryUrl: string | null,
+): string {
+  return `${runtimeConfigText(chainId, vaultAddress, telemetryUrl)}
+# --- Your solver's own identity — generated in your browser on /earn, kept only by you ---
+LOCAL_AGENT_PRIVATE_KEY=${keys.signerKey}
+LOCAL_SUBMITTER_PRIVATE_KEY=${keys.submitterKey}
+`;
+}
+
+/**
  * HANDOFF — Earn / operator flow.
  *
  * Every step state comes from a real action, never assumed:
@@ -167,9 +155,96 @@ function EarnPage() {
   // (conservative but real capacity), not an arbitrary UI default.
   const [maxFillBps, setMaxFillBps] = useState(5_000);
   const [maxExposureBps, setMaxExposureBps] = useState(9_000);
-  const [solverMode, setSolverMode] = useState<SolverMode>("REFERENCE");
-  const [deployTarget, setDeployTarget] = useState<SolverDeployTarget>("DOCKER");
   const [solverOperator, setSolverOperator] = useState("");
+  const [operatorMode, setOperatorMode] = useState<"GENERATE" | "EXTERNAL">("GENERATE");
+  /** Generated in the browser, held in memory only — never persisted, never sent anywhere. */
+  const [identity, setIdentity] = useState<{
+    signerKey: `0x${string}`;
+    signerAddress: Address;
+    submitterKey: `0x${string}`;
+    submitterAddress: Address;
+  } | null>(null);
+  const [gasSending, setGasSending] = useState(false);
+  const [gasTxHash, setGasTxHash] = useState<`0x${string}` | null>(null);
+  const [gasError, setGasError] = useState<string | null>(null);
+  const [pausing, setPausing] = useState(false);
+  const [pauseError, setPauseError] = useState<string | null>(null);
+
+  function generateIdentity() {
+    const signerKey = generatePrivateKey();
+    const submitterKey = generatePrivateKey();
+    const next = {
+      signerKey,
+      signerAddress: privateKeyToAccount(signerKey).address as Address,
+      submitterKey,
+      submitterAddress: privateKeyToAccount(submitterKey).address as Address,
+    };
+    setIdentity(next);
+    setSolverOperator(next.signerAddress);
+    setGasTxHash(null);
+  }
+
+  function downloadSolverEnv() {
+    if (!identity || !vaultAddress) return;
+    const text = solverEnvText(chainId, vaultAddress, identity, SERVICES.solverTelemetryUrl);
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "arcaidia-solver.env";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Gas for the submitter, from the connected wallet: 0.02 ETH on Ethereum, 2 USDC (the gas token) on Arc. */
+  const GAS_TOP_UP = chainId === ARC_TESTNET ? parseEther("2") : parseEther("0.02");
+  async function sendGasToSubmitter() {
+    if (!connected || !address || !identity) return;
+    const publicClient = publicClientFor(chainId);
+    if (!publicClient) return setGasError("RPC is not configured for this chain yet.");
+    setGasError(null);
+    setGasSending(true);
+    try {
+      const walletClient = await wallet.getWalletClient(chainId);
+      const hash = await walletClient.sendTransaction({
+        to: identity.submitterAddress,
+        value: GAS_TOP_UP,
+        chain: viemChainFor(chainId),
+        account: address,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      setGasTxHash(hash);
+      toast.success("Gas sent", { description: truncateAddress(identity.submitterAddress) });
+    } catch (error) {
+      setGasError(error instanceof Error ? error.message : "Transaction failed.");
+    } finally {
+      setGasSending(false);
+    }
+  }
+
+  async function setVaultPaused(paused: boolean) {
+    if (!connected || !address || !vaultAddress) return;
+    const publicClient = publicClientFor(chainId);
+    if (!publicClient) return setPauseError("RPC is not configured for this chain yet.");
+    setPauseError(null);
+    setPausing(true);
+    try {
+      const walletClient = await wallet.getWalletClient(chainId);
+      const hash = await walletClient.writeContract({
+        address: vaultAddress,
+        abi: solverVaultAbi,
+        functionName: "setPaused",
+        args: [paused],
+        chain: viemChainFor(chainId),
+        account: address,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      toast.success(paused ? "Vault paused" : "Vault resumed");
+    } catch (error) {
+      setPauseError(error instanceof Error ? error.message : "Transaction failed.");
+    } finally {
+      setPausing(false);
+    }
+  }
 
   /**
    * The vault's fee policy (D7) — four utilisation tiers, fixed at creation. Defaults are the
@@ -348,6 +423,7 @@ function EarnPage() {
   // address — it's what they're about to authorise, telemetry pairing (if
   // any) is what the runtime has already reported on its own.
   const telemetry = useSolverTelemetry(chainId, vaultAddress);
+  const owned = useOwnedVaults(connected ? (address as Address) : null);
   const candidateOperator = operatorValid
     ? (solverOperator.trim() as Address)
     : telemetry.status === "ready"
@@ -381,6 +457,37 @@ function EarnPage() {
         There are no pooled third-party deposits. Nobody LPs into your vault, and you do not LP into anyone
         else's.
       </p>
+
+      {/* Resume: the factory knows which vaults this wallet owns, so a reload never strands anyone. */}
+      {connected && !deployed && owned.status === "ready" ? (
+        <section className="panel mt-6 p-4">
+          <p className="text-[11px] uppercase tracking-wide text-text-dim">Your vaults</p>
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+            {owned.data.map((v) => (
+              <li key={`${v.chainId}:${v.vaultAddress}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChainId(v.chainId);
+                    setVaultAddress(v.vaultAddress);
+                    setVaultName(v.label ?? truncateAddress(v.vaultAddress));
+                    setStep(3);
+                  }}
+                  className="instrument w-full p-3 text-left"
+                >
+                  <span className="block text-sm font-semibold text-text">{v.label ?? truncateAddress(v.vaultAddress)}</span>
+                  <span className="num mt-1 block text-[11px] text-text-dim">
+                    {CHAINS[v.chainId]?.short} · {truncateAddress(v.vaultAddress)} ·{" "}
+                    {v.availableLiquidity !== null ? `${formatUsdc(v.availableLiquidity)} USDC available` : "—"} ·
+                    fee {v.currentFeeBps !== null ? formatBps(v.currentFeeBps) : "—"}
+                  </span>
+                  <span className="num mt-1 block text-[10px] uppercase tracking-wide text-acid">Continue with this vault →</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <ol className="mt-8 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {STEPS.map((s) => {
@@ -633,21 +740,21 @@ function EarnPage() {
           {step === 4 ? (
             <Step
               title="Set up solver"
-              hint="Arcaidia does not validate or trust a solver binary. It validates the solver operator address you authorise onchain for your vault."
+              hint="Your solver is a small program you run — Arcaidia never holds its key. This step creates its identity, gives it gas, authorises it on your vault, and hands you the one command to start it."
             >
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {(
                   [
-                    { id: "REFERENCE" as SolverMode, t: "Arcaidia reference solver", d: "packages/agent from this repository — Docker Compose, or pnpm from a checkout." },
-                    { id: "EXTERNAL" as SolverMode, t: "External solver", d: "Any compatible implementation, however you host it." },
+                    { id: "GENERATE" as const, t: "Create a solver here", d: "Identity generated in your browser; download one file; run one command." },
+                    { id: "EXTERNAL" as const, t: "I already run a solver", d: "Paste the operator address it prints and authorise it." },
                   ]
                 ).map((o) => (
                   <button
                     key={o.id}
                     type="button"
-                    onClick={() => setSolverMode(o.id)}
-                    aria-pressed={solverMode === o.id}
-                    className={`instrument p-4 text-left ${solverMode === o.id ? "border-acid/60" : ""}`}
+                    onClick={() => setOperatorMode(o.id)}
+                    aria-pressed={operatorMode === o.id}
+                    className={`instrument p-4 text-left ${operatorMode === o.id ? "border-acid/60" : ""}`}
                   >
                     <span className="block text-sm font-semibold text-text">{o.t}</span>
                     <span className="mt-1 block text-xs text-text-dim">{o.d}</span>
@@ -655,187 +762,216 @@ function EarnPage() {
                 ))}
               </div>
 
-              {solverMode === "REFERENCE" ? (
-                <div className="mt-5">
-                  <p className="text-[11px] uppercase tracking-wide text-text-dim">Deployment target</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {DEPLOY_TARGETS.map((t) => (
+              {operatorMode === "GENERATE" ? (
+                <div className="mt-5 space-y-4">
+                  {/* 1 — identity */}
+                  <div className="panel-raised px-3 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] uppercase tracking-wide text-text-dim">1 · Solver identity</p>
                       <button
-                        key={t.id}
                         type="button"
-                        onClick={() => setDeployTarget(t.id)}
-                        aria-pressed={deployTarget === t.id}
-                        className={`rounded-full border px-3 py-1 text-xs uppercase tracking-wide transition-colors ${
-                          deployTarget === t.id
-                            ? "border-acid/60 bg-acid/15 text-acid"
-                            : "border-border text-text-dim hover:text-text"
-                        }`}
+                        onClick={generateIdentity}
+                        className="num rounded border border-acid/50 px-2 py-1 text-[11px] uppercase tracking-wide text-acid hover:bg-acid/10"
                       >
-                        {t.label}
+                        {identity ? "Regenerate" : "Generate"}
                       </button>
-                    ))}
+                    </div>
+                    {identity ? (
+                      <dl className="mt-2 space-y-1 text-sm">
+                        <Row k="Signer (authorised on your vault)" v={truncateAddress(identity.signerAddress)} tone="text-acid" />
+                        <Row k="Submitter (pays gas for fills)" v={truncateAddress(identity.submitterAddress)} />
+                      </dl>
+                    ) : (
+                      <p className="mt-2 text-xs text-text-dim">
+                        Two keys are made in this browser tab and never leave it. You keep them in the file below.
+                      </p>
+                    )}
+                    {identity ? (
+                      <p className="num mt-2 text-[11px] text-warning">
+                        Download the file before leaving this page — the keys exist only here until you do.
+                      </p>
+                    ) : null}
                   </div>
-                  <pre className="num mt-3 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">
-                    {(DEPLOY_TARGETS.find((t) => t.id === deployTarget) ?? DEPLOY_TARGETS[0]!).command}
-                  </pre>
-                  <p className="measure mt-2 text-xs text-text-dim">
-                    On start the solver prints the signer address derived from your own{" "}
-                    <code className="num">LOCAL_AGENT_PRIVATE_KEY</code> — that is the operator address you authorise
-                    below. The key stays with your solver process; Arcaidia and your Privy wallet never hold it.
-                    A Circle Agent Wallet (set the four <code className="num">CIRCLE_*</code> vars instead) works here too.
-                  </p>
-                </div>
-              ) : (
-                <p className="measure mt-4 text-xs text-text-dim">
-                  Run your own solver anywhere. It needs its own operator address — an EOA or a supported
-                  Circle Agent Wallet — able to submit fast fills against your vault.
-                </p>
-              )}
 
-              <div className="mt-5">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] uppercase tracking-wide text-text-dim">Runtime config</p>
-                  {deployed ? (
+                  {/* 2 — the file */}
+                  <div className="panel-raised px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">2 · Config file</p>
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(
-                          runtimeConfigText(chainId, vaultAddress!, SERVICES.solverTelemetryUrl),
-                        );
-                        toast.success("Copied", { description: "Runtime config" });
-                      }}
-                      className="text-[10px] font-semibold uppercase tracking-wide text-electric-glow hover:text-electric"
+                      disabled={!identity || !deployed}
+                      onClick={downloadSolverEnv}
+                      className="mt-2 w-full rounded-lg border border-electric/60 bg-electric/10 py-2.5 text-xs font-semibold uppercase tracking-wide text-electric-glow disabled:opacity-50"
                     >
-                      Copy
+                      Download arcaidia-solver.env
                     </button>
-                  ) : null}
+                    <p className="mt-2 text-xs text-text-dim">
+                      Everything the solver needs: your vault on {CHAINS[chainId]?.short}, the indexer, telemetry, and the two keys.
+                      {!deployed ? " (Deploy the vault on step 2 first.)" : ""}
+                    </p>
+                  </div>
+
+                  {/* 3 — gas */}
+                  <div className="panel-raised px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">3 · Gas for the submitter</p>
+                    <button
+                      type="button"
+                      disabled={!connected || !identity || gasSending || gasTxHash !== null}
+                      onClick={() => void sendGasToSubmitter()}
+                      className="mt-2 w-full rounded-lg border border-acid/60 bg-acid/15 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                    >
+                      {gasTxHash ? "Gas sent" : gasSending ? "Sending…" : `Send ${chainId === ARC_TESTNET ? "2 USDC" : "0.02 ETH"} from this wallet`}
+                    </button>
+                    {gasError ? <p className="mt-2 text-xs text-warning">{gasError}</p> : null}
+                    <p className="mt-2 text-xs text-text-dim">
+                      Fills are transactions your submitter broadcasts on {CHAINS[chainId]?.short}; this covers a few hundred of them.
+                    </p>
+                  </div>
+
+                  {/* 4 — authorise */}
+                  <div className="panel-raised px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">4 · Authorise on your vault</p>
+                    <button
+                      type="button"
+                      disabled={!connected || !deployed || !operatorValid || authorised || authorising}
+                      onClick={() => void authoriseSolver()}
+                      className="mt-2 w-full rounded-lg border border-acid/60 bg-acid/15 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                    >
+                      {authorised ? "Solver authorised" : authorising ? "Signing…" : "Authorise this solver (one signature)"}
+                    </button>
+                    {authoriseError ? <p className="mt-2 text-xs text-warning">{authoriseError}</p> : null}
+                    <p className="mt-2 text-xs text-text-dim">
+                      Writes the signer to your vault on chain. Only authorised signers can ever move your vault's capital, and you can revoke at any time.
+                    </p>
+                  </div>
+
+                  {/* 5 — run */}
+                  <div className="panel-raised px-3 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] uppercase tracking-wide text-text-dim">5 · Run it</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(RUN_COMMAND);
+                          toast.success("Copied", { description: "Run command" });
+                        }}
+                        className="text-[10px] font-semibold uppercase tracking-wide text-electric-glow hover:text-electric"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre className="num mt-2 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">{RUN_COMMAND}</pre>
+                    <p className="mt-2 text-xs text-text-dim">
+                      Needs Docker. The solver prints <code className="num">[solver] signer {identity ? truncateAddress(identity.signerAddress) : "0x…"}</code> on start and appears on the next step within a minute.
+                    </p>
+                  </div>
                 </div>
-                {deployed ? (
-                  <pre className="num mt-2 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">
-                    {runtimeConfigText(chainId, vaultAddress!, SERVICES.solverTelemetryUrl)}
-                  </pre>
-                ) : (
-                  <p className="measure mt-2 text-xs text-text-dim">Deploy your vault first to generate this.</p>
-                )}
-                <p className="measure mt-2 text-xs text-text-dim">
-                  Every field here is non-secret — safe to paste into a container's env or a .env file. No
-                  Graph account or indexer of your own is required unless you want to use one.
-                </p>
-              </div>
+              ) : (
+                <div className="mt-5">
+                  <Field label="Solver operator address" id="solver-operator">
+                    <input
+                      id="solver-operator"
+                      placeholder="0x…"
+                      value={solverOperator}
+                      onChange={(e) => setSolverOperator(e.target.value)}
+                      className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                    />
+                  </Field>
+                  <p className="num text-[11px] text-text-dim">
+                    {operatorValid
+                      ? "Valid address"
+                      : solverOperator.trim().length === 0
+                        ? "Paste the address your solver printed on start"
+                        : "Not a valid 20-byte address"}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={!connected || !deployed || !operatorValid || authorised || authorising}
+                    onClick={() => void authoriseSolver()}
+                    className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                  >
+                    {authorised ? "Solver authorised" : authorising ? "Signing…" : "Authorise this solver (one signature)"}
+                  </button>
+                  {authoriseError ? <p className="mt-2 text-xs text-warning">{authoriseError}</p> : null}
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] uppercase tracking-wide text-text-dim">Runtime config for your solver</p>
+                      {deployed ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(runtimeConfigText(chainId, vaultAddress!, SERVICES.solverTelemetryUrl));
+                            toast.success("Copied", { description: "Runtime config" });
+                          }}
+                          className="text-[10px] font-semibold uppercase tracking-wide text-electric-glow hover:text-electric"
+                        >
+                          Copy
+                        </button>
+                      ) : null}
+                    </div>
+                    {deployed ? (
+                      <pre className="num mt-2 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">
+                        {runtimeConfigText(chainId, vaultAddress!, SERVICES.solverTelemetryUrl)}
+                      </pre>
+                    ) : (
+                      <AwaitingSource>Deploy the vault first — the config names its address</AwaitingSource>
+                    )}
+                  </div>
+                </div>
+              )}
 
-              <Field label="Solver operator address" id="solver-operator">
-                <input
-                  id="solver-operator"
-                  placeholder="0x…"
-                  value={solverOperator}
-                  onChange={(e) => setSolverOperator(e.target.value)}
-                  className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
-                />
-              </Field>
-              <p className="num text-[11px] text-text-dim">
-                {operatorValid
-                  ? "Valid address"
-                  : solverOperator.trim().length === 0
-                    ? "Paste the address your solver printed"
-                    : "Not a valid 20-byte address"}
-              </p>
-
-              <button
-                type="button"
-                disabled={!connected || !deployed || !operatorValid || authorised || authorising}
-                onClick={() => void authoriseSolver()}
-                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
-              >
-                {authorised ? "Solver authorised" : authorising ? "Signing…" : "Sign authorisation transaction"}
-              </button>
-              {authoriseError ? <p className="mt-2 text-xs text-warning">{authoriseError}</p> : null}
-              <p className="num mt-2 text-[11px] text-text-dim">
-                You sign as the vault owner through Privy. This writes the authorised operator to your vault.
-              </p>
-
-              <dl className="mt-4 space-y-1.5 text-sm">
+              <dl className="mt-5 space-y-1.5 text-sm">
+                <Row k="Vault" v={deployed ? truncateAddress(vaultAddress!) : "Deploy vault first"} tone={deployed ? "text-success" : "text-warning"} />
+                <Row k="Owner" v={connected && address ? truncateAddress(address) : "Connect wallet"} tone={connected ? "text-text" : "text-warning"} />
                 <Row
-                  k="Vault"
-                  v={deployed ? truncateAddress(vaultAddress!) : "Deploy vault first"}
-                  tone={deployed ? "text-success" : "text-warning"}
-                />
-                <Row
-                  k="Owner identity"
-                  v={connected && address ? truncateAddress(address) : "Connect wallet"}
-                  tone={connected ? "text-text" : "text-warning"}
-                />
-                <Row
-                  k="Solver operator"
-                  v={operatorValid ? truncateAddress(solverOperator as Address) : NOT_AVAILABLE}
-                />
-                <Row
-                  k="Telemetry pairing"
-                  v={
-                    telemetry.status === "ready"
-                      ? telemetry.data.paired
-                        ? "Runtime paired (not authorisation)"
-                        : "Runtime seen, unpaired"
-                      : "Telemetry unavailable"
-                  }
-                  tone="text-text-dim"
-                />
-                <Row
-                  k="Onchain authorisation state"
-                  v={
-                    metrics.status === "ready"
-                      ? metrics.data.authState === "AUTHORISED"
-                        ? "SOLVER AUTHORISED"
-                        : (metrics.data.authState ?? NOT_AVAILABLE)
-                      : NOT_AVAILABLE
-                  }
+                  k="Onchain authorisation"
+                  v={metrics.status === "ready" ? (metrics.data.authState === "AUTHORISED" ? "AUTHORISED" : (metrics.data.authState ?? NOT_AVAILABLE)) : NOT_AVAILABLE}
                   tone={authorised ? "text-acid" : "text-text-dim"}
                 />
               </dl>
               <AwaitingSource>
-                Authorisation state is read from the vault contract — telemetry pairing never implies it
+                Authorisation is read from the vault contract — a running solver is never assumed from it
               </AwaitingSource>
-              <Link
-                to="/console"
-                className="mt-4 inline-block rounded-lg border border-electric/60 bg-electric/10 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-electric-glow"
-              >
-                Open solver console
-              </Link>
             </Step>
-
           ) : null}
 
           {step === 5 ? (
-            <Step title="Go live" hint="Review, then activate. You can pause the vault at any time.">
-              <dl className="mt-3 space-y-1.5 text-sm">
-                <Row k="Name" v={vaultNameValid ? vaultName.trim() : NOT_AVAILABLE} />
-                <Row k="Chain" v={CHAINS[chainId]?.name ?? NOT_AVAILABLE} />
+            <Step title="Go live" hint="Nothing to activate — a vault with capital and an authorised, running solver is live. This watches each fact land.">
+              <ol className="mt-3 space-y-2">
+                {(
+                  [
+                    ["Vault deployed", deployed, deployed ? truncateAddress(vaultAddress!) : "step 2"],
+                    ["Capital deposited", funded > 0n || (metrics.status === "ready" && (metrics.data.availableLiquidity ?? 0n) > 0n), metrics.status === "ready" && metrics.data.availableLiquidity !== null ? `${formatUsdc(metrics.data.availableLiquidity)} USDC available` : "step 3"],
+                    ["Solver authorised on chain", authorised, authorised ? "read from the vault" : "step 4"],
+                    ["Solver runtime paired", telemetry.status === "ready" && telemetry.data.paired, telemetry.status === "ready" ? (telemetry.data.paired ? "identity proven" : "start it — step 4, 'Run it'") : "telemetry relay not connected"],
+                    ["Solver online", live, telemetry.status === "ready" && telemetry.data.lastHeartbeatAt ? `last heartbeat ${new Date(telemetry.data.lastHeartbeatAt * 1000).toLocaleTimeString()}` : "awaiting first heartbeat"],
+                    ["First fill", metrics.status === "ready" && (metrics.data.transactionCount ?? 0) > 0, metrics.status === "ready" && metrics.data.transactionCount ? `${metrics.data.transactionCount} fills` : "waiting for an intent your vault can win"],
+                  ] as const
+                ).map(([label, done, detail]) => (
+                  <li key={label} className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2">
+                    <span className={`grid size-5 place-items-center rounded-full border text-[10px] ${done ? "border-acid bg-acid/20 text-acid" : "border-border text-text-dim"}`}>{done ? "✓" : "·"}</span>
+                    <span className={`text-sm ${done ? "text-text" : "text-text-dim"}`}>{label}</span>
+                    <span className="num ml-auto text-[11px] text-text-dim">{detail}</span>
+                  </li>
+                ))}
+              </ol>
+
+              <dl className="mt-4 space-y-1.5 text-sm">
                 <Row k="Vault" v={deployed ? truncateAddress(vaultAddress!) : "Not deployed"} />
-                <Row k="Funded" v={`${formatUsdc(funded)} USDC`} />
-                <Row k="Max single fill" v={`${formatBps(maxFillBps)} of available liquidity`} />
-                <Row k="Max utilisation" v={formatBps(maxExposureBps)} />
-                <Row k="Solver runtime" v={solverMode === "REFERENCE" ? "Arcaidia reference solver" : "External solver"} />
-                <Row
-                  k="Authorised operator"
-                  v={
-                    metrics.status === "ready" && metrics.data.authorisedSolver
-                      ? truncateAddress(metrics.data.authorisedSolver)
-                      : NOT_AVAILABLE
-                  }
-                  tone={authorised ? "text-acid" : "text-text-dim"}
-                />
+                <Row k="Chain" v={CHAINS[chainId]?.name ?? NOT_AVAILABLE} />
+                <Row k="Posted fee now" v={metrics.status === "ready" && metrics.data.currentFeeBps !== null ? formatBps(metrics.data.currentFeeBps) : NOT_AVAILABLE} tone="text-acid" />
               </dl>
-              {/* WIRE: owner-signed activate/pause transaction on the vault. */}
+
               <button
                 type="button"
-                disabled={!authorised}
-                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                disabled={!connected || !deployed || pausing}
+                onClick={() => void setVaultPaused(!(metrics.status === "ready" && metrics.data.runtimeStatus === "PAUSED"))}
+                className="mt-4 w-full rounded-lg border border-border py-3 text-sm font-semibold uppercase tracking-wide text-text-dim hover:text-text disabled:opacity-50"
               >
-                {live ? "Pause solver" : "Activate solver"}
+                {pausing ? "Signing…" : metrics.status === "ready" && metrics.data.runtimeStatus === "PAUSED" ? "Resume vault" : "Pause vault (stops new fills)"}
               </button>
-
+              {pauseError ? <p className="mt-2 text-xs text-warning">{pauseError}</p> : null}
               <p className="measure mt-3 text-xs text-text-dim">
-                The solver operator address is replaceable at any time — the vault is the durable economic
-                identity, and its history stays with it.
+                The solver key is replaceable at any time — the vault is the durable identity, and its history stays with it.
               </p>
               <Link
                 to="/console"

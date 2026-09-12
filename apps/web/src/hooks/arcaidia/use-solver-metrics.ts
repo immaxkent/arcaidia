@@ -40,6 +40,8 @@ export interface SolverMetrics {
   outstandingExposure: bigint | null;
   utilisationBps: number | null;
   authState: SolverAuthState | null;
+  /** The vault's posted fee tier right now (`currentFeeBps()`), null on a pre-v2 vault. */
+  currentFeeBps: number | null;
   runtimeStatus: SolverRuntimeStatus | null;
   authorisedSolver: Address | null;
 }
@@ -99,10 +101,12 @@ async function fetchSolverMetrics(
   const client = publicClientFor(chainId);
   if (!client) throw new Error("RPC not configured");
 
-  const [availableLiquidity, outstandingExposure, paused, isAuthorised, indexed] = await Promise.all([
+  const [availableLiquidity, outstandingExposure, paused, rawFeeBps, isAuthorised, indexed] = await Promise.all([
     client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "availableLiquidity" }),
     client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "outstandingExposure" }),
     client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "paused" }),
+    // v2 posted tier (D7); a pre-v2 vault has no such function — null, never a guess.
+    (client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "currentFeeBps" }) as Promise<number>).catch(() => null),
     candidateOperator
       ? client.readContract({
           address: vaultAddress,
@@ -125,6 +129,7 @@ async function fetchSolverMetrics(
     availableLiquidity,
     outstandingExposure,
     utilisationBps: utilisationBps(availableLiquidity, outstandingExposure),
+    currentFeeBps: rawFeeBps === null || Number.isNaN(Number(rawFeeBps)) ? null : Number(rawFeeBps),
     authState,
     // paused overrides even a live telemetry heartbeat — combined with that
     // heartbeat by the caller (see runtimeStatus below), not guessed here.
