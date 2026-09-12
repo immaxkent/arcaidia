@@ -88,7 +88,7 @@ contract SettlementReceiver is ReentrancyGuard {
     error ZeroAmount();
     error AlreadySettled(bytes32 intentId);
     error InsufficientCanonicalFunds(uint256 requested, uint256 held);
-    error MessageNotForThisReceiver(address recipient, address mintRecipient);
+    error MessageNotForThisReceiver(address destinationCaller, address mintRecipient);
     error MessageNotAccepted();
     error MintedAmountMismatch(uint256 expected, uint256 actual);
     error NothingHeld(bytes32 intentId);
@@ -151,8 +151,16 @@ contract SettlementReceiver is ReentrancyGuard {
         returns (Outcome outcome)
     {
         CctpMessageLib.Parsed memory parsed = CctpMessageLib.parse(message);
-        if (parsed.recipient != address(this) || parsed.mintRecipient != address(this)) {
-            revert MessageNotForThisReceiver(parsed.recipient, parsed.mintRecipient);
+        // In a CCTP V2 burn message the header's `recipient` is Circle's own TokenMessenger on this
+        // chain (the handler `receiveMessage` dispatches to), never us. What names *this* contract
+        // is the burn body's `mintRecipient` (where the USDC lands) and, when the source set one,
+        // the header's `destinationCaller` (who may present the message). Both are checked; the
+        // balance delta below is the proof the mint actually happened here.
+        if (
+            parsed.mintRecipient != address(this)
+                || (parsed.destinationCaller != address(0) && parsed.destinationCaller != address(this))
+        ) {
+            revert MessageNotForThisReceiver(parsed.destinationCaller, parsed.mintRecipient);
         }
         (bytes32 intentId, address recipient) = IntentHookLib.decode(parsed.hookData);
         if (outcomeOf[intentId] != Outcome.NONE) revert AlreadySettled(intentId);

@@ -195,3 +195,33 @@ output from the claimant and pays the recipient itself, so claimed ⇔ paid and 
 plain transfer to whoever the market debited. Fully allowlist-free, but moves the payout and the
 swap-delivery seam (D9) out of the vault and re-opens the fill path's accounting/reentrancy
 analysis. Revisit if non-standard vault code ever needs to compete.
+
+## D12 — Replace only the settlement receiver (v2.1), keep every other v2 address (2026-09-12)
+
+**Finding.** The first live v2 batch (13 intents, 12 fast fills) never settled: `settleWithProof`
+reverted with `MessageNotForThisReceiver`. The v2.0 receiver required the CCTP message header's
+`recipient` to be itself. On a real network that field is Circle's `TokenMessengerV2`
+(`0x8FE6…2DAA`) — the contract Circle's transmitter hands the burn message to — and the fields
+that name *us* are the body's `mintRecipient` and the header's `destinationCaller`. The mock
+transmitter in the test suite set `recipient = receiver`, so 365 green tests never saw a real
+message. The real message is now a golden vector in `SettlementReceiverProof.t.sol`.
+
+**Consequence.** Because the router names the receiver as `destinationCaller`, only the receiver
+may present those messages to Circle, and it always reverted first: the canonical USDC for every
+intent burned before the fix is unreachable on this deployment (testnet). The vaults that fast-
+filled them are made whole through the reporter recovery path (`settle`) funded by a donation to
+the old receiver — `scripts/recover-stuck-settlements.sh`.
+
+**Decision.** Do not redeploy the protocol. The receiver is the only contract that was wrong, and
+everything that references it is owner-settable except the market's immutable `settlementCheck`,
+which only reads an "already settled" flag the old receiver will never set — harmless. So:
+`arcaidia.v2.settlement-receiver.r2` at `0xa60c586E4d050233885cD6628B7C1A217574d9c6` (same
+address both chains), initialised against the existing market; the router's destination map and
+the House Vault re-pointed by the owner; independent vaults re-pointed by their owners from the
+console; `/earn` re-points a freshly created vault itself, because the factory still wires the old
+address. The Nest gains the new receiver as a data source; the web reads settlements from the
+chain until it does.
+
+**Cost of the alternative.** A full redeploy would have changed all five addresses, invalidated
+the vault labels, deposits and authorisations made through `/earn` today, and needed a third
+Nest re-seed — for a bug that lives in one contract.

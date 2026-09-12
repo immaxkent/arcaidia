@@ -1,19 +1,20 @@
-# Nest re-seed request — Arcaidia v2 (WP-27 / WP-31)
+# Nest re-seed request — Arcaidia
 
 **To:** the Graph rep hosting `https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia` and
 `.../arcaidia-arc`. **From:** Arcaidia. **Why:** the protocol is being redeployed with a new
 intent schema (v1.1), per-vault fee policies and a vault factory. The current Nests index the
 v1 contracts; after the redeploy every reader (solver, frontend, intelligence API) needs the v2
-tables/views below. One re-seed per chain; the v1 Nests can stay up for history.
+tables/views below. One reseed per chain; the v1 Nests can stay up for history.
 
 ## Contracts to index (per chain — addresses filled in by WP-31 before sending)
 
-| Data source | Address (Sepolia / Arc — identical, CREATE2) | Start block (Sepolia / Arc) | ABI |
-| --- | --- | --- | --- |
-| `ArcaidiaIntentRouter` (v2) | `0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6` | Sepolia `11688307` / Arc `61715976` | `subgraph/abis/ArcaidiaIntentRouter.json` |
-| `ArcaidiaVaultFactory` | `0xD458d83C874296EC4a29c47655Ae47302879b23a` | Sepolia `11688306` / Arc `61715971` | `subgraph/abis/ArcaidiaVaultFactory.json` |
-| `SettlementReceiver` (v2) | `0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd` | Sepolia `11688303` / Arc `61715957` | `subgraph/abis/SettlementReceiver.json` |
-| `ArcaidiaLiquidityVault` — **every address emitted in `VaultCreated.vault`** (a dynamic set; the House Vault and every independent operator's vault) | from the factory's events | same block as its `VaultCreated` | `subgraph/abis/ArcaidiaLiquidityVault.json` |
+| Data source                                                                                                                                          | Address (Sepolia / Arc — identical, CREATE2) | Start block (Sepolia / Arc)         | ABI                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------- | ------------------------------------------- |
+| `ArcaidiaIntentRouter` (v2)                                                                                                                          | `0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6` | Sepolia `11688307` / Arc `61715976` | `subgraph/abis/ArcaidiaIntentRouter.json`   |
+| `ArcaidiaVaultFactory`                                                                                                                               | `0xD458d83C874296EC4a29c47655Ae47302879b23a` | Sepolia `11688306` / Arc `61715971` | `subgraph/abis/ArcaidiaVaultFactory.json`   |
+| `SettlementReceiver` (v2)                                                                                                                            | `0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd` | Sepolia `11688303` / Arc `61715957` | `subgraph/abis/SettlementReceiver.json`     |
+| `SettlementReceiver` (v2.1, **added 2026-09-12** — the v2.0 row above stays for history; all new settlements land here) | `0xa60c586E4d050233885cD6628B7C1A217574d9c6` | Sepolia / Arc: the block of its deployment tx (filled in below once broadcast) | `subgraph/abis/SettlementReceiver.json` |
+| `ArcaidiaLiquidityVault` — **every address emitted in `VaultCreated.vault`** (a dynamic set; the House Vault and every independent operator's vault) | from the factory's events                    | same block as its `VaultCreated`    | `subgraph/abis/ArcaidiaLiquidityVault.json` |
 
 The reference manifest with exact event signatures is `subgraph/subgraph.<chain>.yaml`
 (generated from the ABIs; the vault is a `templates:` entry there). If the Nest cannot follow a

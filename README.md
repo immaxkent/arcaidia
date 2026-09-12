@@ -94,7 +94,8 @@ CREATE2 gives every protocol contract the same address on both chains — one ta
 | `ArcaidiaVaultFactory` (permissionless standard vaults) | `0xD458d83C874296EC4a29c47655Ae47302879b23a` | Ethereum Sepolia, Arc Testnet |
 | `ArcaidiaLiquidityVault` — the House Vault, created through the factory | `0xB4bA190D5C78869366e7963f5CcCf4c3167d855C` | Ethereum Sepolia, Arc Testnet |
 | `ArcaidiaIntentMarket` (first-valid-fill, factory vaults only) | `0x81d94f5149FC86df7A273A720070300C461DcA08` | Ethereum Sepolia, Arc Testnet |
-| `SettlementReceiver` (`settleWithProof` from attested CCTP bytes) | `0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd` | Ethereum Sepolia, Arc Testnet |
+| `SettlementReceiver` v2.1 (`settleWithProof` from attested CCTP bytes; D12) | `0xa60c586E4d050233885cD6628B7C1A217574d9c6` | Ethereum Sepolia, Arc Testnet |
+| `SettlementReceiver` v2.0 — retired 2026-09-12 (refused real CCTP messages, see D12) | `0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd` | Ethereum Sepolia, Arc Testnet |
 
 The canonical settlement transport (`CircleCCTPInitiator` v2, `depositForBurnWithHook`) is deployed
 with a plain `new`, not CREATE2, so it is *not* expected to share an address across chains: Ethereum

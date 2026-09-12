@@ -13,6 +13,16 @@
  * vault factory. `settlementInitiator` is this chain's own `CircleCCTPInitiator` v2 —
  * plain `new`, so different per chain (Sepolia block 11688301, Arc block 61715950).
  *
+ * **v2.1 settlement receiver — 2026-09-12 (D12, `arcaidia.v2.settlement-receiver.r2`,
+ * contracts/script/RedeployReceiver.s.sol).** The v2.0 receiver `0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd`
+ * required a CCTP message's header `recipient` to be itself; on a real network that field is
+ * Circle's TokenMessenger, so it refused every genuine message. Only the receiver was replaced:
+ * the router's destination map and every vault's `settlementReceiver` were re-pointed (owner
+ * calls); the market's immutable settlement check still names the old receiver, which is
+ * harmless (it only ever reads an "already settled" flag the old contract will never set). The
+ * factory still wires *new* vaults to the old address — `/earn` re-points a vault right after
+ * creating it, and the console offers the owner the same call.
+ *
  * **Retired, all still onchain and still settling their own already-pending intents via
  * canonical CCTP, but nothing may reference them for new deposits or fills:**
  * - v1 router `0x58868465d14e0694d033bD511588AE90482b21CC` (2026-09-09, WP-10) and its
@@ -33,7 +43,7 @@ export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
   'ethereum-sepolia': {
     intentRouter: '0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6',
     liquidityVault: '0xB4bA190D5C78869366e7963f5CcCf4c3167d855C',
-    settlementReceiver: '0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd',
+    settlementReceiver: '0xa60c586E4d050233885cD6628B7C1A217574d9c6',
     intentMarket: '0x81d94f5149FC86df7A273A720070300C461DcA08',
     vaultFactory: '0xD458d83C874296EC4a29c47655Ae47302879b23a',
     settlementInitiator: '0x01F7925189200e87F0FC48e275a425a0E4B3b827',
@@ -41,7 +51,7 @@ export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
   'arc-testnet': {
     intentRouter: '0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6',
     liquidityVault: '0xB4bA190D5C78869366e7963f5CcCf4c3167d855C',
-    settlementReceiver: '0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd',
+    settlementReceiver: '0xa60c586E4d050233885cD6628B7C1A217574d9c6',
     intentMarket: '0x81d94f5149FC86df7A273A720070300C461DcA08',
     vaultFactory: '0xD458d83C874296EC4a29c47655Ae47302879b23a',
     settlementInitiator: '0x6095944456C20A0acF7c44e4ff40DEa8f041d9b3',
