@@ -153,6 +153,9 @@ interface ChainProgress {
   authoriseError: string | null;
   pausing: boolean;
   pauseError: string | null;
+  /** D12: the factory still wires new vaults to the retired receiver; this flow re-points them at once. */
+  receiverWired: boolean | null;
+  receiverError: string | null;
 }
 
 const EMPTY_PROGRESS: ChainProgress = {
@@ -170,6 +173,8 @@ const EMPTY_PROGRESS: ChainProgress = {
   authoriseError: null,
   pausing: false,
   pauseError: null,
+  receiverWired: null,
+  receiverError: null,
 };
 
 const CHAIN_CHOICES = [
@@ -410,10 +415,33 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
       });
       patch(chainId, { vaultAddress: vault });
       toast.success(`Vault created on ${CHAINS[chainId]?.short}`, { description: vault });
+      await wireSettlementReceiver(chainId, vault);
     } catch (error) {
       patch(chainId, { deployError: message(error) });
     } finally {
       patch(chainId, { deploying: false });
+    }
+  }
+
+  /**
+   * D12: the factory wires a new vault to the receiver it was initialised with — the retired
+   * one. The owner is the creator, so the flow re-points the vault at the current receiver in
+   * the same breath, and Go live shows the fact rather than assuming it.
+   */
+  async function wireSettlementReceiver(chainId: number, vaultAddress: Address) {
+    const target = chainConfig(chainId)?.settlementReceiver ?? null;
+    const publicClient = publicClientFor(chainId);
+    if (!target || !publicClient || !address) return;
+    try {
+      const current = (await publicClient.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "settlementReceiver" })) as Address;
+      if (current.toLowerCase() === target.toLowerCase()) return patch(chainId, { receiverWired: true, receiverError: null });
+      await onChain(chainId, async ({ walletClient, publicClient: client }) => {
+        const hash = await walletClient.writeContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [target], chain: viemChainFor(chainId), account: address });
+        await client.waitForTransactionReceipt({ hash });
+      });
+      patch(chainId, { receiverWired: true, receiverError: null });
+    } catch (error) {
+      patch(chainId, { receiverWired: false, receiverError: message(error) });
     }
   }
 
@@ -519,7 +547,9 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
   function resumeGroup(group: { address: Address; label: string | null; chains: OwnedVaultRow[] }) {
     const chains = SUPPORTED_CHAIN_IDS.filter((id) => group.chains.some((c) => c.chainId === id));
     setTargets(chains);
-    for (const row of group.chains) patch(row.chainId, { vaultAddress: row.vaultAddress });
+    for (const row of group.chains) {
+      patch(row.chainId, { vaultAddress: row.vaultAddress, receiverWired: row.settlementReceiverCurrent });
+    }
     setVaultName(group.label ?? truncateAddress(group.address));
     setStep(3);
   }
@@ -1017,6 +1047,13 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                           },
                         },
                         {
+                          label: "Settlement receiver current",
+                          cell: (id: number) => {
+                            const wired = progressOf(id).receiverWired;
+                            return { done: wired === true, detail: wired === true ? "canonical settlement lands here" : wired === false ? (progressOf(id).receiverError ?? "not yet") : "checked after deploy" };
+                          },
+                        },
+                        {
                           label: "Capital deposited",
                           cell: (id: number) => {
                             const m = statusOf(id).metrics;
@@ -1078,6 +1115,24 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                   return <Row key={id} k={`Posted fee now · ${CHAINS[id]?.short}`} v={m.status === "ready" && m.data.currentFeeBps !== null ? formatBps(m.data.currentFeeBps) : NOT_AVAILABLE} tone="text-acid" />;
                 })}
               </dl>
+
+              {targets.some((id) => progressOf(id).receiverWired === false) ? (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {targets
+                    .filter((id) => progressOf(id).receiverWired === false)
+                    .map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        disabled={!connected || !progressOf(id).vaultAddress}
+                        onClick={() => void wireSettlementReceiver(id, progressOf(id).vaultAddress!)}
+                        className={primaryButton}
+                      >
+                        Update settlement receiver on {CHAINS[id]?.short}
+                      </button>
+                    ))}
+                </div>
+              ) : null}
 
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 {targets.map((id) => {

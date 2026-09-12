@@ -1,5 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
+import { publicClientFor } from "@/lib/arcaidia/viem-clients";
+import { viemChainFor } from "@/lib/arcaidia/viem-chains";
+import { chainConfig } from "@/lib/arcaidia/config";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
 import { SolverOrb } from "@/components/solver/solver-orb";
@@ -12,6 +16,7 @@ import { explorerTxUrl, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
 import { NOT_AVAILABLE, errorState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateSection, StateValue } from "@/components/data/state-views";
 import { solverVaultAbi, vaultCapabilitiesFromAbi, type VaultCapability } from "@/lib/arcaidia/abis";
+import { useQueryClient } from "@tanstack/react-query";
 import { useIntentOutcome } from "@/hooks/arcaidia/use-intent-outcome";
 import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
 import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
@@ -85,8 +90,11 @@ function useMarketVaultDirectory(): DataState<VaultDirectoryRow[]> {
  * connected" — this page is public and view-only for everyone else.
  */
 function ConsolePage() {
-  const { status: walletStatus, address, connect } = useWallet();
+  const wallet = useWallet();
+  const { status: walletStatus, address, connect } = wallet;
   const connected = walletStatus === "CONNECTED";
+  const [repointing, setRepointing] = useState(false);
+  const queryClient = useQueryClient();
 
   const list = useMarketVaultDirectory();
   const rows = list.status === "ready" ? list.data : [];
@@ -99,6 +107,34 @@ function ConsolePage() {
     connected && address && vault?.ownerAddress && vault.ownerAddress.toLowerCase() === address.toLowerCase(),
   );
   const capabilities = vaultCapabilitiesFromAbi(solverVaultAbi as unknown as ReadonlyArray<{ type: string; name?: string }>);
+
+  /** D12: `setSettlementReceiver(<current>)` on this vault, signed by its owner. */
+  async function repointSettlementReceiver() {
+    if (!vault || !address) return;
+    const target = chainConfig(vault.chainId)?.settlementReceiver ?? null;
+    const publicClient = publicClientFor(vault.chainId);
+    if (!target || !publicClient) return;
+    setRepointing(true);
+    try {
+      await wallet.switchChain(vault.chainId);
+      const walletClient = await wallet.getWalletClient(vault.chainId);
+      const hash = await walletClient.writeContract({
+        address: vault.vaultAddress,
+        abi: solverVaultAbi,
+        functionName: "setSettlementReceiver",
+        args: [target],
+        chain: viemChainFor(vault.chainId),
+        account: address,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      toast.success("Settlement receiver updated", { description: truncateAddress(target) });
+      await queryClient.invalidateQueries({ queryKey: ["vault-directory"] });
+    } catch (error) {
+      toast.error("Could not update the settlement receiver", { description: error instanceof Error ? error.message : "Transaction failed." });
+    } finally {
+      setRepointing(false);
+    }
+  }
   const vaultUtilisation = useVaultAnalytics(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
   // Telemetry first: its reported operator/online state feeds useSolverMetrics
   // below (WP-19.4's own rule — telemetry only ever supplies a *candidate*
@@ -305,6 +341,27 @@ function ConsolePage() {
           <div className="mt-6">
             <VaultFeeTierChart state={vaultUtilisation} />
           </div>
+
+          {vault.settlementReceiverCurrent === false ? (
+            <section className="panel mt-6 flex flex-wrap items-center gap-4 border-warning/50 p-5">
+              <p className="measure text-sm text-text-dim">
+                <span className="font-semibold text-warning">Settlement receiver out of date.</span> This vault still expects
+                canonical settlement from {vault.settlementReceiver ? truncateAddress(vault.settlementReceiver) : "an old receiver"};
+                the protocol now settles through {truncateAddress(chainConfig(vault.chainId)?.settlementReceiver ?? "0x")}. Until its
+                owner re-points it, fills it wins will not be reimbursed.
+              </p>
+              {isVaultOwner ? (
+                <button
+                  type="button"
+                  disabled={repointing}
+                  onClick={() => void repointSettlementReceiver()}
+                  className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                >
+                  {repointing ? "Signing…" : "Update settlement receiver (one signature)"}
+                </button>
+              ) : null}
+            </section>
+          ) : null}
 
           {isVaultOwner ? (
             <OwnerControls capabilities={capabilities} />

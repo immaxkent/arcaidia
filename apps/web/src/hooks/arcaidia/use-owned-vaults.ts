@@ -26,6 +26,8 @@ export interface OwnedVaultRow {
   solverAuthState: SolverAuthState | null;
   solverKind: SolverKind | null;
   capabilities: Record<VaultCapability, boolean> | null;
+  /** D12: whether the vault points at the protocol's current settlement receiver. */
+  settlementReceiverCurrent: boolean | null;
 }
 
 function toOwnedRow(row: VaultDirectoryRow): OwnedVaultRow {
@@ -42,6 +44,7 @@ function toOwnedRow(row: VaultDirectoryRow): OwnedVaultRow {
     solverAuthState: null,
     solverKind: null,
     capabilities: vaultCapabilitiesFromAbi(solverVaultAbi as unknown as ReadonlyArray<{ type: string; name?: string }>),
+    settlementReceiverCurrent: row.settlementReceiverCurrent,
   };
 }
 

@@ -94,6 +94,10 @@ export interface VaultDirectoryRow {
   authorisedSolver: Address | null;
   /** Telemetry pairing only — NOT authorisation. */
   telemetryPaired: boolean | null;
+  /** Where this vault expects canonical settlement from (`settlementReceiver()`); null if unreadable. */
+  settlementReceiver: Address | null;
+  /** True when that is the protocol's current receiver (D12) — false means the owner must re-point it. */
+  settlementReceiverCurrent: boolean | null;
 }
 
 const POLL_INTERVAL_MS = 20_000;
@@ -123,9 +127,9 @@ async function readVaultRow(
 ): Promise<VaultDirectoryRow> {
   const client = publicClientFor(chainId);
   if (!client) throw new Error("RPC not configured");
-  const read = (functionName: "owner" | "availableLiquidity" | "outstandingExposure" | "paused" | "currentFeeBps" | "feePolicy") =>
+  const read = (functionName: "owner" | "availableLiquidity" | "outstandingExposure" | "paused" | "currentFeeBps" | "feePolicy" | "settlementReceiver") =>
     client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName });
-  const [owner, availableLiquidity, outstandingExposure, paused, rawFeeBps, rawPolicy, aggregates] = await Promise.all([
+  const [owner, availableLiquidity, outstandingExposure, paused, rawFeeBps, rawPolicy, aggregates, receiver] = await Promise.all([
     read("owner") as Promise<Address>,
     read("availableLiquidity") as Promise<bigint>,
     read("outstandingExposure") as Promise<bigint>,
@@ -136,7 +140,9 @@ async function readVaultRow(
     (read("currentFeeBps") as Promise<number>).catch(() => null),
     (read("feePolicy") as Promise<unknown>).catch(() => null),
     readVaultAggregates(chainId, vaultAddress),
+    (read("settlementReceiver") as Promise<Address>).catch(() => null),
   ]);
+  const currentReceiver = chainConfig(chainId)?.settlementReceiver ?? null;
 
   const isHouse = houseVault !== null && vaultAddress.toLowerCase() === houseVault.toLowerCase();
   const feePolicy = feePolicyFromTuple(rawPolicy);
@@ -158,6 +164,8 @@ async function readVaultRow(
     status: paused ? "PAUSED" : "ACTIVE",
     authorisedSolver: null,
     telemetryPaired: null,
+    settlementReceiver: receiver,
+    settlementReceiverCurrent: receiver && currentReceiver ? receiver.toLowerCase() === currentReceiver.toLowerCase() : null,
   };
 }
 
