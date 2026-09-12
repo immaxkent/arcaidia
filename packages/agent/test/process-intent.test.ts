@@ -10,6 +10,7 @@ import {
 import { InMemoryDecisionLog } from '../src/logging/decision-log.js';
 import type { SourceEvidence } from '../src/verification/source-evidence.js';
 import { ARC, NOW, SEPOLIA, USDC, health, intent, vault } from './fixtures.js';
+import { FillRevertedError } from '../src/adapters/viem-fill-submitter.js';
 import {
   FakeObservationProvider,
   FakeSourceReader,
@@ -278,6 +279,17 @@ describe('processIntent', () => {
 
     const second = await processIntent(baseIntent, deps);
     expect(second).toEqual({ kind: 'SKIPPED', reason: 'ALREADY_ATTEMPTED' });
+  });
+
+  it('reports a lost race, not a fill, when the transaction was mined and reverted', async () => {
+    submitter.failWith = new FillRevertedError(`0x${'ee'.repeat(32)}`);
+    const outcome = await processIntent(baseIntent, deps);
+
+    if (outcome.kind !== 'LOST_RACE') throw new Error(outcome.kind);
+    expect(outcome.txHash).toBe(`0x${'ee'.repeat(32)}`);
+    expect(outcome.decision.verdict).toBe(Verdict.ACCEPT);
+    // Marked before submission, same as any other attempt: never retried.
+    expect(await processIntent(baseIntent, deps)).toEqual({ kind: 'SKIPPED', reason: 'ALREADY_ATTEMPTED' });
   });
 
   it('reports a submission failure with its decision and signature intact', async () => {

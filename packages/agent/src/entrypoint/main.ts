@@ -29,6 +29,8 @@ function logPass(result: SolverPassResult): void {
       console.error(`[solver] ${intentId}: ERROR ${outcome.error.message}`);
     } else if (outcome.kind === 'SUBMISSION_FAILED') {
       console.error(`[solver] ${intentId}: SUBMISSION_FAILED ${outcome.error.message}`);
+    } else if (outcome.kind === 'LOST_RACE') {
+      console.log(`[solver] ${intentId}: LOST_RACE (another vault filled first) tx ${outcome.txHash}`);
     } else {
       console.log(`[solver] ${intentId}: ${outcome.kind}`);
     }

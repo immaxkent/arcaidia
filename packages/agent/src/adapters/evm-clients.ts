@@ -58,3 +58,18 @@ export interface EvmContractReadClient {
     args?: readonly unknown[];
   }): Promise<unknown>;
 }
+
+/** Waits for a submitted transaction to be mined — viem's PublicClient, structurally. */
+export interface EvmReceiptWaiter {
+  waitForTransactionReceipt(args: { hash: TxHash }): Promise<{ status: 'success' | 'reverted' }>;
+}
+
+/** A per-chain receipt waiter, the same viem `createPublicClient` narrowed to one method. */
+export function buildReceiptWaiters(
+  chains: readonly { chainId: number; rpcUrl: string }[],
+  make: (chainId: number, rpcUrl: string) => EvmReceiptWaiter,
+): ReadonlyMap<number, EvmReceiptWaiter> {
+  const clients = new Map<number, EvmReceiptWaiter>();
+  for (const chain of chains) clients.set(chain.chainId, make(chain.chainId, chain.rpcUrl));
+  return clients;
+}

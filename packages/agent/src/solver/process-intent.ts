@@ -34,6 +34,7 @@ import {
 } from '@arcaidia/domain';
 import { isTradeIntent } from '@arcaidia/domain';
 import { NoopTelemetryClient, type TelemetryClient, type TelemetryStage } from '@arcaidia/telemetry';
+import { FillRevertedError } from '../adapters/viem-fill-submitter.js';
 
 import { evaluateIntent } from '../risk/evaluate-intent.js';
 import { verifySourceTransaction } from '../verification/verify-source.js';
@@ -102,7 +103,9 @@ export type ProcessOutcome =
   /** Already handled: onchain, or by this process. */
   | { readonly kind: 'SKIPPED'; readonly reason: 'ALREADY_FILLED' | 'ALREADY_ATTEMPTED' }
   /** Signed and accepted, but the transaction did not land. Safe to retry. */
-  | { readonly kind: 'SUBMISSION_FAILED'; readonly decision: AgentDecision; readonly signed: SignedFillAuthorization; readonly error: Error };
+  | { readonly kind: 'SUBMISSION_FAILED'; readonly decision: AgentDecision; readonly signed: SignedFillAuthorization; readonly error: Error }
+  /** The fill was mined and reverted: another vault filled first. No capital moved; gas was spent. */
+  | { readonly kind: 'LOST_RACE'; readonly decision: AgentDecision; readonly signed: SignedFillAuthorization; readonly txHash: TxHash };
 
 export async function processIntent(
   intent: Intent,
@@ -230,6 +233,9 @@ export async function processIntent(
     );
     return { kind: 'FILLED', decision, signed, txHash };
   } catch (error) {
+    if (error instanceof FillRevertedError) {
+      return { kind: 'LOST_RACE', decision, signed, txHash: error.txHash };
+    }
     return {
       kind: 'SUBMISSION_FAILED',
       decision,

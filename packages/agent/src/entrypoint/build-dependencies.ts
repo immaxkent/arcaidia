@@ -11,6 +11,7 @@ import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AgentAuthority } from '@arcaidia/domain';
 import { HttpTelemetryClient, NoopTelemetryClient, pairWithRelay, type TelemetryClient } from '@arcaidia/telemetry';
+import { buildReceiptWaiters } from '../adapters/evm-clients.js';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
   buildCircleSigningClient,
@@ -250,7 +251,12 @@ export function buildSolverDependencies(
     observation,
     sourceReader: new ViemSourceChainReader(buildReadClients(config.chains), routerMap(config.chains)),
     authority,
-    submitter: new ViemFillSubmitter(buildWriteClients(config.chains, config.submitterPrivateKey)),
+    submitter: new ViemFillSubmitter(
+      buildWriteClients(config.chains, config.submitterPrivateKey),
+      buildReceiptWaiters(config.chains, (chainId, rpcUrl) =>
+        createPublicClient({ chain: viemChainFor(chainId), transport: http(rpcUrl) }),
+      ),
+    ),
     log: options.log,
     clock: options.clock ?? (() => Math.floor(Date.now() / 1000)),
     nonces: new RandomNonceSource(),
