@@ -47,7 +47,8 @@ echo "== step 1: fund the OLD receiver on each destination chain (from any walle
 for c in 5042002 11155111; do
   total=$(echo "$plan" | awk -v c=$c '$1==c {s+=$4} END {print s+0}')
   [ "$total" = "0" ] && continue
-  echo "cast send $(usdc $c) \"transfer(address,uint256)\" $OLD_RECEIVER $total --rpc-url $(rpc $c) --account deployKey -f $DEPLOYER   # chain $c: $(python3 -c "print($total/1e6)") USDC"
+  echo "# chain $c: $(python3 -c "print($total/1e6)") USDC — paste only the next line"
+  echo "cast send $(usdc $c) \"transfer(address,uint256)\" $OLD_RECEIVER $total --rpc-url $(rpc $c) --account deployKey -f $DEPLOYER"
 done
 echo
 if [ "${RECOVER:-0}" != "1" ]; then
