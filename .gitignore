@@ -25,3 +25,7 @@ solver-decisions*.jsonl
 !.env.solver-*.example
 
 subgraph/build-arc
+
+# WP-32 load generator output
+loadgen.jsonl
+loadgen.metrics.json

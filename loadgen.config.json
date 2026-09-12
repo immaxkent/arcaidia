@@ -1,0 +1,71 @@
+{
+  "seed": 20260912,
+  "ethereumToArcShare": 0.5,
+  "tradeIntentShare": 0,
+  "chains": [
+    { "chainId": 11155111, "walletIndices": [0, 1] },
+    { "chainId": 5042002, "walletIndices": [0, 1] }
+  ],
+  "phases": [
+    {
+      "kind": "background",
+      "durationRange": { "min": 300, "max": 900 },
+      "intentsPerMinuteRange": { "min": 0.3, "max": 1 },
+      "amount": { "mu": 1.6, "sigma": 0.6, "minUsdc": 1, "maxUsdc": 15 },
+      "maxFeeBps": [ { "maxFeeBps": 100, "weight": 6 }, { "maxFeeBps": 50, "weight": 3 }, { "maxFeeBps": 12, "weight": 1 } ],
+      "clusterProbability": 0.05, "clusterSize": { "min": 2, "max": 3 },
+      "largeIntentProbability": 0.02, "largeAmountRange": { "min": 20, "max": 40 },
+      "deadlineSecondsRange": { "min": 1800, "max": 5400 }
+    },
+    {
+      "kind": "burst",
+      "durationRange": { "min": 180, "max": 480 },
+      "intentsPerMinuteRange": { "min": 2, "max": 5 },
+      "amount": { "mu": 1.9, "sigma": 0.5, "minUsdc": 2, "maxUsdc": 20 },
+      "maxFeeBps": [ { "maxFeeBps": 100, "weight": 5 }, { "maxFeeBps": 60, "weight": 3 }, { "maxFeeBps": 20, "weight": 2 } ],
+      "clusterProbability": 0.15, "clusterSize": { "min": 3, "max": 5 },
+      "largeIntentProbability": 0.05, "largeAmountRange": { "min": 20, "max": 40 },
+      "deadlineSecondsRange": { "min": 1800, "max": 5400 }
+    },
+    {
+      "kind": "whale",
+      "durationRange": { "min": 60, "max": 120 },
+      "intentsPerMinuteRange": { "min": 0.5, "max": 1 },
+      "amount": { "mu": 3.0, "sigma": 0.3, "minUsdc": 15, "maxUsdc": 45 },
+      "maxFeeBps": [ { "maxFeeBps": 150, "weight": 4 }, { "maxFeeBps": 60, "weight": 2 } ],
+      "clusterProbability": 0, "clusterSize": { "min": 1, "max": 1 },
+      "largeIntentProbability": 1, "largeAmountRange": { "min": 25, "max": 45 },
+      "deadlineSecondsRange": { "min": 1800, "max": 5400 }
+    },
+    {
+      "kind": "cluster",
+      "durationRange": { "min": 60, "max": 180 },
+      "intentsPerMinuteRange": { "min": 1, "max": 2 },
+      "amount": { "mu": 1.7, "sigma": 0.5, "minUsdc": 2, "maxUsdc": 12 },
+      "maxFeeBps": [ { "maxFeeBps": 100, "weight": 5 }, { "maxFeeBps": 35, "weight": 3 } ],
+      "clusterProbability": 0.8, "clusterSize": { "min": 4, "max": 8 },
+      "largeIntentProbability": 0, "largeAmountRange": { "min": 0, "max": 0 },
+      "deadlineSecondsRange": { "min": 1800, "max": 5400 }
+    },
+    {
+      "kind": "tight-fee",
+      "durationRange": { "min": 120, "max": 300 },
+      "intentsPerMinuteRange": { "min": 1, "max": 2 },
+      "amount": { "mu": 1.6, "sigma": 0.5, "minUsdc": 1, "maxUsdc": 10 },
+      "maxFeeBps": [ { "maxFeeBps": 12, "weight": 5 }, { "maxFeeBps": 20, "weight": 3 }, { "maxFeeBps": 5, "weight": 2 } ],
+      "clusterProbability": 0.1, "clusterSize": { "min": 2, "max": 3 },
+      "largeIntentProbability": 0, "largeAmountRange": { "min": 0, "max": 0 },
+      "deadlineSecondsRange": { "min": 1800, "max": 5400 }
+    }
+  ],
+  "phaseWeights": [5, 3, 1, 2, 2],
+  "scarcity": {
+    "target": 0.2,
+    "windowSeconds": 1800,
+    "weightMultiplierBounds": { "min": 0.5, "max": 2.5 },
+    "gain": 1.5,
+    "constrainedIfLiquidityBelowMedianIntentFraction": 1
+  },
+  "journalPath": "loadgen.jsonl",
+  "metricsPath": "loadgen.metrics.json"
+}
