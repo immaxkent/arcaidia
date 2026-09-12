@@ -19,9 +19,9 @@ dataSources:
     name: ArcaidiaIntentRouter
     network: sepolia
     source:
-      address: "0x58868465d14e0694d033bD511588AE90482b21CC"
+      address: "0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6"
       abi: ArcaidiaIntentRouter
-      startBlock: 0
+      startBlock: 11688303
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -39,9 +39,9 @@ dataSources:
     name: ArcaidiaVaultFactory
     network: sepolia
     source:
-      address: "0x0000000000000000000000000000000000000000"
+      address: "0xD458d83C874296EC4a29c47655Ae47302879b23a"
       abi: ArcaidiaVaultFactory
-      startBlock: 0
+      startBlock: 11688303
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -59,9 +59,9 @@ dataSources:
     name: SettlementReceiver
     network: sepolia
     source:
-      address: "0x9a47a161ea8328b96Ad976264d42790881570E71"
+      address: "0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd"
       abi: SettlementReceiver
-      startBlock: 0
+      startBlock: 11688303
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7

@@ -10,9 +10,9 @@ tables/views below. One re-seed per chain; the v1 Nests can stay up for history.
 
 | Data source | Address (Sepolia / Arc — identical, CREATE2) | Start block (Sepolia / Arc) | ABI |
 | --- | --- | --- | --- |
-| `ArcaidiaIntentRouter` (v2) | `TBD` | `TBD` | `subgraph/abis/ArcaidiaIntentRouter.json` |
-| `ArcaidiaVaultFactory` | `TBD` | `TBD` | `subgraph/abis/ArcaidiaVaultFactory.json` |
-| `SettlementReceiver` (v2) | `TBD` | `TBD` | `subgraph/abis/SettlementReceiver.json` |
+| `ArcaidiaIntentRouter` (v2) | `0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6` | Sepolia `11688307` / Arc `61715976` | `subgraph/abis/ArcaidiaIntentRouter.json` |
+| `ArcaidiaVaultFactory` | `0xD458d83C874296EC4a29c47655Ae47302879b23a` | Sepolia `11688306` / Arc `61715971` | `subgraph/abis/ArcaidiaVaultFactory.json` |
+| `SettlementReceiver` (v2) | `0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd` | Sepolia `11688303` / Arc `61715957` | `subgraph/abis/SettlementReceiver.json` |
 | `ArcaidiaLiquidityVault` — **every address emitted in `VaultCreated.vault`** (a dynamic set; the House Vault and every independent operator's vault) | from the factory's events | same block as its `VaultCreated` | `subgraph/abis/ArcaidiaLiquidityVault.json` |
 
 The reference manifest with exact event signatures is `subgraph/subgraph.<chain>.yaml`

@@ -84,24 +84,26 @@ tests/e2e/              # golden local end-to-end harness
 
 Pre-M0. Nothing is built yet. Start at [WP-00](work-packages/WP-00-domain.md).
 
-## Deployed addresses (frozen, WP-13)
+## Deployed addresses (v2, 2026-09-12 — WP-31)
 
 CREATE2 gives every protocol contract the same address on both chains — one table, not two.
 
 | Contract | Address | Chains |
 | --- | --- | --- |
-| `ArcaidiaIntentRouter` | `0x58868465d14e0694d033bD511588AE90482b21CC` | Ethereum Sepolia, Arc Testnet |
-| `ArcaidiaLiquidityVault` | `0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1` | Ethereum Sepolia, Arc Testnet |
-| `SettlementReceiver` | `0x9a47a161ea8328b96Ad976264d42790881570E71` | Ethereum Sepolia, Arc Testnet |
+| `ArcaidiaIntentRouter` (intent schema v1.1, CCTP intent hook) | `0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6` | Ethereum Sepolia, Arc Testnet |
+| `ArcaidiaVaultFactory` (permissionless standard vaults) | `0xD458d83C874296EC4a29c47655Ae47302879b23a` | Ethereum Sepolia, Arc Testnet |
+| `ArcaidiaLiquidityVault` — the House Vault, created through the factory | `0xB4bA190D5C78869366e7963f5CcCf4c3167d855C` | Ethereum Sepolia, Arc Testnet |
+| `ArcaidiaIntentMarket` (first-valid-fill, factory vaults only) | `0x81d94f5149FC86df7A273A720070300C461DcA08` | Ethereum Sepolia, Arc Testnet |
+| `SettlementReceiver` (`settleWithProof` from attested CCTP bytes) | `0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd` | Ethereum Sepolia, Arc Testnet |
 
-The canonical settlement transport (`CircleCCTPInitiator`) is deployed with a plain `new`, not
-CREATE2, so it is *not* expected to share an address across chains: Ethereum Sepolia
-`0x7C84CB7bb7fB261F579eD5Fc3956c504C640F5Ba`, Arc Testnet `0x0caE5879B7d6f8FB02e7a9D932Ee2CcF267C6ca0`.
+The canonical settlement transport (`CircleCCTPInitiator` v2, `depositForBurnWithHook`) is deployed
+with a plain `new`, not CREATE2, so it is *not* expected to share an address across chains: Ethereum
+Sepolia `0x01F7925189200e87F0FC48e275a425a0E4B3b827`, Arc Testnet
+`0x6095944456C20A0acF7c44e4ff40DEa8f041d9b3`.
 
-An earlier vault/settlement-receiver pair (`0x9F5813cD0Ea34403f78769076043436E67736da3` /
-`0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC`) and an earlier router
-(`0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357`) are retired — still settling their own
-already-pending intents onchain, but no new deposits or fills should target them. See
+Retired — still onchain, still settling their own already-pending intents, but no new deposits or
+fills may target them: the v1 router `0x5886…21CC` and its initiators; the v1 vault/receiver pair
+`0xc74E…AAF1` / `0x9a47…0E71`; and the 2026-09-08 originals. See
 `packages/domain/src/config/deployments.ts` for the full history.
 
 ## Known limitations (disclosed, not gaps)

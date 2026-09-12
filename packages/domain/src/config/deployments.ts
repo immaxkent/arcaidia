@@ -5,23 +5,25 @@
  * the settlement worker all read one source rather than each carrying its own
  * copy of an address.
  *
- * `intentRouter` has been live since 2026-09-09 (contracts/script/DeployCctpRouter.s.sol,
- * wiring in the real CCTP transport) and is unchanged by the redeploy below —
- * neither the vault nor the settlement receiver was ever router-aware.
+ * **v2 — deployed 2026-09-12 (WP-31, contracts/script/Deploy.s.sol, `arcaidia.v2.*` salts).**
+ * Five CREATE2 contracts at identical addresses on both chains: the intent router
+ * (schema v1.1 intents, CCTP intent hook), the House Vault (created *through* the
+ * factory like any participant's vault, D10), the settlement receiver
+ * (`settleWithProof`, D8), the intent market (factory-vaults-only claims, D11) and the
+ * vault factory. `settlementInitiator` is this chain's own `CircleCCTPInitiator` v2 —
+ * plain `new`, so different per chain (Sepolia block 11688301, Arc block 61715950).
  *
- * `liquidityVault` and `settlementReceiver` were replaced 2026-09-10
- * (contracts/script/DeployVaultV2.s.sol, WP-12): the vault's fill/exposure caps
- * became a live percentage of vault depth rather than flat absolutes an owner
- * had to remember to set (see ArcaidiaLiquidityVault's DEFAULT_MAX_*_BPS) — a
- * storage-layout change with no upgrade path, so both moved to new addresses.
- * The originals (vault `0x9F5813cD0Ea34403f78769076043436E67736da3`, receiver
- * `0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC`) still exist onchain, still
- * settle their own pending intents via canonical CCTP, but are retired —
- * nothing should reference them going forward, and no new LP deposits or
- * fills should target them. The router at `0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357`
- * is separately retired since 2026-09-09, for the same "no upgrade path"
- * reason, one redeploy earlier. Broadcast tx hashes under
- * contracts/broadcast/{Deploy,DeployCctpRouter,DeployVaultV2}.s.sol/<chainId>/run-latest.json.
+ * **Retired, all still onchain and still settling their own already-pending intents via
+ * canonical CCTP, but nothing may reference them for new deposits or fills:**
+ * - v1 router `0x58868465d14e0694d033bD511588AE90482b21CC` (2026-09-09, WP-10) and its
+ *   initiators Sepolia `0x7C84CB7bb7fB261F579eD5Fc3956c504C640F5Ba` / Arc
+ *   `0x0caE5879B7d6f8FB02e7a9D932Ee2CcF267C6ca0` — no `hookData`, cannot serve the v2 router;
+ * - v1 vault `0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1` + receiver
+ *   `0x9a47a161ea8328b96Ad976264d42790881570E71` (2026-09-10, WP-12) — no fee policy, no market;
+ * - the originals: vault `0x9F5813cD0Ea34403f78769076043436E67736da3`, receiver
+ *   `0xb634d0fDa74BacF730B1eF50a32b4c83f13f11fC`, router `0x7E4443B9215354e1819ECAA1E4CEDe8A6Fb63357`
+ *   (2026-09-08/09).
+ * Broadcast tx hashes under contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json.
  */
 
 import type { Address } from '../types/primitives.js';
@@ -29,23 +31,26 @@ import type { ChainKey, ProtocolContracts, TokenConfig } from './chains.js';
 
 export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
   'ethereum-sepolia': {
-    intentRouter: '0x58868465d14e0694d033bD511588AE90482b21CC',
-    liquidityVault: '0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1',
-    settlementReceiver: '0x9a47a161ea8328b96Ad976264d42790881570E71',
-    settlementInitiator: '0x7C84CB7bb7fB261F579eD5Fc3956c504C640F5Ba',
+    intentRouter: '0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6',
+    liquidityVault: '0xB4bA190D5C78869366e7963f5CcCf4c3167d855C',
+    settlementReceiver: '0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd',
+    intentMarket: '0x81d94f5149FC86df7A273A720070300C461DcA08',
+    vaultFactory: '0xD458d83C874296EC4a29c47655Ae47302879b23a',
+    settlementInitiator: '0x01F7925189200e87F0FC48e275a425a0E4B3b827',
   },
   'arc-testnet': {
-    intentRouter: '0x58868465d14e0694d033bD511588AE90482b21CC',
-    liquidityVault: '0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1',
-    settlementReceiver: '0x9a47a161ea8328b96Ad976264d42790881570E71',
-    settlementInitiator: '0x0caE5879B7d6f8FB02e7a9D932Ee2CcF267C6ca0',
+    intentRouter: '0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6',
+    liquidityVault: '0xB4bA190D5C78869366e7963f5CcCf4c3167d855C',
+    settlementReceiver: '0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd',
+    intentMarket: '0x81d94f5149FC86df7A273A720070300C461DcA08',
+    vaultFactory: '0xD458d83C874296EC4a29c47655Ae47302879b23a',
+    settlementInitiator: '0x6095944456C20A0acF7c44e4ff40DEa8f041d9b3',
   },
 } as const;
 
 /**
- * The CREATE2-parity protocol contracts. `intentMarket`/`vaultFactory` are the v2
- * additions (WP-26) and are unset until the coordinated redeploy (WP-31) commits them;
- * the parity check below simply has nothing to compare until then.
+ * The CREATE2-parity protocol contracts — all five live at one address on both chains
+ * since the 2026-09-12 v2 deployment (WP-31).
  */
 export const PROTOCOL_CONTRACT_NAMES = [
   'intentRouter',

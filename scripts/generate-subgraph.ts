@@ -31,14 +31,16 @@ const SUBGRAPH = join(ROOT, 'subgraph');
 export const PLACEHOLDER = '0x0000000000000000000000000000000000000000';
 
 /**
- * Where the v2 deployment's indexing begins, per chain — the block the coordinated
- * redeploy (WP-31) lands in. `0` until then: a placeholder the `--check` flow
- * tolerates, and one a real Studio deploy must never ship with (it would replay the
- * chain from genesis), so WP-31's checklist fills these in before deploying.
+ * Where the v2 deployment's indexing begins, per chain: the block the v2
+ * `SettlementReceiver` — the first of the five CREATE2 contracts — was deployed in
+ * (2026-09-12, WP-31; contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json). The
+ * factory (Sepolia 11688306 / Arc 61715971) and router (11688307 / 61715976) follow
+ * within a few blocks; one start block per chain keeps the manifest simple at the cost
+ * of a handful of empty blocks.
  */
 export const START_BLOCKS: Record<ChainKey, number> = {
-  'ethereum-sepolia': 0,
-  'arc-testnet': 0,
+  'ethereum-sepolia': 11_688_303,
+  'arc-testnet': 61_715_957,
 };
 
 interface AbiInput {

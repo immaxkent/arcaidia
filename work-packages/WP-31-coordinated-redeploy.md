@@ -21,12 +21,12 @@ for real (the live market has never been deployed — plan §K1).
       value that is not the predicted v2 receiver (`ALLOW_FOREIGN_DESTINATION_RECEIVER=true` to
       override, never on these two chains). Addresses change if any contract bytecode changes
       before the broadcast — re-run the dry run last.
-- [ ] **31.2 Broadcast** (you — the `deployKey` keystore): Sepolia then Arc. One run per chain does
+- [x] **31.2 Broadcast — done 2026-09-12** (Sepolia 0.0136 ETH / 17 txs from block 11688301; Arc 0.28 USDC-gas / 17 txs from block 61715950; wiring verified by `eth_call` on both chains). Sepolia then Arc. One run per chain does
       everything: fresh `CircleCCTPInitiator` v2 + `setDomain(other chain)`, the five CREATE2 contracts,
       House Vault through the factory with the env fee tiers, router `setDestination` → v2 receiver,
       reporter granted, **House solver signer (`CIRCLE_AGENT_WALLET_ADDRESS`) authorised in the same
       run** (owner == broadcaster). See the runbook below.
-- [ ] **31.3 Commit `deployments.ts` v2** (+`market`, `vaultFactory`, `houseVault` keys; retire the
+- [x] **31.3 Commit `deployments.ts` v2** (done: addresses, retirement notes, START_BLOCKS, manifests, README) (+`market`, `vaultFactory`, `houseVault` keys; retire the
       2026-09-10 vault/receiver and the 2026-09-09 router with the same "still settling its own
       intents" note), `.env`/`.env.example`, `apps/web` env, `START_BLOCKS_V2`, regenerate manifests.
 - [ ] **31.4 Nest re-seed** (WP-27.4 request sent; verified by live `SELECT` on `vaults`,
