@@ -49,6 +49,17 @@ export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
 } as const;
 
 /**
+ * The block each chain's v2 deployment began at (its `SettlementReceiver`, the first of the
+ * five to land). Every log read that walks the v2 protocol's own events — vault labels, the
+ * authorised-signer history, intents, fills, settlements — starts here; nothing v2 exists
+ * before it, and the retired deployments' events are deliberately out of range.
+ */
+export const DEPLOYMENT_START_BLOCKS: Readonly<Record<ChainKey, number>> = {
+  'ethereum-sepolia': 11688303,
+  'arc-testnet': 61715957,
+} as const;
+
+/**
  * The CREATE2-parity protocol contracts — all five live at one address on both chains
  * since the 2026-09-12 v2 deployment (WP-31).
  */

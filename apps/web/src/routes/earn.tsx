@@ -135,7 +135,17 @@ LOCAL_SUBMITTER_PRIVATE_KEY=${keys.submitterKey}
  * Vault health and fills read from contract/indexer hooks and show honest
  * unavailable states until those are wired.
  */
+/**
+ * The flow's state lives in `EarnFlow`; "Deploy another vault" on the last step remounts it,
+ * which is the one honest reset — every step's fact (deployed, funded, authorised) is a real
+ * receipt or contract read, so nothing can be carried over to a new vault.
+ */
 function EarnPage() {
+  const [flowKey, setFlowKey] = useState(0);
+  return <EarnFlow key={flowKey} onRestart={() => setFlowKey((k) => k + 1)} />;
+}
+
+function EarnFlow({ onRestart }: { onRestart: () => void }) {
   const wallet = useWallet();
   const { status: walletStatus, address, connect } = wallet;
   const connected = walletStatus === "CONNECTED";
@@ -157,6 +167,8 @@ function EarnPage() {
   const [maxExposureBps, setMaxExposureBps] = useState(9_000);
   const [solverOperator, setSolverOperator] = useState("");
   const [operatorMode, setOperatorMode] = useState<"GENERATE" | "EXTERNAL">("GENERATE");
+  /** "I already run a solver": the submitter address it printed, so it can be given gas here too. */
+  const [externalSubmitter, setExternalSubmitter] = useState("");
   /** Generated in the browser, held in memory only — never persisted, never sent anywhere. */
   const [identity, setIdentity] = useState<{
     signerKey: `0x${string}`;
@@ -197,8 +209,15 @@ function EarnPage() {
 
   /** Gas for the submitter, from the connected wallet: 0.02 ETH on Ethereum, 2 USDC (the gas token) on Arc. */
   const GAS_TOP_UP = chainId === ARC_TESTNET ? parseEther("2") : parseEther("0.02");
+  /** Whichever submitter this flow knows: the one generated here, or the one the owner pasted. */
+  const submitterAddress: Address | null =
+    operatorMode === "GENERATE"
+      ? (identity?.submitterAddress ?? null)
+      : isAddressLike(externalSubmitter.trim())
+        ? (externalSubmitter.trim() as Address)
+        : null;
   async function sendGasToSubmitter() {
-    if (!connected || !address || !identity) return;
+    if (!connected || !address || !submitterAddress) return;
     const publicClient = publicClientFor(chainId);
     if (!publicClient) return setGasError("RPC is not configured for this chain yet.");
     setGasError(null);
@@ -206,14 +225,14 @@ function EarnPage() {
     try {
       const walletClient = await wallet.getWalletClient(chainId);
       const hash = await walletClient.sendTransaction({
-        to: identity.submitterAddress,
+        to: submitterAddress,
         value: GAS_TOP_UP,
         chain: viemChainFor(chainId),
         account: address,
       });
       await publicClient.waitForTransactionReceipt({ hash });
       setGasTxHash(hash);
-      toast.success("Gas sent", { description: truncateAddress(identity.submitterAddress) });
+      toast.success("Gas sent", { description: truncateAddress(submitterAddress) });
     } catch (error) {
       setGasError(error instanceof Error ? error.message : "Transaction failed.");
     } finally {
@@ -867,31 +886,79 @@ function EarnPage() {
                 </div>
               ) : (
                 <div className="mt-5">
-                  <Field label="Solver operator address" id="solver-operator">
-                    <input
-                      id="solver-operator"
-                      placeholder="0x…"
-                      value={solverOperator}
-                      onChange={(e) => setSolverOperator(e.target.value)}
-                      className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
-                    />
-                  </Field>
-                  <p className="num text-[11px] text-text-dim">
-                    {operatorValid
-                      ? "Valid address"
-                      : solverOperator.trim().length === 0
-                        ? "Paste the address your solver printed on start"
-                        : "Not a valid 20-byte address"}
+                  <p className="text-xs text-text-dim">
+                    A running solver prints two addresses on start: <code className="num">[solver] signer</code>, which
+                    signs its fills and needs your vault's authorisation, and <code className="num">[solver] submitter</code>,
+                    which broadcasts them and needs gas. Paste both.
                   </p>
-                  <button
-                    type="button"
-                    disabled={!connected || !deployed || !operatorValid || authorised || authorising}
-                    onClick={() => void authoriseSolver()}
-                    className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
-                  >
-                    {authorised ? "Solver authorised" : authorising ? "Signing…" : "Authorise this solver (one signature)"}
-                  </button>
-                  {authoriseError ? <p className="mt-2 text-xs text-warning">{authoriseError}</p> : null}
+
+                  {/* 1 — signer */}
+                  <div className="panel-raised mt-3 px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">1 · Authorise the signer</p>
+                    <div className="mt-2">
+                      <Field label="Signer address" id="solver-operator">
+                        <input
+                          id="solver-operator"
+                          placeholder="0x…"
+                          value={solverOperator}
+                          onChange={(e) => setSolverOperator(e.target.value)}
+                          className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                        />
+                      </Field>
+                    </div>
+                    <p className="num text-[11px] text-text-dim">
+                      {operatorValid
+                        ? "Valid address"
+                        : solverOperator.trim().length === 0
+                          ? "The address after [solver] signer"
+                          : "Not a valid 20-byte address"}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={!connected || !deployed || !operatorValid || authorised || authorising}
+                      onClick={() => void authoriseSolver()}
+                      className="mt-3 w-full rounded-lg border border-acid/60 bg-acid/15 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                    >
+                      {authorised ? "Signer authorised" : authorising ? "Signing…" : "Authorise this signer (one signature)"}
+                    </button>
+                    {authoriseError ? <p className="mt-2 text-xs text-warning">{authoriseError}</p> : null}
+                  </div>
+
+                  {/* 2 — submitter gas */}
+                  <div className="panel-raised mt-3 px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">2 · Gas for the submitter</p>
+                    <div className="mt-2">
+                      <Field label="Submitter address" id="solver-submitter">
+                        <input
+                          id="solver-submitter"
+                          placeholder="0x…"
+                          value={externalSubmitter}
+                          onChange={(e) => setExternalSubmitter(e.target.value)}
+                          className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                        />
+                      </Field>
+                    </div>
+                    <p className="num text-[11px] text-text-dim">
+                      {submitterAddress
+                        ? "Valid address"
+                        : externalSubmitter.trim().length === 0
+                          ? "The address after [solver] submitter"
+                          : "Not a valid 20-byte address"}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={!connected || !submitterAddress || gasSending || gasTxHash !== null}
+                      onClick={() => void sendGasToSubmitter()}
+                      className="mt-3 w-full rounded-lg border border-acid/60 bg-acid/15 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                    >
+                      {gasTxHash ? "Gas sent" : gasSending ? "Sending…" : `Send ${chainId === ARC_TESTNET ? "2 USDC" : "0.02 ETH"} from this wallet`}
+                    </button>
+                    {gasError ? <p className="mt-2 text-xs text-warning">{gasError}</p> : null}
+                    <p className="mt-2 text-xs text-text-dim">
+                      Fills are transactions the submitter broadcasts on {CHAINS[chainId]?.short}; this covers a few hundred of them.
+                      Already funded it yourself? Skip this.
+                    </p>
+                  </div>
                   <div className="mt-4">
                     <div className="flex items-center justify-between">
                       <p className="text-[11px] uppercase tracking-wide text-text-dim">Runtime config for your solver</p>
@@ -942,7 +1009,7 @@ function EarnPage() {
                   <p className="mt-1 text-xs text-text-dim">
                     Everything on-chain is done — this is the last step. Your vault can win fills as soon as your solver
                     process is running (step 4, "Run it"); the rows below turn green as it reports in and lands its first fill.
-                    To run another vault on the other chain, start again from step 1.
+                    Running the same solver on the other chain too? Deploy another vault below.
                   </p>
                 </div>
               ) : null}
@@ -1000,14 +1067,24 @@ function EarnPage() {
             >
               Back
             </button>
-            <button
-              type="button"
-              disabled={step >= maxReachableStep}
-              onClick={() => setStep((s) => Math.min(maxReachableStep, s + 1))}
-              className="rounded-md border border-acid/60 bg-acid/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-acid disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Next step
-            </button>
+            {step === 5 ? (
+              <button
+                type="button"
+                onClick={onRestart}
+                className="rounded-md border border-acid/60 bg-acid/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-acid"
+              >
+                Deploy another vault
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={step >= maxReachableStep}
+                onClick={() => setStep((s) => Math.min(maxReachableStep, s + 1))}
+                className="rounded-md border border-acid/60 bg-acid/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-acid disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next step
+              </button>
+            )}
             {step === 2 && !vaultNameValid ? (
               <p className="num self-center text-[11px] text-warning">Name your vault to continue</p>
             ) : null}

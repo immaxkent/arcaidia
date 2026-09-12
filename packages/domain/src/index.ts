@@ -121,6 +121,7 @@ export type { ArcaidiaAbis } from './abis.js';
 export {
   DEPLOYMENTS,
   PROTOCOL_CONTRACT_NAMES,
+  DEPLOYMENT_START_BLOCKS,
   deployedAddresses,
   registerDeployment,
   resetDeployments,

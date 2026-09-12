@@ -26,7 +26,8 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { feeBpsAt, type FeePolicy } from "@arcaidia/domain";
-import { solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
+import { solverVaultAbi } from "@/lib/arcaidia/abis";
+import { factoryVaultsFromChain, vaultLabelsFromChain } from "@/lib/arcaidia/chain-history";
 import { chainConfig } from "@/lib/arcaidia/config";
 import {
   errorState,
@@ -170,31 +171,27 @@ interface DiscoveredVault {
  *
  * `ArcaidiaVaultFactory` *is* the registry: `vaultCount()` / `vaults(i)` list every vault it
  * ever created, so a vault someone deploys on /earn is visible here in the same block, with
- * no indexer in the loop at all. The Nest's `vaults` view only contributes the creator's
- * label (it lives in the `VaultCreated` event, not in factory storage) and is best-effort:
- * a Nest that has not been re-seeded yet simply leaves labels blank.
+ * no indexer in the loop at all. The creator's label lives in the `VaultCreated` event (not in
+ * factory storage), so it is read from the factory's own logs — also chain-only. The Nest's
+ * `vaults` view is consulted only for a label the log read could not supply.
  */
 async function discoverParticipantVaults(chainId: number): Promise<DiscoveredVault[]> {
   const config = chainConfig(chainId);
-  const client = publicClientFor(chainId);
-  const factory = config?.vaultFactory ?? null;
-
-  const fromChain: Address[] = [];
-  if (client && factory) {
-    const count = (await client.readContract({ address: factory, abi: vaultFactoryAbi, functionName: "vaultCount" })) as bigint;
-    const reads = Array.from({ length: Number(count) }, (_, i) =>
-      client.readContract({ address: factory, abi: vaultFactoryAbi, functionName: "vaults", args: [BigInt(i)] }) as Promise<Address>,
-    );
-    fromChain.push(...(await Promise.all(reads)));
-  }
+  const [fromChain, chainLabels] = await Promise.all([
+    factoryVaultsFromChain(chainId),
+    vaultLabelsFromChain(chainId).catch(() => new Map<string, { label: string }>()),
+  ]);
 
   const labels = new Map<string, string>();
-  if (config?.subgraphUrl) {
+  for (const [key, created] of chainLabels) if (created.label) labels.set(key, created.label);
+
+  const unlabelled = fromChain.filter((address) => !labels.has(address.toLowerCase()));
+  if (unlabelled.length > 0 && config?.subgraphUrl) {
     try {
       const result = await queryNest<{ id: string; label: string | null }>(config.subgraphUrl, "SELECT id, label FROM vaults");
-      for (const row of result.rows) if (row.label) labels.set(row.id.toLowerCase(), row.label);
+      for (const row of result.rows) if (row.label && !labels.has(row.id.toLowerCase())) labels.set(row.id.toLowerCase(), row.label);
     } catch {
-      // Not re-seeded yet, or unreachable — labels are the only thing the indexer adds here.
+      // Not re-seeded yet, or unreachable — the chain already supplied every label it can.
     }
   }
 

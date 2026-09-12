@@ -3,7 +3,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ETHEREUM_SEPOLIA, ARC_TESTNET } from "@/lib/arcaidia/types";
+import { fillsFromChain, intentsFromChain, settlementsFromChain } from "@/lib/arcaidia/chain-history";
 import { useVaultFills } from "./use-vault-fills";
+
+// The chain fallback is exercised on its own terms in lib/arcaidia/chain-history.test.ts; here
+// it is a seam, so each test states exactly what the chain would have answered.
+vi.mock("@/lib/arcaidia/chain-history", () => ({
+  fillsFromChain: vi.fn(async () => {
+    throw new Error("rpc down");
+  }),
+  intentsFromChain: vi.fn(async () => []),
+  settlementsFromChain: vi.fn(async () => []),
+}));
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -127,7 +138,7 @@ describe("useVaultFills", () => {
     await waitFor(() => expect(result.current.status).toBe("empty"));
   });
 
-  it("surfaces a Nest failure as an error state, never as a silently empty table", async () => {
+  it("surfaces a Nest failure as an error state, never as a silently empty table, when the chain cannot answer either", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify({ error: "nest down" }), { status: 500 })),
@@ -139,6 +150,73 @@ describe("useVaultFills", () => {
     );
 
     await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(fillsFromChain).toHaveBeenCalledWith(ARC_TESTNET, { vaults: ["0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1"] });
+  });
+
+  it("falls back to the vault's own FastFilled events when the Nest cannot answer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: "no such column: vault" }), { status: 400 })),
+    );
+    const intentId = `0x${"ab".repeat(32)}` as const;
+    vi.mocked(fillsFromChain).mockResolvedValueOnce([
+      {
+        intentId,
+        vault: "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1",
+        recipient: "0xE6f350335A581227f74f3413ae594fc2e76CEe4B",
+        signer: "0x90f9Cc769bDffAac58510839F7E1E9516a783F90",
+        inputAmount: 25_000_000n,
+        outputAmount: 24_962_500n,
+        feeAmount: 37_500n,
+        feeBps: 15,
+        txHash: `0x${"cd".repeat(32)}`,
+        blockNumber: 61_720_000n,
+        timestamp: 1_700_000_500,
+      },
+    ]);
+    vi.mocked(settlementsFromChain).mockResolvedValueOnce([
+      { intentId, outcome: "LP_REIMBURSED", amount: 25_000_000n, txHash: `0x${"ef".repeat(32)}`, timestamp: 1_700_001_100 },
+    ]);
+    vi.mocked(intentsFromChain).mockResolvedValueOnce([
+      {
+        intentId,
+        intentVersion: 1,
+        sender: "0xE6f350335A581227f74f3413ae594fc2e76CEe4B",
+        recipient: "0xE6f350335A581227f74f3413ae594fc2e76CEe4B",
+        inputToken: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        amount: 25_000_000n,
+        sourceChainId: ETHEREUM_SEPOLIA,
+        destinationChainId: ARC_TESTNET,
+        maxFeeBps: 30,
+        deadline: 1_800_000_000,
+        tokenOut: "0x0000000000000000000000000000000000000000",
+        targetMinOut: 0n,
+        createdAt: 1_700_000_400,
+        sourceTxHash: `0x${"12".repeat(32)}`,
+        blockNumber: 11_688_500n,
+      },
+    ]);
+
+    const { result } = renderHook(
+      () => useVaultFills(ARC_TESTNET, "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1"),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.status === "ready" && result.current.data).toEqual([
+      {
+        intentId,
+        sourceChainId: ETHEREUM_SEPOLIA,
+        destinationChainId: ARC_TESTNET,
+        amountAdvanced: 24_962_500n,
+        feeAmount: 37_500n,
+        fastFillTimestamp: 1_700_000_500,
+        canonicalStatus: "SETTLED",
+        settlementLatencySeconds: 700,
+        sourceTxHash: `0x${"12".repeat(32)}`,
+        destinationTxHash: `0x${"cd".repeat(32)}`,
+      },
+    ]);
   });
 
   it("reports unavailable with no vault selected, and never queries the Nest", async () => {

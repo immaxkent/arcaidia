@@ -32,7 +32,8 @@ import {
   unavailableState,
   type DataState,
 } from "@/lib/arcaidia/data-state";
-import { queryNest, sqlHex32InClause } from "@/lib/arcaidia/nest";
+import { fillsFromChain, intentsFromChain, settlementsFromChain } from "@/lib/arcaidia/chain-history";
+import { queryNest, sqlHex20Literal, sqlHex32InClause } from "@/lib/arcaidia/nest";
 import type { ActivityRow, Address, CanonicalStatus, FillRow, Hex } from "@/lib/arcaidia/types";
 
 interface RawFill {
@@ -63,13 +64,13 @@ function otherChainId(chainId: number): number | null {
   return SUPPORTED_CHAIN_IDS.find((id) => id !== chainId) ?? null;
 }
 
-async function fetchVaultFills(chainId: number): Promise<FillRow[]> {
+async function fetchVaultFillsFromNest(chainId: number, vaultAddress: Address): Promise<FillRow[]> {
   const endpoint = chainConfig(chainId)?.subgraphUrl;
   if (!endpoint) throw new Error("Indexer not connected");
 
   const { rows: fills } = await queryNest<RawFill>(
     endpoint,
-    "SELECT id, intent_id, output_amount, timestamp, tx_hash FROM fills ORDER BY timestamp DESC LIMIT 200",
+    `SELECT id, intent_id, output_amount, timestamp, tx_hash FROM fills WHERE vault = ${sqlHex20Literal(vaultAddress)} ORDER BY timestamp DESC LIMIT 200`,
   );
   if (fills.length === 0) return [];
 
@@ -119,22 +120,70 @@ async function fetchVaultFills(chainId: number): Promise<FillRow[]> {
   });
 }
 
+async function fetchVaultFillsFromChain(chainId: number, vaultAddress: Address): Promise<FillRow[]> {
+  const fills = await fillsFromChain(chainId, { vaults: [vaultAddress] });
+  if (fills.length === 0) return [];
+  const ids = fills.map((fill) => fill.intentId);
+  const source = otherChainId(chainId);
+  const [settlements, sourceIntents] = await Promise.all([
+    settlementsFromChain(chainId, ids),
+    source === null ? Promise.resolve([]) : intentsFromChain(source, { intentIds: ids }),
+  ]);
+  const settlementByIntentId = new Map(settlements.map((s) => [s.intentId.toLowerCase(), s]));
+  const intentByIntentId = new Map(sourceIntents.map((i) => [i.intentId.toLowerCase(), i]));
+
+  return fills.map((fill): FillRow => {
+    const key = fill.intentId.toLowerCase();
+    const settlement = settlementByIntentId.get(key) ?? null;
+    const sourceIntent = intentByIntentId.get(key) ?? null;
+    return {
+      intentId: fill.intentId,
+      sourceChainId: sourceIntent?.sourceChainId ?? source ?? chainId,
+      destinationChainId: chainId,
+      amountAdvanced: fill.outputAmount,
+      feeAmount: fill.feeAmount,
+      fastFillTimestamp: fill.timestamp,
+      canonicalStatus: settlement ? "SETTLED" : "PENDING",
+      settlementLatencySeconds: settlement && sourceIntent ? settlement.timestamp - sourceIntent.createdAt : null,
+      sourceTxHash: (sourceIntent?.sourceTxHash ?? fill.txHash) as Hex,
+      destinationTxHash: fill.txHash,
+    };
+  });
+}
+
+/** Indexer first; the chain when it cannot answer. */
+async function fetchVaultFills(chainId: number, vaultAddress: Address): Promise<FillRow[]> {
+  const config = chainConfig(chainId);
+  if (config?.subgraphUrl) {
+    try {
+      return await fetchVaultFillsFromNest(chainId, vaultAddress);
+    } catch (error) {
+      // Fall through to the chain — unless there is no RPC to fall through to, in which
+      // case the indexer's failure is the honest answer, never a silently empty table.
+      if (!config.rpcUrl) throw error;
+    }
+  }
+  return fetchVaultFillsFromChain(chainId, vaultAddress);
+}
+
 export function useVaultFills(chainId: number, vaultAddress: Address | null): DataState<FillRow[]> {
-  const enabled = Boolean(vaultAddress && chainConfig(chainId)?.subgraphUrl);
+  const config = chainConfig(chainId);
+  const readable = Boolean(config?.subgraphUrl || config?.rpcUrl);
+  const enabled = Boolean(vaultAddress && readable);
 
   const query = useQuery({
     queryKey: ["vault-fills", chainId, vaultAddress],
-    queryFn: () => fetchVaultFills(chainId),
+    queryFn: () => fetchVaultFills(chainId, vaultAddress as Address),
     enabled,
     refetchInterval: 15_000,
   });
 
   if (!vaultAddress) return unavailableState("Select a vault");
-  if (!chainConfig(chainId)?.subgraphUrl) return unavailableState("Indexer not connected");
+  if (!readable) return unavailableState("No indexer or RPC configured");
   if (query.isError) {
-    return errorState(query.error instanceof Error ? query.error.message : "Indexer query failed");
+    return errorState(query.error instanceof Error ? query.error.message : "Fill history read failed");
   }
-  if (!query.data) return unavailableState("Indexer not connected");
+  if (!query.data) return unavailableState("Loading fills");
   if (query.data.length === 0) return emptyState();
   return readyState(query.data);
 }

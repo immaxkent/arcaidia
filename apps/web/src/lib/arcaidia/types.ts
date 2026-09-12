@@ -6,7 +6,7 @@ export type Hex = `0x${string}`;
 // Two settlement facts. Never merge them.
 export type FastStatus = "PENDING" | "FAST_FILLED";
 export type CanonicalStatus = "PENDING" | "SETTLED";
-export type CanonicalOutcome = "LP_REIMBURSED" | "RECIPIENT_FALLBACK";
+export type CanonicalOutcome = "LP_REIMBURSED" | "RECIPIENT_FALLBACK" | "HELD_FOR_VAULT";
 
 export interface Intent {
   intentId: Hex;

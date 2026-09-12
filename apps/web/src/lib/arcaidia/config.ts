@@ -27,7 +27,7 @@
  *   VITE_MARKET_INTELLIGENCE_URL         (x402 market intelligence base URL)
  *   VITE_PRIVY_APP_ID                    (human owner login)
  */
-import { CHAINS as DOMAIN_CHAINS, DEPLOYMENTS, type ChainKey } from "@arcaidia/domain";
+import { CHAINS as DOMAIN_CHAINS, DEPLOYMENTS, DEPLOYMENT_START_BLOCKS, type ChainKey } from "@arcaidia/domain";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA, type Address } from "./types";
 
 type Env = Record<string, string | undefined>;
@@ -50,8 +50,15 @@ export interface ChainConfig {
   intentRouter: Address | null;
   /** V1 ships one Arcaidia House Vault per supported chain. */
   houseVault: Address | null;
-  /** Intent Market (later): factory/registry emitting SolverVault creation events. */
+  /** `ArcaidiaVaultFactory` — the registry every vault in the market is created through (D10). */
   vaultFactory: Address | null;
+  /** This chain's `SettlementReceiver` — where canonical settlement lands and is recorded. */
+  settlementReceiver: Address | null;
+  /**
+   * The block this chain's v2 deployment began at. Log reads that walk the protocol's own
+   * events (vault labels, signer history, intents, fills, settlements) start here.
+   */
+  startBlock: number;
   /** The Graph endpoint for indexed fills / intent history. */
   subgraphUrl: string | null;
 }
@@ -79,7 +86,11 @@ const DOMAIN_KEY: Record<number, ChainKey> = {
 };
 function committed(chainId: number) {
   const key = DOMAIN_KEY[chainId]!;
-  return { contracts: DEPLOYMENTS[key], usdc: DOMAIN_CHAINS[key].settlementAsset.address as Address };
+  return {
+    contracts: DEPLOYMENTS[key],
+    usdc: DOMAIN_CHAINS[key].settlementAsset.address as Address,
+    startBlock: DEPLOYMENT_START_BLOCKS[key],
+  };
 }
 
 export const CHAIN_CONFIG: Record<number, ChainConfig> = {
@@ -93,6 +104,8 @@ export const CHAIN_CONFIG: Record<number, ChainConfig> = {
       address("VITE_HOUSE_VAULT_ETHEREUM_SEPOLIA") ?? committed(ETHEREUM_SEPOLIA).contracts.liquidityVault ?? null,
     vaultFactory:
       address("VITE_VAULT_FACTORY_ETHEREUM_SEPOLIA") ?? committed(ETHEREUM_SEPOLIA).contracts.vaultFactory ?? null,
+    settlementReceiver: committed(ETHEREUM_SEPOLIA).contracts.settlementReceiver ?? null,
+    startBlock: committed(ETHEREUM_SEPOLIA).startBlock,
     subgraphUrl: str("VITE_SUBGRAPH_URL_ETHEREUM_SEPOLIA") ?? NEST_URL_ETHEREUM_SEPOLIA,
   },
   [ARC_TESTNET]: {
@@ -102,6 +115,8 @@ export const CHAIN_CONFIG: Record<number, ChainConfig> = {
     intentRouter: address("VITE_INTENT_ROUTER_ARC_TESTNET") ?? committed(ARC_TESTNET).contracts.intentRouter ?? null,
     houseVault: address("VITE_HOUSE_VAULT_ARC_TESTNET") ?? committed(ARC_TESTNET).contracts.liquidityVault ?? null,
     vaultFactory: address("VITE_VAULT_FACTORY_ARC_TESTNET") ?? committed(ARC_TESTNET).contracts.vaultFactory ?? null,
+    settlementReceiver: committed(ARC_TESTNET).contracts.settlementReceiver ?? null,
+    startBlock: committed(ARC_TESTNET).startBlock,
     subgraphUrl: str("VITE_SUBGRAPH_URL_ARC_TESTNET") ?? NEST_URL_ARC_TESTNET,
   },
 };

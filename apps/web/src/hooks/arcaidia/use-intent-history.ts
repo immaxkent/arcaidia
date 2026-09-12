@@ -2,7 +2,10 @@
  * The connected owner's intent history (status / history surface).
  *
  * SOURCE: Arcaidia's shared, unlimited indexer (WP-22/23) — SQL over HTTP,
- * both configured chains.
+ * both configured chains — with the chain's own events as the fallback when
+ * the indexer is missing, behind, or mid-re-seed (`lib/arcaidia/chain-history`):
+ * the router's `IntentCreated`, every factory vault's `FastFilled` and the
+ * receiver's settlement events carry the same facts, read straight from the RPC.
  *
  * Two separate joins, for the same reason the backend's own
  * `SqlNestObservationProvider`/`GraphObservationProvider` document: an
@@ -22,6 +25,7 @@
  * Returns `empty` only when the indexer answers with zero rows. No example rows.
  */
 import { useQuery } from "@tanstack/react-query";
+import { fillsFromChain, intentsFromChain, settlementsFromChain } from "@/lib/arcaidia/chain-history";
 import { chainConfig } from "@/lib/arcaidia/config";
 import {
   emptyState,
@@ -89,7 +93,7 @@ interface RawSettlement {
  * join, the only difference is whether the initial `intents` query carries
  * a `WHERE sender = ...` at all.
  */
-async function fetchIntentRows(
+async function fetchIntentRowsFromNest(
   chainIds: readonly number[],
   senderFilter: Address | null,
 ): Promise<IntentHistoryRow[]> {
@@ -198,26 +202,105 @@ async function fetchIntentRows(
   });
 }
 
+/**
+ * The same rows from the chain's own events. Intents come from each chain's router (sender is
+ * indexed, so the filter runs in the RPC); each intent's fill and settlement live on its
+ * destination chain — the vault's `FastFilled` and the receiver's outcome event.
+ */
+async function fetchIntentRowsFromChain(
+  chainIds: readonly number[],
+  senderFilter: Address | null,
+): Promise<IntentHistoryRow[]> {
+  const perChain = await Promise.all(chainIds.map((id) => intentsFromChain(id, { sender: senderFilter })));
+  const intents = perChain
+    .flat()
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 200);
+  if (intents.length === 0) return [];
+
+  const idsByDestination = new Map<number, Hex[]>();
+  for (const intent of intents) {
+    const list = idsByDestination.get(intent.destinationChainId) ?? [];
+    list.push(intent.intentId);
+    idsByDestination.set(intent.destinationChainId, list);
+  }
+
+  const fillByIntentId = new Map<string, Awaited<ReturnType<typeof fillsFromChain>>[number]>();
+  const settlementByIntentId = new Map<string, Awaited<ReturnType<typeof settlementsFromChain>>[number]>();
+  await Promise.all(
+    [...idsByDestination.entries()].map(async ([destinationChainId, ids]) => {
+      const [fills, settlements] = await Promise.all([
+        fillsFromChain(destinationChainId, { intentIds: ids }),
+        settlementsFromChain(destinationChainId, ids),
+      ]);
+      for (const fill of fills) fillByIntentId.set(fill.intentId.toLowerCase(), fill);
+      for (const settlement of settlements) settlementByIntentId.set(settlement.intentId.toLowerCase(), settlement);
+    }),
+  );
+
+  return intents.map((chainIntent): IntentHistoryRow => {
+    const { blockNumber: _block, ...intent } = chainIntent;
+    const key = intent.intentId.toLowerCase();
+    const fill = fillByIntentId.get(key) ?? null;
+    const settlement = settlementByIntentId.get(key) ?? null;
+    return {
+      intent,
+      settlement: {
+        intentId: intent.intentId,
+        fastStatus: fill ? "FAST_FILLED" : "PENDING",
+        canonicalStatus: settlement ? "SETTLED" : "PENDING",
+        ...(settlement ? { canonicalOutcome: settlement.outcome } : {}),
+        ...(fill ? { fastFilledAt: fill.timestamp } : {}),
+        ...(settlement ? { settledAt: settlement.timestamp } : {}),
+      },
+      winningVault: fill?.vault ?? null,
+      feeCharged: fill?.feeAmount ?? null,
+      destinationTxHash: fill?.txHash ?? null,
+      settlementTxHash: settlement?.txHash ?? null,
+      settlementLatencySeconds: settlement ? settlement.timestamp - intent.createdAt : null,
+    };
+  });
+}
+
+/** Indexer first (cheap, joined); the chain when the indexer cannot answer. */
+export async function fetchIntentRows(
+  chainIds: readonly number[],
+  senderFilter: Address | null,
+): Promise<IntentHistoryRow[]> {
+  const indexed = chainIds.filter((id) => chainConfig(id)?.subgraphUrl);
+  const onChain = chainIds.filter((id) => chainConfig(id)?.rpcUrl);
+  if (indexed.length === chainIds.length) {
+    try {
+      return await fetchIntentRowsFromNest(chainIds, senderFilter);
+    } catch (error) {
+      // Fall through to the chain — unless there is no RPC to fall through to, in which
+      // case the indexer's failure is the honest answer, never a silently empty history.
+      if (onChain.length === 0) throw error;
+    }
+  }
+  return fetchIntentRowsFromChain(onChain, senderFilter);
+}
+
 export function useIntentHistory(
   owner: Address | null,
   chainIds: readonly number[],
 ): DataState<IntentHistoryRow[]> {
-  const indexedChainIds = chainIds.filter((id) => chainConfig(id)?.subgraphUrl);
-  const enabled = Boolean(owner && indexedChainIds.length > 0);
+  const readableChainIds = chainIds.filter((id) => chainConfig(id)?.subgraphUrl || chainConfig(id)?.rpcUrl);
+  const enabled = Boolean(owner && readableChainIds.length > 0);
 
   const query = useQuery({
-    queryKey: ["intent-history", owner, indexedChainIds],
-    queryFn: () => fetchIntentRows(indexedChainIds, owner as Address),
+    queryKey: ["intent-history", owner, readableChainIds],
+    queryFn: () => fetchIntentRows(readableChainIds, owner as Address),
     enabled,
     refetchInterval: 20_000,
   });
 
   if (!owner) return unavailableState("Connect wallet");
-  if (indexedChainIds.length === 0) return unavailableState("Indexer not connected");
+  if (readableChainIds.length === 0) return unavailableState("No indexer or RPC configured");
   if (query.isError) {
-    return errorState(query.error instanceof Error ? query.error.message : "Indexer query failed");
+    return errorState(query.error instanceof Error ? query.error.message : "History read failed");
   }
-  if (!query.data) return unavailableState("Indexer not connected");
+  if (!query.data) return unavailableState("Loading history");
   if (query.data.length === 0) return emptyState();
   return readyState(query.data);
 }
@@ -230,21 +313,21 @@ export function useIntentHistory(
  * ever depended on who's connected.
  */
 export function useAllTransfers(chainIds: readonly number[]): DataState<IntentHistoryRow[]> {
-  const indexedChainIds = chainIds.filter((id) => chainConfig(id)?.subgraphUrl);
-  const enabled = indexedChainIds.length > 0;
+  const readableChainIds = chainIds.filter((id) => chainConfig(id)?.subgraphUrl || chainConfig(id)?.rpcUrl);
+  const enabled = readableChainIds.length > 0;
 
   const query = useQuery({
-    queryKey: ["all-transfers", indexedChainIds],
-    queryFn: () => fetchIntentRows(indexedChainIds, null),
+    queryKey: ["all-transfers", readableChainIds],
+    queryFn: () => fetchIntentRows(readableChainIds, null),
     enabled,
     refetchInterval: 20_000,
   });
 
-  if (indexedChainIds.length === 0) return unavailableState("Indexer not connected");
+  if (readableChainIds.length === 0) return unavailableState("No indexer or RPC configured");
   if (query.isError) {
-    return errorState(query.error instanceof Error ? query.error.message : "Indexer query failed");
+    return errorState(query.error instanceof Error ? query.error.message : "History read failed");
   }
-  if (!query.data) return unavailableState("Indexer not connected");
+  if (!query.data) return unavailableState("Loading history");
   if (query.data.length === 0) return emptyState();
   return readyState(query.data);
 }
