@@ -2,14 +2,11 @@
  * Vault directory + single-vault current state.
  *
  * SOURCE:
- *   Directory     -> every vault that has ever won a fastFill, on this chain's Nest
- *                    (`SELECT DISTINCT vault FROM fills`), plus the committed House Vault
- *                    unconditionally (so it's never invisible before its first win). This is
- *                    the same "derive participants from fill history" approach WP-21.1 uses —
- *                    `ArcaidiaIntentMarket` itself has no vault registry (no `registerVault()`,
- *                    no `VaultRegistered` event), so a vault that has joined but never yet won a
- *                    single race is genuinely invisible to this until it does. Stated plainly,
- *                    not hidden — the same known limitation WP-21.1 already documents.
+ *   Directory     -> the chain: `ArcaidiaVaultFactory.vaultCount()`/`vaults(i)` (WP-26, D10) —
+ *                    every vault the factory ever created, visible the block it's created, no
+ *                    indexer in the loop. The committed House Vault is added unconditionally as
+ *                    a belt-and-braces default. The Nest's `vaults` view contributes only the
+ *                    creator's label (best-effort; blank until re-seeded).
  *   Current state -> direct contract reads via solverVaultAbi (liquidity, exposure, paused, owner)
  *   Aggregates    -> Arcaidia's shared, unlimited indexer (WP-22/23): `vault.fill_count` and
  *                    `protocol_state.total_fees_earned`. V1 has exactly one vault per chain, so
@@ -29,7 +26,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { feeBpsAt, type FeePolicy } from "@arcaidia/domain";
-import { solverVaultAbi } from "@/lib/arcaidia/abis";
+import { solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
 import { chainConfig } from "@/lib/arcaidia/config";
 import {
   errorState,
@@ -169,22 +166,39 @@ interface DiscoveredVault {
 }
 
 /**
- * The vault directory (D10): every vault the factory created on this chain, from the Nest's
- * `vaults` view (one row per `VaultCreated`) — a vault that has joined but never yet won a race
- * is visible from its first block. Falls back to the pre-v2 "derive participants from fill
- * history" query only when the `vaults` view is absent (a Nest not yet re-seeded), so the page
- * keeps working across the migration rather than erroring.
+ * The vault directory (D10) — read from the chain, not an indexer.
+ *
+ * `ArcaidiaVaultFactory` *is* the registry: `vaultCount()` / `vaults(i)` list every vault it
+ * ever created, so a vault someone deploys on /earn is visible here in the same block, with
+ * no indexer in the loop at all. The Nest's `vaults` view only contributes the creator's
+ * label (it lives in the `VaultCreated` event, not in factory storage) and is best-effort:
+ * a Nest that has not been re-seeded yet simply leaves labels blank.
  */
 async function discoverParticipantVaults(chainId: number): Promise<DiscoveredVault[]> {
-  const endpoint = chainConfig(chainId)?.subgraphUrl;
-  if (!endpoint) return [];
-  try {
-    const result = await queryNest<{ id: string; label: string | null }>(endpoint, "SELECT id, label FROM vaults");
-    return result.rows.map((row) => ({ address: row.id as Address, label: row.label || null }));
-  } catch {
-    const legacy = await queryNest<{ vault: string }>(endpoint, "SELECT DISTINCT vault FROM fills");
-    return legacy.rows.map((row) => ({ address: row.vault as Address, label: null }));
+  const config = chainConfig(chainId);
+  const client = publicClientFor(chainId);
+  const factory = config?.vaultFactory ?? null;
+
+  const fromChain: Address[] = [];
+  if (client && factory) {
+    const count = (await client.readContract({ address: factory, abi: vaultFactoryAbi, functionName: "vaultCount" })) as bigint;
+    const reads = Array.from({ length: Number(count) }, (_, i) =>
+      client.readContract({ address: factory, abi: vaultFactoryAbi, functionName: "vaults", args: [BigInt(i)] }) as Promise<Address>,
+    );
+    fromChain.push(...(await Promise.all(reads)));
   }
+
+  const labels = new Map<string, string>();
+  if (config?.subgraphUrl) {
+    try {
+      const result = await queryNest<{ id: string; label: string | null }>(config.subgraphUrl, "SELECT id, label FROM vaults");
+      for (const row of result.rows) if (row.label) labels.set(row.id.toLowerCase(), row.label);
+    } catch {
+      // Not re-seeded yet, or unreachable — labels are the only thing the indexer adds here.
+    }
+  }
+
+  return fromChain.map((address) => ({ address, label: labels.get(address.toLowerCase()) ?? null }));
 }
 
 async function fetchVaultDirectory(chainId: number, houseVault: Address | null): Promise<VaultDirectoryRow[]> {
