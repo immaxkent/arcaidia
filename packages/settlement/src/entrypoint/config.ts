@@ -23,11 +23,19 @@ export interface ChainEntrypointConfig {
   readonly domain: number;
 }
 
+/**
+ * Where canonically-unsettled intents are discovered from. `nest` (default) reads Arcaidia's
+ * shared SQL indexer, whose per-chain URL is committed in `@arcaidia/domain` and overridable
+ * with `SUBGRAPH_URL_{PREFIX}`; `graph` reads a GraphQL subgraph and requires those URLs set.
+ */
+export type SettlementObservationSource = 'nest' | 'graph';
+
 export interface SettlementEntrypointConfig {
   readonly reporterPrivateKey: `0x${string}`;
   readonly irisBaseUrl: string;
   readonly pollIntervalMs: number;
   readonly chains: readonly [ChainEntrypointConfig, ChainEntrypointConfig];
+  readonly observationSource: SettlementObservationSource;
 }
 
 export class ConfigError extends Error {}
@@ -52,7 +60,7 @@ const CHAIN_ENV_PREFIX: Record<ChainKey, string> = {
   'arc-testnet': 'ARC_TESTNET',
 };
 
-function chainEntrypointConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
+function chainEntrypointConfig(key: ChainKey, env: Env, source: SettlementObservationSource): ChainEntrypointConfig {
   const prefix = CHAIN_ENV_PREFIX[key];
   const chain = chainConfig(key);
   const contracts = deploymentFor(key);
@@ -67,13 +75,16 @@ function chainEntrypointConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
     chainId: chain.chainId,
     rpcUrl: env[`${prefix}_RPC_URL`] || chain.rpcUrl,
     settlementReceiver: contracts.settlementReceiver,
-    subgraphUrl: requireUrl(
-      env,
-      `SUBGRAPH_URL_${prefix}`,
-      'The settlement worker discovers canonically-unsettled intents from The Graph — it ' +
-        'will not fall back to a local/in-memory view for a live run, since that would look ' +
-        'like it is watching both chains when it is actually watching neither.',
-    ),
+    subgraphUrl:
+      source === 'graph'
+        ? requireUrl(
+            env,
+            `SUBGRAPH_URL_${prefix}`,
+            'SETTLEMENT_OBSERVATION_SOURCE=graph discovers canonically-unsettled intents from a ' +
+              'GraphQL subgraph — the committed default is a Nest SQL endpoint, which a GraphQL ' +
+              'client cannot read, so the URL must be set explicitly.',
+          )
+        : env[`SUBGRAPH_URL_${prefix}`] || chain.subgraphUrl,
     messageTransmitter: chain.settlementTransport.messageTransmitter,
     domain: chain.settlementTransport.domain,
   };
@@ -87,6 +98,7 @@ export function loadSettlementConfig(env: Env): SettlementEntrypointConfig {
     'Circle\'s attestation API base URL — https://iris-api-sandbox.circle.com for testnet.',
   );
 
+  const observationSource = loadObservationSource(env);
   const pollIntervalMs = env.SETTLEMENT_POLL_INTERVAL_MS ? Number(env.SETTLEMENT_POLL_INTERVAL_MS) : 15_000;
   if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
     throw new ConfigError('SETTLEMENT_POLL_INTERVAL_MS must be a positive number.');
@@ -96,6 +108,15 @@ export function loadSettlementConfig(env: Env): SettlementEntrypointConfig {
     reporterPrivateKey,
     irisBaseUrl,
     pollIntervalMs,
-    chains: [chainEntrypointConfig('ethereum-sepolia', env), chainEntrypointConfig('arc-testnet', env)],
+    chains: [chainEntrypointConfig('ethereum-sepolia', env, observationSource), chainEntrypointConfig('arc-testnet', env, observationSource)],
+    observationSource,
   };
+}
+
+function loadObservationSource(env: Env): SettlementObservationSource {
+  const raw = env.SETTLEMENT_OBSERVATION_SOURCE ?? 'nest';
+  if (raw !== 'nest' && raw !== 'graph') {
+    throw new ConfigError(`SETTLEMENT_OBSERVATION_SOURCE must be "nest" or "graph", got "${raw}".`);
+  }
+  return raw;
 }

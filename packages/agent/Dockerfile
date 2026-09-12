@@ -32,6 +32,8 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/telemetry/package.json packages/telemetry/package.json
 COPY packages/settlement/package.json packages/settlement/package.json
 COPY packages/mcp/package.json packages/mcp/package.json
+COPY packages/relay/package.json packages/relay/package.json
+COPY packages/loadgen/package.json packages/loadgen/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY tests/e2e/package.json tests/e2e/package.json
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerDeployment, resetDeployments } from '@arcaidia/domain';
-import { GraphSettlementDiscovery } from '../../src/index.js';
+import { GraphSettlementDiscovery, NestSettlementDiscovery } from '../../src/index.js';
 import {
   buildReadClients,
   buildSettlementDependencies,
@@ -34,6 +34,7 @@ function config(): SettlementEntrypointConfig {
     reporterPrivateKey: REPORTER_KEY,
     irisBaseUrl: 'https://iris-api-sandbox.circle.com',
     pollIntervalMs: 15_000,
+    observationSource: 'nest' as const,
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
   };
 }
@@ -88,9 +89,11 @@ describe('buildSettlementDependencies', () => {
     ).rejects.toThrow(/No read client configured for chain 999/);
   });
 
-  it('discovery is wired to a real GraphSettlementDiscovery, not a stub', () => {
-    const { deps } = buildSettlementDependencies(config());
-    expect(deps.discovery).toBeInstanceOf(GraphSettlementDiscovery);
+  it('discovery is wired to a real provider for the configured source, not a stub', () => {
+    expect(buildSettlementDependencies(config()).deps.discovery).toBeInstanceOf(NestSettlementDiscovery);
+    expect(buildSettlementDependencies({ ...config(), observationSource: 'graph' }).deps.discovery).toBeInstanceOf(
+      GraphSettlementDiscovery,
+    );
   });
 
   it('rejects a config referencing a chain id with no viem chain definition', () => {

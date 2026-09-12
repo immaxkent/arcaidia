@@ -20,7 +20,9 @@ import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
   CircleCCTPAdapter,
   FetchGraphQueryClient,
+  FetchNestQueryClient,
   GraphSettlementDiscovery,
+  NestSettlementDiscovery,
   InMemorySettlementJournal,
   ViemSettlementReceiverClient,
   type ReceiverReadClient,
@@ -89,15 +91,16 @@ export function buildSettlementDependencies(config: SettlementEntrypointConfig):
     writers,
   });
 
-  const discovery = new GraphSettlementDiscovery({
-    sources: config.chains.map((chain) => ({ chainId: chain.chainId, endpoint: chain.subgraphUrl })),
-    client: new FetchGraphQueryClient(),
-    domainFor: (chainId) => {
-      const domain = domainByChainId.get(chainId);
-      if (domain === undefined) throw new Error(`No CCTP domain configured for chain ${chainId}.`);
-      return domain;
-    },
-  });
+  const sources = config.chains.map((chain) => ({ chainId: chain.chainId, endpoint: chain.subgraphUrl }));
+  const domainFor = (chainId: number): number => {
+    const domain = domainByChainId.get(chainId);
+    if (domain === undefined) throw new Error(`No CCTP domain configured for chain ${chainId}.`);
+    return domain;
+  };
+  const discovery =
+    config.observationSource === 'graph'
+      ? new GraphSettlementDiscovery({ sources, client: new FetchGraphQueryClient(), domainFor })
+      : new NestSettlementDiscovery({ sources, client: new FetchNestQueryClient(), domainFor });
 
   const deps: SettlementWorkerDependencies = {
     adapter,

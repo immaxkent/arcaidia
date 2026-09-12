@@ -59,7 +59,7 @@ function main(): void {
       `[settlement] chain ${chain.chainId}: receiver ${chain.settlementReceiver}, ` +
         `messageTransmitter ${chain.messageTransmitter}, domain ${chain.domain}`,
     );
-    console.log(`[settlement] chain ${chain.chainId}: subgraph ${chain.subgraphUrl}`);
+    console.log(`[settlement] chain ${chain.chainId}: ${config.observationSource} ${chain.subgraphUrl}`);
   }
 
   const handle = startSettlementWorker(deps, {

@@ -22,6 +22,7 @@
 import { encodeIntentHook, type Address, type Bytes32 } from '@arcaidia/domain';
 import type { SettlementRecord } from '../worker/ports.js';
 import type { GraphQueryClient } from './graph-client.js';
+import type { NestQueryClient } from './nest-client.js';
 
 export interface SettlementChainSource {
   readonly chainId: number;
@@ -117,6 +118,98 @@ export class GraphSettlementDiscovery implements SettlementDiscoveryProvider {
         // complete through `settleWithProof`. A v1 row has no version and settles by the
         // reporter path.
         ...(raw.intentVersion !== undefined && raw.intentVersion !== null
+          ? { hookData: encodeIntentHook({ intentId: raw.id as Bytes32, recipient: raw.recipient as Address }) }
+          : {}),
+      },
+      amount: BigInt(raw.amount),
+      fallbackRecipient: raw.recipient as Address,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Nest (SQL over HTTP) — the committed default, same rules as the Graph provider above.
+// ---------------------------------------------------------------------------------------------
+
+export interface NestSettlementDiscoveryOptions {
+  readonly sources: readonly SettlementChainSource[];
+  readonly client: NestQueryClient;
+  readonly domainFor: (chainId: number) => number;
+  readonly pageSize?: number;
+}
+
+/** One row of the Nest's `intents` view, the columns this provider selects (snake_case). */
+interface RawNestIntent {
+  id: string;
+  recipient: string;
+  amount: string;
+  source_chain_id: string | number;
+  destination_chain_id: string | number;
+  intent_version?: number | string | null;
+  token_out?: string | null;
+  target_min_out?: string | null;
+  settlement_ref: string;
+  created_at_timestamp: string | number;
+  created_tx_hash: string;
+}
+
+/**
+ * Same discovery from Arcaidia's shared Nest instead of a GraphQL subgraph: the `intents`
+ * view carries the router's `IntentCreated` fields plus `canonical_status`, which is what
+ * "needs settlement tracked" means here. Failures throw, truncated or degraded answers throw —
+ * a quiet outage must never read as a quiet day.
+ */
+export class NestSettlementDiscovery implements SettlementDiscoveryProvider {
+  private readonly sources: readonly SettlementChainSource[];
+  private readonly client: NestQueryClient;
+  private readonly domainFor: (chainId: number) => number;
+  private readonly pageSize: number;
+
+  constructor(options: NestSettlementDiscoveryOptions) {
+    this.sources = options.sources;
+    this.client = options.client;
+    this.domainFor = options.domainFor;
+    this.pageSize = options.pageSize ?? 100;
+  }
+
+  async pendingSettlements(): Promise<readonly SettlementRecord[]> {
+    const perChain = await Promise.all(
+      this.sources.map(async (source) => {
+        const result = await this.client.query<RawNestIntent>(
+          source.endpoint,
+          'SELECT id, recipient, amount, source_chain_id, destination_chain_id, ' +
+            'intent_version, token_out, target_min_out, settlement_ref, created_at_timestamp, created_tx_hash ' +
+            "FROM intents WHERE canonical_status = 'PENDING' " +
+            `ORDER BY created_at_timestamp ASC LIMIT ${this.pageSize}`,
+        );
+        if (result.truncated) {
+          throw new Error(`Nest intents query truncated on ${source.endpoint} — raise the page size.`);
+        }
+        if (result.degraded) {
+          throw new Error(`Nest reports degraded data for intents on ${source.endpoint}.`);
+        }
+        return result.rows.map((raw) => this.toRecord(raw, source));
+      }),
+    );
+    return perChain.flat();
+  }
+
+  private toRecord(raw: RawNestIntent, _source: SettlementChainSource): SettlementRecord {
+    const sourceChainId = Number(raw.source_chain_id);
+    const destinationChainId = Number(raw.destination_chain_id);
+    return {
+      reference: {
+        intentId: raw.id as Bytes32,
+        sourceChainId,
+        destinationChainId,
+        sourceDomain: this.domainFor(sourceChainId),
+        destinationDomain: this.domainFor(destinationChainId),
+        sourceTxHash: raw.created_tx_hash as `0x${string}`,
+        messageRef: raw.settlement_ref as Bytes32,
+        initiatedAt: Number(raw.created_at_timestamp),
+        // Same rule as the Graph provider: a versioned (v2) row carries the intent hook (D8)
+        // and completes through `settleWithProof`; a v1 row settles by the reporter path.
+        ...(raw.intent_version !== undefined && raw.intent_version !== null
           ? { hookData: encodeIntentHook({ intentId: raw.id as Bytes32, recipient: raw.recipient as Address }) }
           : {}),
       },

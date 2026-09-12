@@ -41,14 +41,17 @@ export type {
 } from './worker/run-settlement-worker-pass.js';
 export { startSettlementWorker } from './worker/settlement-worker.js';
 export type { SettlementWorkerOptions, SettlementWorkerHandle } from './worker/settlement-worker.js';
-export { GraphSettlementDiscovery } from './observation/discover-settlements.js';
+export { GraphSettlementDiscovery, NestSettlementDiscovery } from './observation/discover-settlements.js';
 export type {
   SettlementChainSource,
   GraphSettlementDiscoveryOptions,
+  NestSettlementDiscoveryOptions,
   SettlementDiscoveryProvider,
 } from './observation/discover-settlements.js';
 export { FetchGraphQueryClient } from './observation/graph-client.js';
 export type { GraphQueryClient } from './observation/graph-client.js';
+export { FetchNestQueryClient } from './observation/nest-client.js';
+export type { NestQueryClient, NestQueryResult } from './observation/nest-client.js';
 
 // Health, derived independently of the transport's own report
 export { deriveSettlementHealth } from './health.js';

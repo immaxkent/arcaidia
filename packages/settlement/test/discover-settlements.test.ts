@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { encodeIntentHook } from '@arcaidia/domain';
-import { GraphSettlementDiscovery, type GraphQueryClient } from '../src/index.js';
+import { GraphSettlementDiscovery, NestSettlementDiscovery, type GraphQueryClient, type NestQueryClient, type NestQueryResult } from '../src/index.js';
 import { ARC, SEPOLIA, USDC } from './fixtures.js';
 
 const SEPOLIA_ENDPOINT = 'https://subgraph.local/sepolia';
@@ -182,5 +182,104 @@ describe('GraphSettlementDiscovery', () => {
     // A partial merge here would silently under-track settlements on the
     // chain that failed, which is worse than refusing to act this tick.
     await expect(discovery.pendingSettlements()).rejects.toThrow();
+  });
+});
+
+/** Returns canned `intents` rows per endpoint, in the Nest's own snake_case; throws when told to. */
+class FakeNestClient implements NestQueryClient {
+  readonly calls: Array<{ endpoint: string; sql: string }> = [];
+  responses = new Map<string, Record<string, unknown>[]>();
+  failWith = new Map<string, Error>();
+  flags: Partial<Pick<NestQueryResult<unknown>, 'truncated' | 'degraded'>> = {};
+
+  async query<T>(endpoint: string, sql: string): Promise<NestQueryResult<T>> {
+    this.calls.push({ endpoint, sql });
+    const failure = this.failWith.get(endpoint);
+    if (failure) throw failure;
+    const rows = (this.responses.get(endpoint) ?? []) as T[];
+    return { rows, count: rows.length, truncated: this.flags.truncated ?? false, degraded: this.flags.degraded ?? false };
+  }
+}
+
+function nestRow(seed: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const raw = rawIntent(seed);
+  return {
+    id: raw.id,
+    recipient: raw.recipient,
+    amount: raw.amount,
+    source_chain_id: raw.sourceChainId,
+    destination_chain_id: raw.destinationChainId,
+    intent_version: 1,
+    token_out: '0x0000000000000000000000000000000000000000',
+    target_min_out: '0',
+    settlement_ref: raw.settlementRef,
+    created_at_timestamp: raw.createdAtTimestamp,
+    created_tx_hash: raw.createdTxHash,
+    ...overrides,
+  };
+}
+
+describe('NestSettlementDiscovery', () => {
+  it('asks each chain for canonically-pending intents and maps the Nest row to the same record the Graph path produces', async () => {
+    const client = new FakeNestClient();
+    client.responses.set(SEPOLIA_ENDPOINT, [nestRow(1)]);
+    const discovery = new NestSettlementDiscovery({
+      sources: [
+        { chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT },
+        { chainId: ARC, endpoint: ARC_ENDPOINT },
+      ],
+      client,
+      domainFor,
+    });
+
+    const records = await discovery.pendingSettlements();
+
+    expect(client.calls.map((c) => c.endpoint)).toEqual([SEPOLIA_ENDPOINT, ARC_ENDPOINT]);
+    expect(client.calls[0]!.sql).toContain("FROM intents WHERE canonical_status = 'PENDING'");
+    expect(records).toHaveLength(1);
+    const raw = rawIntent(1);
+    expect(records[0]).toEqual({
+      reference: {
+        intentId: raw.id,
+        sourceChainId: SEPOLIA,
+        destinationChainId: ARC,
+        sourceDomain: 0,
+        destinationDomain: 26,
+        sourceTxHash: raw.createdTxHash,
+        messageRef: raw.settlementRef,
+        initiatedAt: 1_800_000_000,
+        hookData: encodeIntentHook({ intentId: raw.id as `0x${string}`, recipient: raw.recipient as `0x${string}` }),
+      },
+      amount: USDC(1_000),
+      fallbackRecipient: raw.recipient,
+    });
+  });
+
+  it('leaves hookData off a v1 row (no intent_version), so it settles by the reporter path', async () => {
+    const client = new FakeNestClient();
+    client.responses.set(ARC_ENDPOINT, [nestRow(2, { intent_version: null })]);
+    const discovery = new NestSettlementDiscovery({ sources: [{ chainId: ARC, endpoint: ARC_ENDPOINT }], client, domainFor });
+    const [record] = await discovery.pendingSettlements();
+    expect(record!.reference).not.toHaveProperty('hookData');
+  });
+
+  it('throws rather than returning an empty world when a Nest is down, truncated or degraded', async () => {
+    const down = new FakeNestClient();
+    down.failWith.set(SEPOLIA_ENDPOINT, new Error('503 busy'));
+    await expect(
+      new NestSettlementDiscovery({ sources: [{ chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT }], client: down, domainFor }).pendingSettlements(),
+    ).rejects.toThrow('503 busy');
+
+    const truncated = new FakeNestClient();
+    truncated.flags = { truncated: true };
+    await expect(
+      new NestSettlementDiscovery({ sources: [{ chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT }], client: truncated, domainFor }).pendingSettlements(),
+    ).rejects.toThrow(/truncated/);
+
+    const degraded = new FakeNestClient();
+    degraded.flags = { degraded: true };
+    await expect(
+      new NestSettlementDiscovery({ sources: [{ chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT }], client: degraded, domainFor }).pendingSettlements(),
+    ).rejects.toThrow(/degraded/);
   });
 });

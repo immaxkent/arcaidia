@@ -44,6 +44,26 @@ describe('loadSettlementConfig', () => {
     });
   });
 
+  it('defaults to the Nest: no SUBGRAPH_URL needed, the committed per-chain Nest URL is used', () => {
+    const env = baseEnv();
+    delete env.SUBGRAPH_URL_ETHEREUM_SEPOLIA;
+    delete env.SUBGRAPH_URL_ARC_TESTNET;
+    const config = loadSettlementConfig(env);
+    expect(config.observationSource).toBe('nest');
+    expect(config.chains.map((c) => c.subgraphUrl)).toEqual([
+      'https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia',
+      'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc',
+    ]);
+  });
+
+  it('SETTLEMENT_OBSERVATION_SOURCE=graph still requires explicit GraphQL endpoints', () => {
+    const env: Record<string, string> = { ...baseEnv(), SETTLEMENT_OBSERVATION_SOURCE: 'graph' };
+    expect(loadSettlementConfig(env).observationSource).toBe('graph');
+    delete env.SUBGRAPH_URL_ARC_TESTNET;
+    expect(() => loadSettlementConfig(env)).toThrow(ConfigError);
+    expect(() => loadSettlementConfig({ ...baseEnv(), SETTLEMENT_OBSERVATION_SOURCE: 'nope' })).toThrow(ConfigError);
+  });
+
   it('reads the CCTP domain and MessageTransmitter address from the committed chain config', () => {
     const config = loadSettlementConfig(baseEnv());
 
@@ -92,15 +112,15 @@ describe('loadSettlementConfig', () => {
     expect(() => loadSettlementConfig(env)).toThrow(/CIRCLE_IRIS_BASE_URL/);
   });
 
-  it('refuses a missing subgraph URL — never silently falls back to a local view', () => {
-    const env = baseEnv();
-    delete (env as Partial<typeof env>).SUBGRAPH_URL_ETHEREUM_SEPOLIA;
+  it('on the graph source, refuses a missing subgraph URL — never silently falls back to a local view', () => {
+    const env: Record<string, string> = { ...baseEnv(), SETTLEMENT_OBSERVATION_SOURCE: 'graph' };
+    delete env.SUBGRAPH_URL_ETHEREUM_SEPOLIA;
     expect(() => loadSettlementConfig(env)).toThrow(/SUBGRAPH_URL_ETHEREUM_SEPOLIA/);
   });
 
-  it('refuses a missing subgraph URL for the other chain too', () => {
-    const env = baseEnv();
-    delete (env as Partial<typeof env>).SUBGRAPH_URL_ARC_TESTNET;
+  it('on the graph source, refuses a missing subgraph URL for the other chain too', () => {
+    const env: Record<string, string> = { ...baseEnv(), SETTLEMENT_OBSERVATION_SOURCE: 'graph' };
+    delete env.SUBGRAPH_URL_ARC_TESTNET;
     expect(() => loadSettlementConfig(env)).toThrow(/SUBGRAPH_URL_ARC_TESTNET/);
   });
 
