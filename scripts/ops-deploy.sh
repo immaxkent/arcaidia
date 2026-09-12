@@ -2,6 +2,7 @@
 # Push the operations stack to a box and (re)start it there. One command, idempotent:
 #
 #   scripts/ops-deploy.sh ubuntu@203.0.113.7                # relay + House solver + worker
+#   SSH_KEY=~/.ssh/my-aws-key.pem scripts/ops-deploy.sh ubuntu@203.0.113.7
 #   PROFILES="--profile operators --profile loadgen" scripts/ops-deploy.sh ubuntu@203.0.113.7
 #
 # Needs: ssh access to an Ubuntu/Debian box with Docker (installed on first run if missing),
@@ -10,6 +11,10 @@
 set -euo pipefail
 HOST=${1:?usage: scripts/ops-deploy.sh user@host}
 REMOTE_DIR=${REMOTE_DIR:-arcaidia}
+# SSH_KEY=~/.ssh/my-instance.pem for an AWS key pair; unset = your default ssh identity.
+SSH_OPTS=${SSH_KEY:+-i $SSH_KEY}
+ssh() { command ssh $SSH_OPTS -o StrictHostKeyChecking=accept-new "$@"; }
+rsync() { command rsync -e "ssh $SSH_OPTS -o StrictHostKeyChecking=accept-new" "$@"; }
 PROFILES=${PROFILES:-}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
