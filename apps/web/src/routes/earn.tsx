@@ -936,6 +936,16 @@ function EarnPage() {
 
           {step === 5 ? (
             <Step title="Go live" hint="Nothing to activate — a vault with capital and an authorised, running solver is live. This watches each fact land.">
+              {deployed && authorised ? (
+                <div className="mt-3 rounded-md border border-acid/60 bg-acid/10 px-3 py-3">
+                  <p className="text-sm font-semibold uppercase tracking-wide text-acid">Your vault is live on chain</p>
+                  <p className="mt-1 text-xs text-text-dim">
+                    Everything on-chain is done — this is the last step. Your vault can win fills as soon as your solver
+                    process is running (step 4, "Run it"); the rows below turn green as it reports in and lands its first fill.
+                    To run another vault on the other chain, start again from step 1.
+                  </p>
+                </div>
+              ) : null}
               <ol className="mt-3 space-y-2">
                 {(
                   [
