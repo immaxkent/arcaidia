@@ -15,12 +15,15 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { RelayStore } from './store.js';
 import type { VaultKey, VaultTelemetryState } from './types.js';
 import type { VaultFlowsService } from './vault-flows/service.js';
+import type { IntelligenceService } from './intelligence/service.js';
 
 export interface RelayServerOptions {
   readonly port: number;
   readonly host?: string;
   /** WP-21.4 — when omitted, `/v1/vault-flows/{vault}` reports 501, plainly, rather than 404. */
   readonly vaultFlows?: VaultFlowsService | undefined;
+  /** WP-33: `/v1/intelligence/*`. Absent = those routes answer 503 with a reason. */
+  readonly intelligence?: IntelligenceService | undefined;
 }
 
 export interface RelayServerHandle {
@@ -120,7 +123,7 @@ function parseStreamPath(pathname: string): VaultKey | null {
 
 export function startRelayServer(store: RelayStore, options: RelayServerOptions): Promise<RelayServerHandle> {
   const server = createServer((req, res) => {
-    void handleRequest(req, res, store, options.vaultFlows);
+    void handleRequest(req, res, store, options.vaultFlows, options.intelligence);
   });
 
   return new Promise((resolve) => {
@@ -149,6 +152,7 @@ async function handleRequest(
   res: ServerResponse,
   store: RelayStore,
   vaultFlows: VaultFlowsService | undefined,
+  intelligence: IntelligenceService | undefined,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://relay.local');
   const pathname = url.pathname;
@@ -173,6 +177,10 @@ async function handleRequest(
     const vaultFlowAddress = parseVaultFlowsPath(pathname);
     if (vaultFlowAddress) {
       await handleVaultFlows(res, vaultFlowAddress, vaultFlows);
+      return;
+    }
+    if (pathname.startsWith('/v1/intelligence/')) {
+      await handleIntelligence(res, url, intelligence);
       return;
     }
   }
@@ -308,4 +316,71 @@ function handleStream(req: IncomingMessage, res: ServerResponse, store: RelaySto
   const unsubscribe = store.subscribe(key, write);
 
   req.on('close', unsubscribe);
+}
+
+// ---------------------------------------------------------------------------------------------
+// WP-33 — ecosystem intelligence. Read-only, CORS-open, stateless and idempotent: exactly the
+// shape a paying gateway (WP-35, x402 over Hedera) can wrap without changing a byte of it.
+// Every number is real or null; a Nest that cannot answer is a 503 here, never a quiet zero.
+// ---------------------------------------------------------------------------------------------
+
+async function handleIntelligence(res: ServerResponse, url: URL, intelligence: IntelligenceService | undefined): Promise<void> {
+  if (!intelligence) {
+    send(res, 503, { error: 'Ecosystem intelligence is not configured on this relay.' });
+    return;
+  }
+  const segments = url.pathname.split('/').filter((s) => s.length > 0).slice(2); // after /v1/intelligence
+  try {
+    if (segments.length === 1 && segments[0] === 'ecosystem') {
+      send(res, 200, await intelligence.ecosystem());
+      return;
+    }
+    if (segments.length === 2 && segments[0] === 'chain') {
+      const chainId = Number(segments[1]);
+      if (!Number.isInteger(chainId)) {
+        send(res, 400, { error: 'chainId must be an integer.' });
+        return;
+      }
+      const view = await intelligence.chain(chainId);
+      if (!view) {
+        send(res, 404, { error: `Chain ${chainId} is not served by this relay.` });
+        return;
+      }
+      send(res, 200, view);
+      return;
+    }
+    if (segments.length === 3 && segments[0] === 'vault') {
+      const chainId = Number(segments[1]);
+      const vault = segments[2] ?? '';
+      if (!Number.isInteger(chainId) || !/^0x[0-9a-fA-F]{40}$/.test(vault)) {
+        send(res, 400, { error: 'Expected /v1/intelligence/vault/{chainId}/{0x-address}.' });
+        return;
+      }
+      const view = await intelligence.vault(chainId, vault as `0x${string}`);
+      if (!view) {
+        send(res, 404, { error: `No vault ${vault} on chain ${chainId} in the market.` });
+        return;
+      }
+      send(res, 200, view);
+      return;
+    }
+    if (segments.length === 1 && segments[0] === 'quote-context') {
+      const amountRaw = url.searchParams.get('amount') ?? '';
+      const destinationChainId = Number(url.searchParams.get('destinationChainId'));
+      if (!/^[0-9]+$/.test(amountRaw) || !Number.isInteger(destinationChainId)) {
+        send(res, 400, { error: 'quote-context needs ?amount=<USDC smallest units>&destinationChainId=<id>.' });
+        return;
+      }
+      const view = await intelligence.quoteContext(BigInt(amountRaw), destinationChainId);
+      if (!view) {
+        send(res, 404, { error: `Chain ${destinationChainId} is not served by this relay.` });
+        return;
+      }
+      send(res, 200, view);
+      return;
+    }
+    send(res, 404, { error: 'Unknown intelligence route.' });
+  } catch (error) {
+    send(res, 503, { error: `Intelligence unavailable: ${error instanceof Error ? error.message : String(error)}` });
+  }
 }

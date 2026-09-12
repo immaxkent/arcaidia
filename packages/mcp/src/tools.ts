@@ -21,6 +21,7 @@ import {
   totalAssets,
   utilisationBps,
   type Bytes32,
+  type IntelligenceProvider,
   type ObservationProvider,
   type UnixSeconds,
 } from '@arcaidia/domain';
@@ -57,8 +58,27 @@ export interface PendingIntentReport {
   readonly ageSeconds: number;
 }
 
+/** The market as a whole, from the relay's ecosystem intelligence (WP-33). */
+export interface EcosystemReport {
+  readonly availableLiquidity: string;
+  readonly utilisation: string;
+  readonly vaults: number;
+  readonly feeRange: string;
+  readonly outstandingIntents: string;
+  readonly awaitingSettlement: string;
+  readonly fillsPerHour: string;
+  readonly settlementLatency: string;
+  readonly largestFillableNow: string;
+  readonly scarcity: string;
+  readonly concentration: string;
+  readonly computedAgo: string;
+  readonly summary: string;
+}
+
 export interface ArcaidiaToolOptions {
   readonly observation: ObservationProvider;
+  /** WP-33: optional. Without it `ecosystemIntelligence` says so rather than guessing. */
+  readonly intelligence?: IntelligenceProvider;
   /** Human names for chain ids, so answers read as prose rather than numbers. */
   readonly chainNames: ReadonlyMap<number, string>;
   readonly clock?: () => UnixSeconds;
@@ -66,13 +86,62 @@ export interface ArcaidiaToolOptions {
 
 export class ArcaidiaTools {
   private readonly observation: ObservationProvider;
+  private readonly intelligence: IntelligenceProvider | undefined;
   private readonly chainNames: ReadonlyMap<number, string>;
   private readonly clock: () => UnixSeconds;
 
   constructor(options: ArcaidiaToolOptions) {
     this.observation = options.observation;
+    this.intelligence = options.intelligence;
     this.chainNames = options.chainNames;
     this.clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
+  }
+
+  /**
+   * The whole market at a glance — liquidity, price, scarcity, throughput — read from the
+   * relay's ecosystem intelligence. Read-only like everything else here; a missing provider is
+   * reported, never papered over with numbers of our own.
+   */
+  async ecosystemIntelligence(): Promise<EcosystemReport> {
+    if (!this.intelligence) {
+      throw new Error('Ecosystem intelligence is not configured for this server (set INTELLIGENCE_URL to the relay).');
+    }
+    const now = this.clock();
+    const view = await this.intelligence.ecosystem(now);
+    const fees = view.feeDistribution;
+    const duration = (seconds: number): string => formatDuration(seconds) ?? `${seconds}s`;
+    const feeRange =
+      fees.minBps === null || fees.maxBps === null
+        ? 'no active vault'
+        : fees.minBps === fees.maxBps
+          ? formatBps(fees.minBps)
+          : `${formatBps(fees.minBps)} – ${formatBps(fees.maxBps)} (median ${formatBps(fees.medianBps ?? fees.minBps)})`;
+    const latency =
+      view.recentSettlementLatency.p50Seconds === null
+        ? 'no settlements in the window'
+        : `p50 ${duration(view.recentSettlementLatency.p50Seconds)}, p95 ${duration(view.recentSettlementLatency.p95Seconds ?? view.recentSettlementLatency.p50Seconds)} over ${view.recentSettlementLatency.sampleSize}`;
+    const report: EcosystemReport = {
+      availableLiquidity: usdc(view.aggregateAvailableLiquidity),
+      utilisation: formatBps(view.aggregateUtilisationBps),
+      vaults: fees.perVault.length,
+      feeRange,
+      outstandingIntents: usdc(view.outstandingIntentVolume),
+      awaitingSettlement: usdc(view.pendingCctpExposure),
+      fillsPerHour: view.recentFillVelocityPerHour === null ? 'unknown' : view.recentFillVelocityPerHour.toFixed(1),
+      settlementLatency: latency,
+      largestFillableNow: usdc(view.estimatedOpportunitySize),
+      scarcity: formatBps(view.scarcityScoreBps),
+      concentration: view.liquidityConcentrationBps === null ? 'no liquidity' : formatBps(view.liquidityConcentrationBps),
+      computedAgo: duration(Math.max(0, now - view.computedAt)),
+      summary: '',
+    };
+    return {
+      ...report,
+      summary:
+        `${report.vaults} vault(s) with ${report.availableLiquidity} available, ${report.utilisation} utilised; ` +
+        `fees ${report.feeRange}; ${report.outstandingIntents} of intents outstanding, scarcity ${report.scarcity}; ` +
+        `largest fillable now ${report.largestFillableNow}; ${report.fillsPerHour} fills/hour; settlement ${report.settlementLatency}.`,
+    };
   }
 
   private chainName(chainId: number): string {

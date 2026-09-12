@@ -46,6 +46,7 @@ function config(overrides: Partial<SolverEntrypointConfig> = {}): SolverEntrypoi
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
     telemetry: { enabled: false },
     observationSource: 'nest',
+    intelligenceUrl: null,
     ...overrides,
   };
 }
@@ -331,5 +332,13 @@ describe('startHeartbeats (WP-18.2 — "solver online" on its own clock)', () =>
     startHeartbeats({ ...circleConfig(), telemetry: telemetryOn }, circle.deps.authority, telemetry);
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2);
     expect(telemetry.heartbeat).not.toHaveBeenCalled();
+  });
+});
+
+describe('intelligence provider (WP-33)', () => {
+  it('is absent by default and present only with INTELLIGENCE_URL — the baseline solver is unchanged', () => {
+    expect(buildSolverDependencies(config(), { log: new InMemoryDecisionLog() }).deps).not.toHaveProperty('intelligence');
+    const withIt = buildSolverDependencies(config({ intelligenceUrl: 'https://relay.example' }), { log: new InMemoryDecisionLog() });
+    expect(withIt.deps.intelligence).toBeDefined();
   });
 });

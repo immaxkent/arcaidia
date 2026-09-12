@@ -24,6 +24,12 @@ describe('loadRelayConfig', () => {
       heartbeatTimeoutSeconds: 60,
       heartbeatSweepIntervalMs: 1_000,
       vaultFlows: null,
+      intelligence: {
+        sources: [
+          { chainId: 11_155_111, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia' },
+          { chainId: 5_042_002, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc' },
+        ],
+      },
     });
   });
 
@@ -65,5 +71,24 @@ describe('loadRelayConfig', () => {
 
   it('rejects VAULT_FLOWS_FIXTURE_PATH set without VAULT_FLOWS_NEST_ENDPOINT', () => {
     expect(() => loadRelayConfig({ VAULT_FLOWS_FIXTURE_PATH: './fixture.json' })).toThrow(ConfigError);
+  });
+});
+
+describe('loadRelayConfig — intelligence (WP-33)', () => {
+  it('is on by default, reading the committed Nest endpoints', () => {
+    expect(loadRelayConfig({}).intelligence).toEqual({
+      sources: [
+        { chainId: 11_155_111, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia' },
+        { chainId: 5_042_002, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc' },
+      ],
+    });
+  });
+
+  it('honours a per-chain SUBGRAPH_URL override and INTELLIGENCE_ENABLED=false', () => {
+    expect(loadRelayConfig({ SUBGRAPH_URL_ARC_TESTNET: 'https://my.nest/arc' }).intelligence?.sources[1]).toEqual({
+      chainId: 5_042_002,
+      endpoint: 'https://my.nest/arc',
+    });
+    expect(loadRelayConfig({ INTELLIGENCE_ENABLED: 'false' }).intelligence).toBeNull();
   });
 });

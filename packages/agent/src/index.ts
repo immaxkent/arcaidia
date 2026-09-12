@@ -67,6 +67,7 @@ export type {
 // RPC adapters behind the solver's ports
 export { ViemSourceChainReader, decodeIntentCreated } from './adapters/viem-source-reader.js';
 export { ViemFillSubmitter } from './adapters/viem-fill-submitter.js';
+export { HttpIntelligenceProvider, ecosystemFromWire, type WireEcosystemIntelligence } from './adapters/http-intelligence-provider.js';
 export type {
   EvmReadClient,
   EvmWriteClient,

@@ -16,6 +16,7 @@
 import {
   FetchNestQueryClient,
   FixtureVaultFlowSource,
+  IntelligenceService,
   ParticipantRegistry,
   RelayStore,
   VaultFlowsService,
@@ -59,7 +60,16 @@ async function main(): Promise<void> {
       : '[relay] vault flows  disabled (WP-21 — no live Substreams subscriber wired yet)',
   );
 
-  const server = await startRelayServer(store, { port: config.port, vaultFlows });
+  const intelligence = config.intelligence
+    ? new IntelligenceService({ sources: config.intelligence.sources, client: new FetchNestQueryClient() })
+    : undefined;
+  console.log(
+    intelligence
+      ? `[relay] intelligence -> ${config.intelligence!.sources.map((s) => `${s.chainId}:${s.endpoint}`).join(', ')}`
+      : '[relay] intelligence disabled (INTELLIGENCE_ENABLED=false)',
+  );
+
+  const server = await startRelayServer(store, { port: config.port, vaultFlows, intelligence });
   console.log(`[relay] listening on http://0.0.0.0:${server.port}`);
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {

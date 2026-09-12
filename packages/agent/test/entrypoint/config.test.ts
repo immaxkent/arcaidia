@@ -307,3 +307,10 @@ describe('loadSolverConfig', () => {
     });
   });
 });
+
+describe('INTELLIGENCE_URL (WP-33)', () => {
+  it('is optional: null when unset, the URL when set', () => {
+    expect(loadSolverConfig(baseEnv()).intelligenceUrl).toBeNull();
+    expect(loadSolverConfig({ ...baseEnv(), INTELLIGENCE_URL: 'https://relay.example' }).intelligenceUrl).toBe('https://relay.example');
+  });
+});

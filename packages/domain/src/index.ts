@@ -31,7 +31,10 @@ export { MAX_FEE_BPS, feeBpsAt, feePolicyAmountFor, validateFeePolicy, InvalidFe
 export type { FeePolicy } from './fee-policy.js';
 
 // Ecosystem intelligence (WP-33/35)
-export type { EcosystemIntelligence, VaultFeeSnapshot, LatencyPercentiles } from './types/intelligence.js';
+export type { EcosystemIntelligence,
+  ChainIntelligence,
+  VaultIntelligence,
+  QuoteContext, VaultFeeSnapshot, LatencyPercentiles } from './types/intelligence.js';
 
 // Fill authorization
 export type { FillAuthorization, SignedFillAuthorization } from './types/fill.js';

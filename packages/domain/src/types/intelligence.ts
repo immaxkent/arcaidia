@@ -52,3 +52,36 @@ export interface EcosystemIntelligence {
   readonly computedAt: UnixSeconds;
   readonly sourceBlocks: Readonly<Record<number, bigint>>;
 }
+
+/** The same picture, scoped to one destination chain — what a solver or a user on that chain sees. */
+export interface ChainIntelligence extends EcosystemIntelligence {
+  readonly chainId: number;
+}
+
+/** One vault's standing in the market right now. */
+export interface VaultIntelligence extends VaultFeeSnapshot {
+  readonly outstandingExposure: bigint;
+  readonly paused: boolean;
+  /** Largest single fill this vault could take right now (its own caps applied). */
+  readonly fillCapacity: bigint;
+  /** This vault's share of its chain's available liquidity, in bps. */
+  readonly liquidityShareBps: Bps;
+  /** Where its posted fee sits among the chain's active vaults: 0 = cheapest. */
+  readonly feeRank: number;
+  readonly computedAt: UnixSeconds;
+}
+
+/** What a user about to submit `amount` to `destinationChainId` can expect from the market. */
+export interface QuoteContext {
+  readonly destinationChainId: number;
+  readonly amount: bigint;
+  /** Vaults on that chain whose caps admit a fill of this size right now. */
+  readonly vaultsAbleToFill: number;
+  /** The lowest posted fee among those vaults, null when none can fill. */
+  readonly bestFeeBps: Bps | null;
+  readonly feeRangeBps: readonly [Bps, Bps] | null;
+  /** Largest single fill the chain could take right now. */
+  readonly estimatedOpportunitySize: bigint;
+  readonly scarcityScoreBps: Bps;
+  readonly computedAt: UnixSeconds;
+}

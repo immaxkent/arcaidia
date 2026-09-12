@@ -7,6 +7,8 @@
  * sane default; nothing is required to start.
  */
 
+import { CHAINS, type ChainKey } from '@arcaidia/domain';
+
 type Env = Record<string, string | undefined>;
 
 export class ConfigError extends Error {}
@@ -28,6 +30,26 @@ export interface RelayEntrypointConfig {
     readonly nestEndpoint: string;
     readonly fixturePath: string;
   };
+  /**
+   * WP-33: the per-chain Nest endpoints the intelligence views are computed from. The committed
+   * defaults from `@arcaidia/domain` apply; `SUBGRAPH_URL_{PREFIX}` overrides one, exactly as for
+   * the solver and the worker. `INTELLIGENCE_ENABLED=false` turns the routes off (they answer 503).
+   */
+  readonly intelligence: null | { readonly sources: readonly { chainId: number; endpoint: string }[] };
+}
+
+const CHAIN_ENV_PREFIX: Record<ChainKey, string> = {
+  'ethereum-sepolia': 'ETHEREUM_SEPOLIA',
+  'arc-testnet': 'ARC_TESTNET',
+};
+
+function loadIntelligence(env: Env): RelayEntrypointConfig['intelligence'] {
+  if (env['INTELLIGENCE_ENABLED'] === 'false') return null;
+  const sources = (Object.keys(CHAINS) as ChainKey[]).map((key) => ({
+    chainId: CHAINS[key].chainId,
+    endpoint: env[`SUBGRAPH_URL_${CHAIN_ENV_PREFIX[key]}`] || CHAINS[key].subgraphUrl,
+  }));
+  return { sources };
 }
 
 function optionalPositiveInt(env: Env, key: string, fallback: number): number {
@@ -60,5 +82,6 @@ export function loadRelayConfig(env: Env): RelayEntrypointConfig {
     heartbeatTimeoutSeconds: optionalPositiveInt(env, 'RELAY_HEARTBEAT_TIMEOUT_SECONDS', 30),
     heartbeatSweepIntervalMs: optionalPositiveInt(env, 'RELAY_HEARTBEAT_SWEEP_INTERVAL_MS', 5_000),
     vaultFlows: nestEndpoint && fixturePath ? { nestEndpoint, fixturePath } : null,
+    intelligence: loadIntelligence(env),
   };
 }

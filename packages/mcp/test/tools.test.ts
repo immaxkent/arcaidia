@@ -225,6 +225,7 @@ describe('the tool surface', () => {
 
     expect(methods.sort()).toEqual([
       'chainName',
+      'ecosystemIntelligence',
       'intentStatus',
       'pendingIntents',
       'settlementHealth',
@@ -245,5 +246,55 @@ describe('the tool surface', () => {
     for (const forbidden of ['setPolicy', 'fillIntent', 'withdrawFees', 'send']) {
       expect(forbidden).toMatch(mutatingVerb);
     }
+  });
+});
+
+describe('ecosystemIntelligence (WP-33)', () => {
+  const view = {
+    aggregateAvailableLiquidity: USDC(310) + 500_000n,
+    aggregateUtilisationBps: 1_250,
+    feeDistribution: {
+      perVault: [
+        { chainId: ARC, vault: '0xAAaA000000000000000000000000000000000001' as const, utilisationBps: 0, currentFeeBps: 10, availableLiquidity: USDC(108) },
+        { chainId: ARC, vault: '0xAAaA000000000000000000000000000000000002' as const, utilisationBps: 0, currentFeeBps: 15, availableLiquidity: USDC(54) },
+      ],
+      minBps: 10,
+      medianBps: 12,
+      maxBps: 15,
+    },
+    outstandingIntentVolume: USDC(3),
+    pendingCctpExposure: USDC(4),
+    recentFillVelocityPerHour: 1.5,
+    recentSettlementLatency: { p50Seconds: 1_200, p95Seconds: 1_500, sampleSize: 3 },
+    liquidityConcentrationBps: 3_800,
+    estimatedOpportunitySize: USDC(54),
+    scarcityScoreBps: 700,
+    window: { fromSeconds: NOW - 3_600, toSeconds: NOW },
+    computedAt: NOW - 8,
+    sourceBlocks: { [ARC]: 1n },
+  };
+
+  it('renders the relay view as prose-ready figures', async () => {
+    const tools = new ArcaidiaTools({
+      observation: new InMemoryObservationProvider(),
+      intelligence: { ecosystem: async () => view },
+      chainNames: CHAIN_NAMES,
+      clock: () => NOW,
+    });
+    const report = await tools.ecosystemIntelligence();
+    expect(report).toMatchObject({ vaults: 2, utilisation: '12.50%', scarcity: '7.00%', fillsPerHour: '1.5', computedAgo: '8s' });
+    expect(report.feeRange).toContain('0.10%');
+    expect(report.feeRange).toContain('0.15%');
+    expect(report.summary).toContain('2 vault(s)');
+    expect(report.summary).toContain('scarcity 7.00%');
+  });
+
+  it('says so, rather than inventing numbers, when no provider is configured', async () => {
+    const tools = new ArcaidiaTools({
+      observation: new InMemoryObservationProvider(),
+      chainNames: CHAIN_NAMES,
+      clock: () => NOW,
+    });
+    await expect(tools.ecosystemIntelligence()).rejects.toThrow(/not configured/);
   });
 });

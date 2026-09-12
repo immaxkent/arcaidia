@@ -123,12 +123,10 @@ function LiquidityPage() {
       </div>
 
       {/* Aggregate liquidity/utilisation/exposure are real, computed client-side
-          from the same vault directory read below — V1 has exactly one vault
-          per chain, so "aggregate" is honestly just that vault's own numbers
-          today, no dedicated service required. Fee range and canonical
-          settlement latency percentiles genuinely need the x402 market
-          intelligence service (fee-quote history, per-fill latency samples) —
-          those stay on `market`, unavailable until it's published. */}
+          from the vault directory. Fee range, settlement latency percentiles and
+          the scarcity/velocity/opportunity figures come from the relay's ecosystem
+          intelligence endpoints (WP-33, `/v1/intelligence/chain/{chainId}`) —
+          the same unpaid surface the Hedera x402 gateway wraps later. */}
       <section className="panel mt-6 p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-text">Market state</h2>
         <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-6">
@@ -182,9 +180,35 @@ function LiquidityPage() {
             </dd>
           </div>
         </dl>
+        <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Scarcity</dt>
+            <dd className="num mt-1 text-base text-electric-glow">
+              <StateValue state={market} format={(m) => (m.congestionScore === null ? NOT_AVAILABLE : formatBps(m.congestionScore))} />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Outstanding intents</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue state={market} format={(m) => (m.outstandingIntentVolume === null ? NOT_AVAILABLE : formatUsdc(m.outstandingIntentVolume))} />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Fills per hour</dt>
+            <dd className="num mt-1 text-base text-text">
+              <StateValue state={market} format={(m) => (m.recentFillVelocityPerHour === null ? NOT_AVAILABLE : m.recentFillVelocityPerHour.toFixed(1))} />
+            </dd>
+          </div>
+          <div className="instrument p-3">
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Largest fillable now</dt>
+            <dd className="num mt-1 text-base text-acid">
+              <StateValue state={market} format={(m) => (m.estimatedOpportunitySize === null ? NOT_AVAILABLE : formatUsdc(m.estimatedOpportunitySize))} />
+            </dd>
+          </div>
+        </dl>
         <AwaitingSource>
-          Fee range and settlement latency await the market intelligence service (/v1/settlement,
-          /v1/risk) — liquidity and utilisation above are real, aggregated from the vault directory.
+          Liquidity, utilisation and exposure from the vault directory; fee range, settlement latency, scarcity, outstanding
+          intents, fill velocity and largest fillable size from the relay's ecosystem intelligence (trailing hour).
         </AwaitingSource>
       </section>
 
