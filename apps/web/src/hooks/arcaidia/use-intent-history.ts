@@ -292,7 +292,7 @@ export function useIntentHistory(
     queryKey: ["intent-history", owner, readableChainIds],
     queryFn: () => fetchIntentRows(readableChainIds, owner as Address),
     enabled,
-    refetchInterval: 20_000,
+    refetchInterval: 30_000,
   });
 
   if (!owner) return unavailableState("Connect wallet");
@@ -320,7 +320,7 @@ export function useAllTransfers(chainIds: readonly number[]): DataState<IntentHi
     queryKey: ["all-transfers", readableChainIds],
     queryFn: () => fetchIntentRows(readableChainIds, null),
     enabled,
-    refetchInterval: 20_000,
+    refetchInterval: 30_000,
   });
 
   if (readableChainIds.length === 0) return unavailableState("No indexer or RPC configured");

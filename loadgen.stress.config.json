@@ -22,12 +22,12 @@
     {
       "kind": "background",
       "durationRange": {
-        "min": 1800,
-        "max": 3600
+        "min": 300,
+        "max": 900
       },
       "intentsPerMinuteRange": {
-        "min": 0.02,
-        "max": 0.05
+        "min": 0.3,
+        "max": 1
       },
       "amount": {
         "mu": 1.6,
@@ -49,10 +49,10 @@
           "weight": 1
         }
       ],
-      "clusterProbability": 0.0,
+      "clusterProbability": 0.05,
       "clusterSize": {
-        "min": 1,
-        "max": 1
+        "min": 2,
+        "max": 3
       },
       "largeIntentProbability": 0.02,
       "largeAmountRange": {
@@ -67,12 +67,12 @@
     {
       "kind": "burst",
       "durationRange": {
-        "min": 600,
-        "max": 900
+        "min": 180,
+        "max": 480
       },
       "intentsPerMinuteRange": {
-        "min": 0.08,
-        "max": 0.15
+        "min": 2,
+        "max": 5
       },
       "amount": {
         "mu": 1.9,
@@ -94,10 +94,10 @@
           "weight": 2
         }
       ],
-      "clusterProbability": 0.05,
+      "clusterProbability": 0.15,
       "clusterSize": {
-        "min": 2,
-        "max": 2
+        "min": 3,
+        "max": 5
       },
       "largeIntentProbability": 0.05,
       "largeAmountRange": {
@@ -112,12 +112,12 @@
     {
       "kind": "whale",
       "durationRange": {
-        "min": 300,
-        "max": 600
+        "min": 60,
+        "max": 120
       },
       "intentsPerMinuteRange": {
-        "min": 0.03,
-        "max": 0.06
+        "min": 0.5,
+        "max": 1
       },
       "amount": {
         "mu": 3.0,
@@ -153,12 +153,12 @@
     {
       "kind": "cluster",
       "durationRange": {
-        "min": 300,
-        "max": 600
+        "min": 60,
+        "max": 180
       },
       "intentsPerMinuteRange": {
-        "min": 0.05,
-        "max": 0.1
+        "min": 1,
+        "max": 2
       },
       "amount": {
         "mu": 1.7,
@@ -176,10 +176,10 @@
           "weight": 3
         }
       ],
-      "clusterProbability": 0.5,
+      "clusterProbability": 0.8,
       "clusterSize": {
-        "min": 2,
-        "max": 3
+        "min": 4,
+        "max": 8
       },
       "largeIntentProbability": 0,
       "largeAmountRange": {
@@ -194,12 +194,12 @@
     {
       "kind": "tight-fee",
       "durationRange": {
-        "min": 600,
-        "max": 900
+        "min": 120,
+        "max": 300
       },
       "intentsPerMinuteRange": {
-        "min": 0.03,
-        "max": 0.06
+        "min": 1,
+        "max": 2
       },
       "amount": {
         "mu": 1.6,
@@ -221,10 +221,10 @@
           "weight": 2
         }
       ],
-      "clusterProbability": 0.0,
+      "clusterProbability": 0.1,
       "clusterSize": {
-        "min": 1,
-        "max": 1
+        "min": 2,
+        "max": 3
       },
       "largeIntentProbability": 0,
       "largeAmountRange": {
@@ -238,23 +238,23 @@
     }
   ],
   "phaseWeights": [
-    8,
+    5,
+    3,
     1,
-    1,
-    1,
-    1
+    2,
+    2
   ],
   "scarcity": {
     "target": 0.2,
     "windowSeconds": 1800,
     "weightMultiplierBounds": {
       "min": 0.5,
-      "max": 1.5
+      "max": 2.5
     },
     "gain": 1.5,
     "constrainedIfLiquidityBelowMedianIntentFraction": 1
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Calm default (WP-32): about two transfers an hour across both directions \u2014 background phases at 0.02\u20130.05 intents/minute dominate; bursts and clusters are rare and small; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json (the 2026-09-12 first-live-run profile: up to 5/minute in bursts)."
+  "_comment": "Stress profile for development only \u2014 up to 5 intents/minute in bursts. Never the default: LOADGEN_CONFIG=loadgen.stress.config.json."
 }

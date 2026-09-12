@@ -67,12 +67,22 @@ function useMarketVaultDirectory(): DataState<VaultDirectoryRow[]> {
   const perChain = [sepolia, arc];
 
   if (perChain.some((s) => s.status === "loading")) return { status: "loading" };
-  const errored = perChain.find((s) => s.status === "error");
-  if (errored && errored.status === "error") return errorState(errored.error);
-
   const rows = perChain.flatMap((s) => (s.status === "ready" ? s.data : []));
+  const errored = perChain.find((s) => s.status === "error");
+  // One chain's RPC being unreachable must not blank the other chain's vaults: the market is
+  // shown for whatever can be read, and the failure is reported next to it (see ConsolePage).
+  if (rows.length === 0 && errored && errored.status === "error") return errorState(errored.error);
   if (rows.length === 0) return unavailableState("No vaults deployed anywhere yet");
   return readyState(rows);
+}
+
+/** The chains whose directory read failed, with the reason — shown as a notice, never hidden. */
+function useDirectoryProblems(): string[] {
+  const sepolia = useVaults(SUPPORTED_CHAIN_IDS[0]);
+  const arc = useVaults(SUPPORTED_CHAIN_IDS[1]);
+  return [sepolia, arc].flatMap((s, i) =>
+    s.status === "error" ? [`${CHAINS[SUPPORTED_CHAIN_IDS[i]!]?.short ?? SUPPORTED_CHAIN_IDS[i]}: ${s.error}`] : [],
+  );
 }
 
 /**
@@ -97,6 +107,7 @@ function ConsolePage() {
   const queryClient = useQueryClient();
 
   const list = useMarketVaultDirectory();
+  const problems = useDirectoryProblems();
   const rows = list.status === "ready" ? list.data : [];
 
   const [selected, setSelected] = useState(0);
@@ -192,6 +203,11 @@ function ConsolePage() {
         </section>
       ) : (
         <>
+          {problems.length > 0 ? (
+            <p className="mt-6 rounded-md border border-warning/50 bg-warning/5 px-3 py-2 text-xs text-warning">
+              Could not read one chain's vault directory — showing the rest. {problems.map((p) => p.split("\n")[0]).join(" · ")}
+            </p>
+          ) : null}
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <p className="num text-xs uppercase tracking-wide text-text-dim">
               {rows.length} vault{rows.length === 1 ? "" : "s"} in the market

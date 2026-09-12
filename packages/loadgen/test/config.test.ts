@@ -26,3 +26,19 @@ describe('parseLoadgenConfig', () => {
     expect(() => parseLoadgenConfig(raw)).toThrow(pattern);
   });
 });
+
+describe('the committed default profile is calm', () => {
+  it('averages about two transfers an hour before clusters and the controller, and cannot be driven above 1.5x', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const { join } = require('node:path') as typeof import('node:path');
+    const raw = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'loadgen.config.json'), 'utf8'));
+    const config = parseLoadgenConfig(raw);
+    const weights = config.phaseWeights;
+    const perHour = config.phases.map((p) => ((p.intentsPerMinuteRange.min + p.intentsPerMinuteRange.max) / 2) * 60);
+    const weighted = perHour.reduce((acc, r, i) => acc + r * weights[i]!, 0) / weights.reduce((a, b) => a + b, 0);
+    expect(weighted).toBeGreaterThan(1);
+    expect(weighted).toBeLessThan(4);
+    expect(config.scarcity.weightMultiplierBounds.max).toBeLessThanOrEqual(1.5);
+    expect(config.phases.find((p) => p.kind === 'background')!.intentsPerMinuteRange.max).toBeLessThanOrEqual(0.05);
+  });
+});

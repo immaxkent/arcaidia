@@ -14,7 +14,7 @@ NEW_RECEIVER=0xa60c586E4d050233885cD6628B7C1A217574d9c6
 DEPLOYER=0x538e5E9797fa86eE25e97289439b6A3AbA0165b0
 NEST=https://hackathon.89.167.109.4.sslip.io
 # macOS ships bash 3: no associative arrays, so per-chain constants are functions.
-rpc()  { case "$1" in 11155111) echo https://ethereum-sepolia-rpc.publicnode.com ;; 5042002) echo https://rpc.testnet.arc.network ;; esac; }
+rpc()  { case "$1" in 11155111) echo https://ethereum-sepolia-rpc.publicnode.com ;; 5042002) echo https://arc-testnet.drpc.org ;; esac; }
 usdc() { case "$1" in 11155111) echo 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 ;; 5042002) echo 0x3600000000000000000000000000000000000000 ;; esac; }
 
 plan=$(python3 - <<'PY'

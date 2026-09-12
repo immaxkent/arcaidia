@@ -100,7 +100,7 @@ export interface VaultDirectoryRow {
   settlementReceiverCurrent: boolean | null;
 }
 
-const POLL_INTERVAL_MS = 20_000;
+const POLL_INTERVAL_MS = 45_000;
 
 function utilisationBps(available: bigint, exposure: bigint): number | null {
   const total = available + exposure;

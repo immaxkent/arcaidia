@@ -175,7 +175,7 @@ export function useVaultFills(chainId: number, vaultAddress: Address | null): Da
     queryKey: ["vault-fills", chainId, vaultAddress],
     queryFn: () => fetchVaultFills(chainId, vaultAddress as Address),
     enabled,
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   if (!vaultAddress) return unavailableState("Select a vault");

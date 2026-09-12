@@ -185,7 +185,7 @@ export function useSolverMetrics(
     queryKey: ["solver-metrics", chainId, vaultAddress, inputs.candidateOperator],
     queryFn: () => fetchSolverMetrics(chainId, vaultAddress as Address, inputs.candidateOperator),
     enabled,
-    refetchInterval: 20_000,
+    refetchInterval: 30_000,
   });
 
   if (!vaultAddress) return unavailableState("Deploy vault first");

@@ -9,7 +9,7 @@
 set -euo pipefail
 DEPLOYER=0x538e5E9797fa86eE25e97289439b6A3AbA0165b0
 SEPOLIA_RPC=${SEPOLIA_RPC:-https://ethereum-sepolia-rpc.publicnode.com}
-ARC_RPC=${ARC_RPC:-https://rpc.testnet.arc.io}
+ARC_RPC=${ARC_RPC:-https://arc-testnet.drpc.org}
 SEPOLIA_ETH=${SEPOLIA_ETH:-0.02}   # ether, for fill gas on Sepolia
 ARC_USDC=${ARC_USDC:-2}            # USDC (Arc's native gas), for fill gas on Arc
 

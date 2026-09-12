@@ -138,7 +138,9 @@ export const CHAINS: Readonly<Record<ChainKey, ChainConfig>> = {
     key: 'arc-testnet',
     chainId: 5042002,
     name: 'Arc Testnet',
-    rpcUrl: process.env['ARC_TESTNET_RPC_URL'] ?? 'https://rpc.testnet.arc.io',
+    // Circle's own rpc.testnet.arc.{network,io} answered Cloudflare 1009 (geo-block) from 2026-09-12; dRPC
+    // and thirdweb both serve chain 5042002 publicly.
+    rpcUrl: process.env['ARC_TESTNET_RPC_URL'] ?? 'https://arc-testnet.drpc.org',
     explorerUrl: 'https://testnet.arcscan.app',
     graphNetwork: 'arc-testnet',
     subgraphUrl: process.env['SUBGRAPH_URL_ARC_TESTNET'] ?? 'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc',
