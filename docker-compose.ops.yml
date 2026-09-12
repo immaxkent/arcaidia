@@ -1,0 +1,99 @@
+# The always-on operations stack (WP-31/WP-32): everything that has to be running for the
+# market to work and be watched — reverse proxy, telemetry relay, the House solver, the
+# settlement worker, and (opt-in) the two independent operators and the load generator.
+#
+#   OPS_HOST=203.0.113.7.sslip.io docker compose -f docker-compose.ops.yml up -d --build
+#   docker compose -f docker-compose.ops.yml --profile operators --profile loadgen up -d --build
+#
+# Config is env files, never baked into images: .env (House solver + worker + relay),
+# .env.solver-b / .env.solver-c (operators), .env.loadgen (load generator). See deploy/README.md.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      OPS_HOST: ${OPS_HOST:?set OPS_HOST to this box's public hostname, e.g. 203.0.113.7.sslip.io}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - relay
+      - house-solver
+
+  relay:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.service
+      args:
+        SERVICE: packages/relay/src/entrypoint/main.ts
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      RELAY_PORT: '8090'
+    expose: ['8090']
+
+  house-solver:
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      SOLVER_QUOTE_PORT: '8787'
+      # Inside the compose network the relay is reachable by service name, not by public URL.
+      ARCAIDIA_TELEMETRY_URL: http://relay:8090
+    expose: ['8787']
+    depends_on: [relay]
+
+  settlement:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.service
+      args:
+        SERVICE: packages/settlement/src/entrypoint/main.ts
+    restart: unless-stopped
+    env_file: [.env]
+
+  solver-b:
+    profiles: [operators]
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    restart: unless-stopped
+    env_file: [.env.solver-b]
+    environment:
+      SOLVER_QUOTE_PORT: '8787'
+      ARCAIDIA_TELEMETRY_URL: http://relay:8090
+    depends_on: [relay]
+
+  solver-c:
+    profiles: [operators]
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    restart: unless-stopped
+    env_file: [.env.solver-c]
+    environment:
+      SOLVER_QUOTE_PORT: '8787'
+      ARCAIDIA_TELEMETRY_URL: http://relay:8090
+    depends_on: [relay]
+
+  loadgen:
+    profiles: [loadgen]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.service
+      args:
+        SERVICE: packages/loadgen/src/entrypoint/main.ts
+    restart: unless-stopped
+    env_file: [.env.loadgen]
+    volumes:
+      - ./loadgen.config.json:/app/loadgen.config.json:ro
+
+volumes:
+  caddy-data:
+  caddy-config:

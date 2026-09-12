@@ -1,0 +1,10 @@
+# Public HTTPS in front of the two services a visitor's browser talks to directly.
+# OPS_HOST is the box's public hostname, e.g. 203.0.113.7.sslip.io (any IP works with
+# sslip.io, no DNS to set up) or your own domain. Caddy fetches and renews the certificates.
+relay.{$OPS_HOST} {
+	reverse_proxy relay:8090
+}
+
+quote.{$OPS_HOST} {
+	reverse_proxy house-solver:8787
+}

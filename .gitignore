@@ -29,3 +29,4 @@ subgraph/build-arc
 # WP-32 load generator output
 loadgen.jsonl
 loadgen.metrics.json
+.env.loadgen
