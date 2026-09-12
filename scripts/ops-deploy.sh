@@ -25,6 +25,8 @@ OPS_HOST=${OPS_HOST:-"$IP.sslip.io"}
 echo "== deploying to $HOST as https://relay.$OPS_HOST and https://quote.$OPS_HOST"
 
 ssh "$HOST" 'command -v docker >/dev/null || (curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker "$USER")'
+# A 2 GB box builds the images only with some swap behind it; idempotent.
+ssh "$HOST" 'test -f /swapfile || (sudo fallocate -l 3G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile >/dev/null && sudo swapon /swapfile && echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null)'
 
 rsync -az --delete \
   --exclude node_modules --exclude .git --exclude 'apps/web/dist' --exclude 'contracts/out' --exclude 'contracts/cache' \
@@ -35,7 +37,7 @@ for f in .env .env.solver-b .env.solver-c .env.loadgen; do
   [ -f "$ROOT/$f" ] && rsync -az "$ROOT/$f" "$HOST:$REMOTE_DIR/$f"
 done
 
-ssh "$HOST" "cd $REMOTE_DIR && OPS_HOST=$OPS_HOST docker compose -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && docker compose -f docker-compose.ops.yml ps"
+ssh "$HOST" "cd $REMOTE_DIR && DC='docker compose'; docker info >/dev/null 2>&1 || DC='sudo docker compose'; OPS_HOST=$OPS_HOST \$DC -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && \$DC -f docker-compose.ops.yml ps"
 echo "== relay:  https://relay.$OPS_HOST/health"
 echo "== quote:  https://quote.$OPS_HOST/quote"
 echo "Set VITE_SOLVER_TELEMETRY_URL=https://relay.$OPS_HOST and VITE_SOLVER_QUOTE_URL=https://quote.$OPS_HOST for the web build,"
