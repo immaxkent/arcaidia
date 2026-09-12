@@ -124,6 +124,34 @@ ARCAIDIA_TELEMETRY_URL=${telemetryUrl ?? "# not configured for this deployment y
  * keys the browser just generated for this operator. Produced client-side only, handed to the
  * user as a file, never sent anywhere: Arcaidia and the Privy wallet never see these keys.
  */
+/**
+ * The env for a solver whose signer is a Circle Agent Wallet (developer-controlled wallet) the
+ * operator owns. Circle holds the signing key under the operator's own entity secret; the four
+ * `CIRCLE_*` values come from their Circle developer console and are theirs to paste in — this
+ * page never sees them. The submitter (gas payer) is still a key made in this browser: gas has
+ * to come from somewhere the solver can sign plainly, and it never touches vault capital.
+ */
+export function circleSolverEnvText(
+  vaults: readonly VaultTarget[],
+  walletAddress: Address,
+  submitterKey: `0x${string}`,
+  telemetryUrl: string | null,
+): string {
+  return `${runtimeConfigText(vaults, telemetryUrl)}
+# --- Signer: your Circle Agent Wallet (developer-controlled). Fill these four from your Circle
+# --- developer console (https://console.circle.com): the API key, the entity secret you registered,
+# --- and the wallet's id. With all four set the solver signs fills through Circle; the address
+# --- below is what you authorised on your vault.
+CIRCLE_API_KEY=
+CIRCLE_ENTITY_SECRET=
+CIRCLE_AGENT_WALLET_ID=
+CIRCLE_AGENT_WALLET_ADDRESS=${walletAddress}
+
+# --- Submitter: broadcasts your fills and pays their gas — generated in your browser on /earn.
+LOCAL_SUBMITTER_PRIVATE_KEY=${submitterKey}
+`;
+}
+
 export function solverEnvText(
   vaults: readonly VaultTarget[],
   keys: { signerKey: `0x${string}`; submitterKey: `0x${string}` },
@@ -273,7 +301,9 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
   const [maxFillBps, setMaxFillBps] = useState(5_000);
   const [maxExposureBps, setMaxExposureBps] = useState(9_000);
   const [solverOperator, setSolverOperator] = useState("");
-  const [operatorMode, setOperatorMode] = useState<"GENERATE" | "EXTERNAL">("GENERATE");
+  const [operatorMode, setOperatorMode] = useState<"GENERATE" | "CIRCLE" | "EXTERNAL">("GENERATE");
+  /** "Circle Agent Wallet": the wallet's address, pasted from the operator's Circle console. */
+  const [circleWallet, setCircleWallet] = useState("");
   /** "I already run a solver": the submitter address it printed, so it can be given gas here too. */
   const [externalSubmitter, setExternalSubmitter] = useState("");
   /** Generated in the browser, held in memory only — never persisted, never sent anywhere. */
@@ -315,6 +345,12 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
   }, [policy]);
   const RESERVE_FLOOR_BPS = 1_000;
 
+  function chooseMode(mode: "GENERATE" | "CIRCLE" | "EXTERNAL") {
+    setOperatorMode(mode);
+    // The address the vault authorises depends on the mode; never leave a stale one behind.
+    setSolverOperator(mode === "GENERATE" ? (identity?.signerAddress ?? "") : mode === "CIRCLE" ? circleWallet : "");
+  }
+
   function generateIdentity() {
     const signerKey = generatePrivateKey();
     const submitterKey = generatePrivateKey();
@@ -325,7 +361,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
       submitterAddress: privateKeyToAccount(submitterKey).address as Address,
     };
     setIdentity(next);
-    setSolverOperator(next.signerAddress);
+    if (operatorMode === "GENERATE") setSolverOperator(next.signerAddress);
     for (const id of SUPPORTED_CHAIN_IDS) patch(id, { gasTxHash: null });
   }
 
@@ -345,11 +381,11 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
   const operatorValid = isAddressLike(solverOperator.trim());
   const typedOperator = operatorValid ? (solverOperator.trim() as Address) : null;
   const submitterAddress: Address | null =
-    operatorMode === "GENERATE"
-      ? (identity?.submitterAddress ?? null)
-      : isAddressLike(externalSubmitter.trim())
+    operatorMode === "EXTERNAL"
+      ? isAddressLike(externalSubmitter.trim())
         ? (externalSubmitter.trim() as Address)
-        : null;
+        : null
+      : (identity?.submitterAddress ?? null);
   // A step is reachable by clicking its own tab only once every step before
   // it is satisfied — Back is always free, but skipping ahead of the
   // furthest-completed step is not, so a vault's name/economics are always
@@ -535,7 +571,10 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
 
   function downloadSolverEnv() {
     if (!identity || deployedTargets.length === 0) return;
-    const text = solverEnvText(deployedTargets, identity, SERVICES.solverTelemetryUrl);
+    const text =
+      operatorMode === "CIRCLE" && isAddressLike(circleWallet.trim())
+        ? circleSolverEnvText(deployedTargets, circleWallet.trim() as Address, identity.submitterKey, SERVICES.solverTelemetryUrl)
+        : solverEnvText(deployedTargets, identity, SERVICES.solverTelemetryUrl);
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const a = document.createElement("a");
     a.href = url;
@@ -868,21 +907,110 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
               title="Set up solver"
               hint="Your solver is a small program you run — Arcaidia never holds its key. One solver serves every chain your vault is on. This step creates its identity, gives it gas on each chain, authorises it on each vault, and hands you the one command to start it."
             >
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 {(
                   [
                     { id: "GENERATE" as const, t: "Create a solver here", d: "Identity generated in your browser; download one file; run one command." },
+                    { id: "CIRCLE" as const, t: "Sign with a Circle Agent Wallet", d: "Your solver signs fills through Circle's developer-controlled wallets. Key custody by Circle, under your own account." },
                     { id: "EXTERNAL" as const, t: "I already run a solver", d: "Paste the two addresses it prints on start." },
                   ]
                 ).map((o) => (
-                  <button key={o.id} type="button" onClick={() => setOperatorMode(o.id)} aria-pressed={operatorMode === o.id} className={chainClassName(operatorMode === o.id)}>
+                  <button key={o.id} type="button" onClick={() => chooseMode(o.id)} aria-pressed={operatorMode === o.id} className={chainClassName(operatorMode === o.id)}>
                     <span className="block text-sm font-semibold text-text">{o.t}</span>
                     <span className="mt-1 block text-xs text-text-dim">{o.d}</span>
                   </button>
                 ))}
               </div>
 
-              {operatorMode === "GENERATE" ? (
+              {operatorMode === "CIRCLE" ? (
+                <div className="mt-5 space-y-4">
+                  <p className="text-xs text-text-dim">
+                    A Circle Agent Wallet is a developer-controlled wallet: Circle holds the signing key under an entity secret only you
+                    register, and your solver asks Circle to sign each fill. One wallet address works on both chains. Arcaidia never
+                    sees your Circle API key, entity secret or wallet id — they go in the downloaded file, on your machine.
+                  </p>
+                  {/* 1 — the wallet */}
+                  <div className="panel-raised px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">1 · Your Circle Agent Wallet</p>
+                    <p className="mt-2 text-xs text-text-dim">
+                      In the <a href="https://console.circle.com" target="_blank" rel="noreferrer" className="text-electric-glow underline">Circle developer console</a>:
+                      create an API key, register an entity secret, and create a developer-controlled wallet (EVM, EOA). Paste its address here.
+                    </p>
+                    <Field label="Wallet address" id="circle-wallet">
+                      <input
+                        id="circle-wallet"
+                        placeholder="0x…"
+                        value={circleWallet}
+                        onChange={(e) => {
+                          setCircleWallet(e.target.value);
+                          setSolverOperator(e.target.value);
+                        }}
+                        className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text"
+                      />
+                    </Field>
+                    <p className="num text-[11px] text-text-dim">
+                      {operatorValid ? "Valid address — this is what your vault authorises" : circleWallet.trim().length === 0 ? "The wallet's address from Circle's console" : "Not a valid 20-byte address"}
+                    </p>
+                  </div>
+                  {/* 2 — submitter */}
+                  <div className="panel-raised px-3 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] uppercase tracking-wide text-text-dim">2 · Submitter (pays gas)</p>
+                      <button type="button" onClick={generateIdentity} className="num rounded border border-acid/50 px-2 py-1 text-[11px] uppercase tracking-wide text-acid hover:bg-acid/10">
+                        {identity ? "Regenerate" : "Generate"}
+                      </button>
+                    </div>
+                    {identity ? (
+                      <dl className="mt-2 space-y-1 text-sm">
+                        <Row k="Submitter (broadcasts fills, pays gas)" v={truncateAddress(identity.submitterAddress)} />
+                      </dl>
+                    ) : (
+                      <p className="mt-2 text-xs text-text-dim">Circle signs your fills; a plain key made in this tab broadcasts them. It never holds vault capital.</p>
+                    )}
+                  </div>
+                  {/* 3 — file */}
+                  <div className="panel-raised px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">3 · Config file</p>
+                    <button type="button" disabled={!identity || !allDeployed || !operatorValid} onClick={downloadSolverEnv} className="mt-2 w-full rounded-lg border border-electric/60 bg-electric/10 py-2.5 text-xs font-semibold uppercase tracking-wide text-electric-glow disabled:opacity-50">
+                      Download arcaidia-solver.env
+                    </button>
+                    <p className="mt-2 text-xs text-text-dim">
+                      Your vault on {chainList}, the indexer, telemetry, the submitter key, and four blank <code className="num">CIRCLE_*</code> lines for you to fill in from your Circle console.
+                      {!allDeployed ? " (Deploy on every chain on step 2 first.)" : ""}
+                    </p>
+                  </div>
+                  {/* 4 — gas */}
+                  <div className="panel-raised px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">4 · Gas for the submitter</p>
+                    <GasRows targets={targets} progressOf={progressOf} enabled={connected && Boolean(identity)} onSend={sendGasOn} />
+                  </div>
+                  {/* 5 — authorise */}
+                  <div className="panel-raised px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-text-dim">5 · Authorise the wallet on your vault</p>
+                    <AuthoriseRows targets={targets} progressOf={progressOf} statusOf={statusOf} enabled={connected && operatorValid} onAuthorise={authoriseOn} />
+                  </div>
+                  {/* 6 — run */}
+                  <div className="panel-raised px-3 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] uppercase tracking-wide text-text-dim">6 · Run it</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(RUN_COMMAND);
+                          toast.success("Copied", { description: "Run command" });
+                        }}
+                        className="text-[10px] font-semibold uppercase tracking-wide text-electric-glow hover:text-electric"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre className="num mt-2 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">{RUN_COMMAND}</pre>
+                    <p className="mt-2 text-xs text-text-dim">
+                      Fill in the four <code className="num">CIRCLE_*</code> lines first. The solver prints <code className="num">[solver] signer {operatorValid ? truncateAddress(solverOperator.trim() as Address) : "0x…"} (circle)</code> on start.
+                    </p>
+                  </div>
+                </div>
+              ) : operatorMode === "GENERATE" ? (
                 <div className="mt-5 space-y-4">
                   {/* 1 — identity */}
                   <div className="panel-raised px-3 py-3">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
-import { runtimeConfigText } from "./earn";
+import { circleSolverEnvText, runtimeConfigText } from "./earn";
 
 const VAULT: Address = "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1";
 const ON_SEPOLIA = [{ chainId: ETHEREUM_SEPOLIA, vaultAddress: VAULT }];
@@ -47,5 +47,22 @@ describe("runtimeConfigText (WP-19.1)", () => {
   it("is honest, not silent, when no telemetry URL is configured", () => {
     const text = runtimeConfigText(ON_SEPOLIA, null);
     expect(text).toContain("ARCAIDIA_TELEMETRY_URL=# not configured for this deployment yet");
+  });
+});
+
+describe("circleSolverEnvText (Circle Agent Wallet operators)", () => {
+  const SUBMITTER = `0x${"22".repeat(32)}` as const;
+  const WALLET: Address = "0x6b73143220c1fb00b96d7dbde302ff55157f3424";
+
+  it("names the wallet, leaves the three Circle secrets for the operator, and carries only the submitter key", () => {
+    const text = circleSolverEnvText([...ON_SEPOLIA, ...ON_ARC], WALLET, SUBMITTER, "https://relay.example");
+    expect(text).toContain(`CIRCLE_AGENT_WALLET_ADDRESS=${WALLET}`);
+    expect(text).toMatch(/^CIRCLE_API_KEY=$/m);
+    expect(text).toMatch(/^CIRCLE_ENTITY_SECRET=$/m);
+    expect(text).toMatch(/^CIRCLE_AGENT_WALLET_ID=$/m);
+    expect(text).toContain(`LOCAL_SUBMITTER_PRIVATE_KEY=${SUBMITTER}`);
+    expect(text).not.toContain("LOCAL_AGENT_PRIVATE_KEY=");
+    expect(text).toContain(`ETHEREUM_SEPOLIA_LIQUIDITY_VAULT=${VAULT}`);
+    expect(text).toContain(`ARC_TESTNET_LIQUIDITY_VAULT=${VAULT}`);
   });
 });
