@@ -24,12 +24,12 @@ const arcTestnet = defineChain({
   id: 5042002,
   name: 'Arc Testnet',
   nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
-  rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
+  rpcUrls: { default: { http: ['https://arc-testnet.drpc.org'] } },
 });
 
 const PREFIX: Record<ChainKey, string> = { 'ethereum-sepolia': 'ETHEREUM_SEPOLIA', 'arc-testnet': 'ARC_TESTNET' };
 
-function endpoints(): Map<number, ChainEndpoint> {
+export function endpoints(): Map<number, ChainEndpoint> {
   const map = new Map<number, ChainEndpoint>();
   for (const key of Object.keys(CHAINS) as ChainKey[]) {
     const chain = CHAINS[key];
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   console.log(`[loadgen] done: ${JSON.stringify(summary)}`);
 }
 
-main().catch((error) => {
+if (process.argv[1]?.endsWith('main.ts') || process.argv[1]?.endsWith('main.js')) main().catch((error) => {
   console.error('[loadgen] fatal:', error);
   process.exit(1);
 });
