@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { decodeEventLog, encodeEventTopics, keccak256, toHex } from "viem";
 import { InvalidFeePolicyError, feeBpsAt, validateFeePolicy, type FeePolicy } from "@arcaidia/domain";
-import { solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
+import { erc20Abi, solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 import { viemChainFor } from "@/lib/arcaidia/viem-chains";
 import { toast } from "sonner";
@@ -241,6 +241,64 @@ function EarnPage() {
       setDeployError(error instanceof Error ? error.message : "Transaction failed.");
     } finally {
       setDeploying(false);
+    }
+  }
+
+  const [depositing, setDepositing] = useState(false);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [depositedTotal, setDepositedTotal] = useState<bigint>(0n);
+
+  /** ERC-4626 `deposit` into the operator's own vault: approve USDC, then deposit, both owner-signed. */
+  async function depositUsdc() {
+    if (!connected || !address || !vaultAddress) return;
+    const config = chainConfig(chainId);
+    const publicClient = publicClientFor(chainId);
+    const amount = parseUsdc(funding);
+    if (!config?.usdc || !publicClient) {
+      setDepositError("USDC / RPC not configured for this chain yet.");
+      return;
+    }
+    if (!amount || amount <= 0n) {
+      setDepositError("Enter an amount.");
+      return;
+    }
+    setDepositError(null);
+    setDepositing(true);
+    try {
+      const walletClient = await wallet.getWalletClient(chainId);
+      const chain = viemChainFor(chainId);
+      const allowance = await publicClient.readContract({
+        address: config.usdc,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [address, vaultAddress],
+      });
+      if (allowance < amount) {
+        const approveHash = await walletClient.writeContract({
+          address: config.usdc,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [vaultAddress, amount],
+          chain,
+          account: address,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+      }
+      const hash = await walletClient.writeContract({
+        address: vaultAddress,
+        abi: solverVaultAbi,
+        functionName: "deposit",
+        args: [amount, address],
+        chain,
+        account: address,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      setDepositedTotal((t) => t + amount);
+      toast.success("Deposited", { description: `${formatUsdc(amount)} USDC into ${truncateAddress(vaultAddress)}` });
+    } catch (error) {
+      setDepositError(error instanceof Error ? error.message : "Transaction failed.");
+    } finally {
+      setDepositing(false);
     }
   }
 
@@ -557,10 +615,18 @@ function EarnPage() {
               </dl>
               <button
                 type="button"
-                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid"
+                disabled={!connected || !deployed || depositing || !parseUsdc(funding)}
+                onClick={() => void depositUsdc()}
+                className="mt-4 w-full rounded-lg border border-acid/60 bg-acid/15 py-3 text-sm font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
               >
-                Deposit USDC
+                {depositing ? "Depositing…" : "Deposit USDC"}
               </button>
+              {depositError ? <p className="mt-2 text-xs text-warning">{depositError}</p> : null}
+              {!deployed ? (
+                <p className="num mt-2 text-[11px] text-text-dim">Deploy the vault on step 2 first — deposits go to that address.</p>
+              ) : depositedTotal > 0n ? (
+                <p className="num mt-2 text-[11px] text-acid">Deposited this session: {formatUsdc(depositedTotal)} USDC</p>
+              ) : null}
             </Step>
           ) : null}
 
