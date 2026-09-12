@@ -35,7 +35,8 @@ interface WalletValue {
   loginConfigured: boolean;
   connect: () => void;
   disconnect: () => void;
-  switchChain: (chainId: number) => void;
+  /** Resolves once the wallet is on `chainId` (a rejected switch rejects). */
+  switchChain: (chainId: number) => Promise<void>;
   /** A viem WalletClient for the active wallet, for signing a transaction on `chainId`. */
   getWalletClient: (chainId: number) => Promise<WalletClient>;
 }
@@ -71,7 +72,7 @@ function ConfiguredWalletProvider({ children }: { children: ReactNode }) {
   }, [logout]);
 
   const switchChain = useCallback(
-    (next: number) => {
+    async (next: number) => {
       const target = SUPPORTED_CHAIN_IDS.includes(next as never) ? next : ETHEREUM_SEPOLIA;
       setChainId(target);
       if (activeWallet) {
@@ -79,11 +80,14 @@ function ConfiguredWalletProvider({ children }: { children: ReactNode }) {
         // privy-provider.tsx) — both chains are always registered there, so
         // this should never surface, but a failed switch must not silently
         // leave the UI pointed at a chain the wallet disagrees with.
-        activeWallet.switchChain(target).catch((error: unknown) => {
+        try {
+          await activeWallet.switchChain(target);
+        } catch (error) {
           toast.error("Could not switch network", {
             description: error instanceof Error ? error.message : "Wallet rejected the chain switch.",
           });
-        });
+          throw error;
+        }
       }
     },
     [activeWallet],
@@ -134,8 +138,9 @@ function UnconfiguredWalletProvider({ children }: { children: ReactNode }) {
       loginConfigured: false,
       connect,
       disconnect,
-      switchChain: (next: number) =>
-        setChainId(SUPPORTED_CHAIN_IDS.includes(next as never) ? next : ETHEREUM_SEPOLIA),
+      switchChain: async (next: number) => {
+        setChainId(SUPPORTED_CHAIN_IDS.includes(next as never) ? next : ETHEREUM_SEPOLIA);
+      },
       getWalletClient,
     }),
     [chainId, connect, disconnect, getWalletClient],

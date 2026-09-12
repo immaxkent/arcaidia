@@ -103,7 +103,7 @@ export function FillsTable({ state }: { state: DataState<FillRow[]> }) {
       emptyTitle="No fills yet"
       emptyNote="Winning fills appear here once this vault funds an intent."
       unavailableTitle="No fills yet"
-      unavailableNote="Fill history comes from the indexer, which is not connected yet."
+      unavailableNote="Fills appear here once the vault is deployed and wins an intent."
     >
       {(fills) => <FillsTableBody fills={fills} />}
     </StateSection>
