@@ -135,7 +135,15 @@ export interface NestSettlementDiscoveryOptions {
   readonly sources: readonly SettlementChainSource[];
   readonly client: NestQueryClient;
   readonly domainFor: (chainId: number) => number;
+  /** Newest-first page of canonical-pending intents per chain; the unsettled ones are the recent ones. */
   readonly pageSize?: number;
+  /**
+   * The destination chain's own answer — `outcomeOf` on every receiver, live and retired — for a
+   * batch of intent ids (0 = NONE). The Nest never learns about settlements on a receiver it does
+   * not index (D12), so without this the same long-settled rows would be re-tracked every pass.
+   * Ids missing from the map are kept.
+   */
+  readonly outcomeProbe?: (chainId: number, intentIds: readonly `0x${string}`[]) => Promise<Map<string, number>>;
 }
 
 /** One row of the Nest's `intents` view, the columns this provider selects (snake_case). */
@@ -164,12 +172,14 @@ export class NestSettlementDiscovery implements SettlementDiscoveryProvider {
   private readonly client: NestQueryClient;
   private readonly domainFor: (chainId: number) => number;
   private readonly pageSize: number;
+  private readonly outcomeProbe: NestSettlementDiscoveryOptions['outcomeProbe'];
 
   constructor(options: NestSettlementDiscoveryOptions) {
     this.sources = options.sources;
     this.client = options.client;
     this.domainFor = options.domainFor;
-    this.pageSize = options.pageSize ?? 100;
+    this.pageSize = options.pageSize ?? 500;
+    this.outcomeProbe = options.outcomeProbe;
   }
 
   async pendingSettlements(): Promise<readonly SettlementRecord[]> {
@@ -180,7 +190,9 @@ export class NestSettlementDiscovery implements SettlementDiscoveryProvider {
           'SELECT id, recipient, amount, source_chain_id, destination_chain_id, ' +
             'intent_version, token_out, target_min_out, settlement_ref, created_at_timestamp, created_tx_hash ' +
             "FROM intents WHERE canonical_status = 'PENDING' " +
-            `ORDER BY created_at_timestamp ASC LIMIT ${this.pageSize}`,
+            // Newest first: the Nest keeps rows settled on an unindexed receiver PENDING forever,
+            // and the oldest-first page was exactly those — the stuck, recent intents sat past it.
+            `ORDER BY created_at_timestamp DESC LIMIT ${this.pageSize}`,
         );
         if (result.truncated) {
           throw new Error(`Nest intents query truncated on ${source.endpoint} — raise the page size.`);
@@ -219,7 +231,24 @@ export class NestSettlementDiscovery implements SettlementDiscoveryProvider {
         }
       }),
     );
-    return candidates.filter((r) => !settled.has(r.reference.intentId.toLowerCase()));
+    const remaining = candidates.filter((r) => !settled.has(r.reference.intentId.toLowerCase()));
+    if (!this.outcomeProbe || remaining.length === 0) return remaining;
+
+    // Then the chain: whatever any receiver on the destination already settled is done.
+    const onChain = new Set<string>();
+    const remainingByDestination = new Map<number, SettlementRecord[]>();
+    for (const r of remaining) remainingByDestination.set(r.reference.destinationChainId, [...(remainingByDestination.get(r.reference.destinationChainId) ?? []), r]);
+    await Promise.all(
+      [...remainingByDestination.entries()].map(async ([chainId, records]) => {
+        try {
+          const outcomes = await this.outcomeProbe!(chainId, records.map((r) => r.reference.intentId.toLowerCase() as `0x${string}`));
+          for (const [id, outcome] of outcomes) if (outcome !== 0) onChain.add(id.toLowerCase());
+        } catch {
+          // Unreachable RPC: keep the Nest's answer for this chain rather than fail the pass.
+        }
+      }),
+    );
+    return remaining.filter((r) => !onChain.has(r.reference.intentId.toLowerCase()));
   }
 
   private toRecord(raw: RawNestIntent, _source: SettlementChainSource): SettlementRecord {

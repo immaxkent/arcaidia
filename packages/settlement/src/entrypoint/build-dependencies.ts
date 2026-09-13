@@ -15,6 +15,7 @@
  */
 
 import { createPublicClient, createWalletClient, http } from 'viem';
+import { CHAINS, allSettlementReceivers, type ChainKey } from '@arcaidia/domain';
 import { privateKeyToAccount } from 'viem/accounts';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
@@ -73,6 +74,41 @@ export interface BuiltSettlementDependencies {
   readonly reporterAddress: `0x${string}`;
 }
 
+const OUTCOME_ABI = [
+  { type: 'function', name: 'outcomeOf', stateMutability: 'view', inputs: [{ name: 'intentId', type: 'bytes32' }], outputs: [{ type: 'uint8' }] },
+] as const;
+
+/**
+ * `outcomeOf(intentId)` on every receiver a chain has had (live, then retired — D12), batched
+ * through Multicall3, 100 ids per call. An id is reported only when every receiver answered.
+ */
+// The read-client map is typed by the narrow ReceiverReadClient; the objects are viem public
+// clients, which carry `multicall` when the chain declares Multicall3. Absent = no probe.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MulticallCapable = { multicall?: (...args: any[]) => Promise<readonly { status: string; result?: unknown }[]> };
+function outcomeProbeOver(readers: ReadonlyMap<number, MulticallCapable>) {
+  return async (chainId: number, intentIds: readonly `0x${string}`[]): Promise<Map<string, number>> => {
+    const result = new Map<string, number>();
+    const client = readers.get(chainId);
+    if (!client?.multicall) return result;
+    const key = (Object.keys(CHAINS) as ChainKey[]).find((k) => CHAINS[k].chainId === chainId);
+    const receivers = key ? allSettlementReceivers(key) : [];
+    if (receivers.length === 0) return result;
+    for (let i = 0; i < intentIds.length; i += 100) {
+      const slice = intentIds.slice(i, i + 100);
+      const answers = await client.multicall({
+        allowFailure: true,
+        contracts: slice.flatMap((id) => receivers.map((address) => ({ address, abi: OUTCOME_ABI, functionName: 'outcomeOf' as const, args: [id] as const }))),
+      });
+      slice.forEach((id, j) => {
+        const outcomes = receivers.map((_, k) => answers[j * receivers.length + k]);
+        if (outcomes.every((a) => a?.status === 'success')) result.set(id.toLowerCase(), Math.max(...outcomes.map((a) => Number(a!.result))));
+      });
+    }
+    return result;
+  };
+}
+
 export function buildSettlementDependencies(config: SettlementEntrypointConfig): BuiltSettlementDependencies {
   const reporterAccount = privateKeyToAccount(config.reporterPrivateKey);
 
@@ -100,7 +136,7 @@ export function buildSettlementDependencies(config: SettlementEntrypointConfig):
   const discovery =
     config.observationSource === 'graph'
       ? new GraphSettlementDiscovery({ sources, client: new FetchGraphQueryClient(), domainFor })
-      : new NestSettlementDiscovery({ sources, client: new FetchNestQueryClient(), domainFor });
+      : new NestSettlementDiscovery({ sources, client: new FetchNestQueryClient(), domainFor, outcomeProbe: outcomeProbeOver(readers as unknown as ReadonlyMap<number, MulticallCapable>) });
 
   const deps: SettlementWorkerDependencies = {
     adapter,
