@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { decodeEventLog, encodeEventTopics, parseEther } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { InvalidFeePolicyError, feeBpsAt, validateFeePolicy, type FeePolicy } from "@arcaidia/domain";
 import { erc20Abi, solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 import { viemChainFor } from "@/lib/arcaidia/viem-chains";
+import { reportTxError, waitForCode, waitForReceiptResilient } from "@/lib/arcaidia/tx";
 import { toast } from "sonner";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
@@ -264,7 +265,16 @@ function useChainStatus(chainId: number, vaultAddress: Address | null, typedOper
  */
 function EarnPage() {
   const [flowKey, setFlowKey] = useState(0);
-  return <EarnFlow key={flowKey} onRestart={() => setFlowKey((k) => k + 1)} />;
+  const { address } = useWallet();
+  const restart = () => {
+    try {
+      if (address) localStorage.removeItem(`arcaidia.earn.flow.${address.toLowerCase()}`);
+    } catch {
+      /* ignore */
+    }
+    setFlowKey((k) => k + 1);
+  };
+  return <EarnFlow key={flowKey} onRestart={restart} />;
 }
 
 /**
@@ -293,7 +303,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
   const [vaultName, setVaultName] = useState("");
   // One salt for the whole flow: the same salt on every chain is what makes the vault land at
   // one address everywhere (CREATE2 through the identical factory). 32 random bytes.
-  const [salt] = useState<Hex>(() => generatePrivateKey());
+  const [salt, setSalt] = useState<Hex>(() => generatePrivateKey());
   // Fees are a per-vault policy (D7); what the owner also controls is risk exposure:
   // maxFillBps caps any one fill as a percentage of the vault's own available
   // liquidity; maxExposureBps caps how much of the vault can be in flight at
@@ -320,6 +330,43 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     [ARC_TESTNET]: EMPTY_PROGRESS,
   });
   const progressOf = (chainId: number): ChainProgress => progress[chainId] ?? EMPTY_PROGRESS;
+
+  // A vault that landed is a fact on chain; it must not evaporate because the page reloaded or
+  // an RPC rate-limited the receipt lookup (2026-09-13). Persist name/salt/addresses per owner;
+  // "Deploy another vault" clears it (see EarnPage). Nothing secret is stored: keys never are.
+  const storageKey = address ? `arcaidia.earn.flow.${address.toLowerCase()}` : null;
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    if (!storageKey || restored) return;
+    setRestored(true);
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { vaultName?: string; salt?: Hex; vaults?: Record<string, string> };
+      if (saved.salt && /^0x[0-9a-fA-F]{64}$/.test(saved.salt)) setSalt(saved.salt);
+      if (saved.vaultName) setVaultName(saved.vaultName);
+      for (const [chain, vault] of Object.entries(saved.vaults ?? {})) {
+        if (isAddressLike(vault)) patch(Number(chain), { vaultAddress: vault as Address });
+      }
+      if (Object.keys(saved.vaults ?? {}).length > 0) {
+        toast.message("Resumed your vault deployment", { description: "Addresses restored from this browser; every fact is re-read from the chain." });
+      }
+    } catch {
+      /* storage unavailable or malformed — start fresh */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+  useEffect(() => {
+    if (!storageKey) return;
+    const vaults: Record<string, string> = {};
+    for (const [chain, p] of Object.entries(progress)) if (p.vaultAddress) vaults[chain] = p.vaultAddress;
+    if (Object.keys(vaults).length === 0) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ vaultName, salt, vaults }));
+    } catch {
+      /* ignore */
+    }
+  }, [storageKey, progress, vaultName, salt]);
   const patch = (chainId: number, next: Partial<ChainProgress>) =>
     setProgress((p) => ({ ...p, [chainId]: { ...(p[chainId] ?? EMPTY_PROGRESS), ...next } }));
 
@@ -426,7 +473,8 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     const walletClient = await wallet.getWalletClient(chainId);
     return run({ walletClient, publicClient });
   }
-  const message = (error: unknown) => (error instanceof Error ? error.message : "Transaction failed.");
+  /** One short, actionable line — toasted, and returned for the inline caption (never a raw provider paragraph). */
+  const message = (error: unknown, chainId?: number) => reportTxError(error, chainId);
 
   /** The real thing: `ArcaidiaVaultFactory.createVault(...)` on one chain, owner-signed through Privy. */
   async function deployOn(chainId: number) {
@@ -435,6 +483,14 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     patch(chainId, { deploying: true, deployError: null });
     try {
       const vault = await onChain(chainId, async ({ walletClient, publicClient }) => {
+        // CREATE2 salted by creator: the address is known before the transaction exists, which
+        // is what lets a lost receipt (rate-limited RPC) be recovered from chain state below.
+        const predicted = (await publicClient.readContract({
+          address: factory,
+          abi: vaultFactoryAbi,
+          functionName: "predictVault",
+          args: [address, salt],
+        })) as Address;
         const hash = await walletClient.writeContract({
           address: factory,
           abi: vaultFactoryAbi,
@@ -443,18 +499,27 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
           chain: viemChainFor(chainId),
           account: address,
         });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        const [topic] = encodeEventTopics({ abi: vaultFactoryAbi, eventName: "VaultCreated" });
-        const log = receipt.logs.find((l) => l.address.toLowerCase() === factory.toLowerCase() && l.topics[0] === topic);
-        if (!log) throw new Error("Transaction confirmed but no VaultCreated event was found.");
-        const decoded = decodeEventLog({ abi: vaultFactoryAbi, data: log.data, topics: log.topics, eventName: "VaultCreated" });
-        return decoded.args.vault as Address;
+        const receipt = await waitForReceiptResilient(publicClient, hash);
+        if (receipt?.status === "reverted") throw new Error("The transaction reverted — nothing was created.");
+        if (receipt) {
+          const [topic] = encodeEventTopics({ abi: vaultFactoryAbi, eventName: "VaultCreated" });
+          const log = receipt.logs.find((l) => l.address.toLowerCase() === factory.toLowerCase() && l.topics[0] === topic);
+          if (log) {
+            const decoded = decodeEventLog({ abi: vaultFactoryAbi, data: log.data, topics: log.topics, eventName: "VaultCreated" });
+            return decoded.args.vault as Address;
+          }
+        }
+        // No usable receipt: the chain is the source of truth — the vault exists iff the
+        // predicted address has code. Wait for it rather than reporting a failure for a
+        // transaction that was already mined.
+        if (await waitForCode(publicClient, predicted)) return predicted;
+        throw new Error(`Sent as ${hash}; not confirmed yet. Expected vault ${predicted} — reload to resume once it lands.`);
       });
       patch(chainId, { vaultAddress: vault });
       toast.success(`Vault created on ${CHAINS[chainId]?.short}`, { description: vault });
       await wireSettlementReceiver(chainId, vault);
     } catch (error) {
-      patch(chainId, { deployError: message(error) });
+      patch(chainId, { deployError: message(error, chainId) });
     } finally {
       patch(chainId, { deploying: false });
     }
@@ -474,11 +539,12 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
       if (current.toLowerCase() === target.toLowerCase()) return patch(chainId, { receiverWired: true, receiverError: null });
       await onChain(chainId, async ({ walletClient, publicClient: client }) => {
         const hash = await walletClient.writeContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [target], chain: viemChainFor(chainId), account: address });
-        await client.waitForTransactionReceipt({ hash });
+        const receipt = await waitForReceiptResilient(client, hash);
+        if (receipt?.status === "reverted") throw new Error("Re-pointing the settlement receiver reverted.");
       });
       patch(chainId, { receiverWired: true, receiverError: null });
     } catch (error) {
-      patch(chainId, { receiverWired: false, receiverError: message(error) });
+      patch(chainId, { receiverWired: false, receiverError: message(error, chainId) });
     }
   }
 
@@ -503,15 +569,16 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
         const allowance = await publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "allowance", args: [address, vaultAddress] });
         if (allowance < amount) {
           const approveHash = await walletClient.writeContract({ address: usdc, abi: erc20Abi, functionName: "approve", args: [vaultAddress, amount], chain, account: address });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          await waitForReceiptResilient(publicClient, approveHash);
         }
         const hash = await walletClient.writeContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "deposit", args: [amount, address], chain, account: address });
-        await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await waitForReceiptResilient(publicClient, hash);
+        if (receipt?.status === "reverted") throw new Error("Deposit reverted.");
       });
       patch(chainId, { depositedTotal: progressOf(chainId).depositedTotal + amount });
       toast.success("Deposited", { description: `${formatUsdc(amount)} USDC into ${truncateAddress(vaultAddress)} on ${CHAINS[chainId]?.short}` });
     } catch (error) {
-      patch(chainId, { depositError: message(error) });
+      patch(chainId, { depositError: message(error, chainId) });
     } finally {
       patch(chainId, { depositing: false });
     }
@@ -523,13 +590,13 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     try {
       const hash = await onChain(chainId, async ({ walletClient, publicClient }) => {
         const hash = await walletClient.sendTransaction({ to: submitterAddress, value: gasTopUpFor(chainId).value, chain: viemChainFor(chainId), account: address });
-        await publicClient.waitForTransactionReceipt({ hash });
+        await waitForReceiptResilient(publicClient, hash);
         return hash;
       });
       patch(chainId, { gasTxHash: hash });
       toast.success(`Gas sent on ${CHAINS[chainId]?.short}`, { description: truncateAddress(submitterAddress) });
     } catch (error) {
-      patch(chainId, { gasError: message(error) });
+      patch(chainId, { gasError: message(error, chainId) });
     } finally {
       patch(chainId, { gasSending: false });
     }
@@ -543,11 +610,12 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     try {
       await onChain(chainId, async ({ walletClient, publicClient }) => {
         const hash = await walletClient.writeContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "setAuthorisedSigner", args: [typedOperator, true], chain: viemChainFor(chainId), account: address });
-        await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await waitForReceiptResilient(publicClient, hash);
+        if (receipt?.status === "reverted") throw new Error("Authorisation reverted.");
       });
       toast.success(`Solver authorised on ${CHAINS[chainId]?.short}`, { description: truncateAddress(typedOperator) });
     } catch (error) {
-      patch(chainId, { authoriseError: message(error) });
+      patch(chainId, { authoriseError: message(error, chainId) });
     } finally {
       patch(chainId, { authorising: false });
     }
@@ -560,11 +628,12 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     try {
       await onChain(chainId, async ({ walletClient, publicClient }) => {
         const hash = await walletClient.writeContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "setPaused", args: [paused], chain: viemChainFor(chainId), account: address });
-        await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await waitForReceiptResilient(publicClient, hash);
+        if (receipt?.status === "reverted") throw new Error("Pause change reverted.");
       });
       toast.success(paused ? `Vault paused on ${CHAINS[chainId]?.short}` : `Vault resumed on ${CHAINS[chainId]?.short}`);
     } catch (error) {
-      patch(chainId, { pauseError: message(error) });
+      patch(chainId, { pauseError: message(error, chainId) });
     } finally {
       patch(chainId, { pausing: false });
     }
@@ -828,7 +897,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                       ) : p.deploying ? (
                         <span className="num text-xs text-text-dim">Confirm in your wallet…</span>
                       ) : p.deployError ? (
-                        <span className="text-xs text-warning">{p.deployError}</span>
+                        <span className="block max-w-full truncate text-xs text-warning" title={p.deployError}>{p.deployError}</span>
                       ) : (
                         <span className="num text-xs text-text-dim">Not deployed yet</span>
                       )}
