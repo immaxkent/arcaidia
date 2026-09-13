@@ -41,7 +41,9 @@ const CORS_HEADERS = {
   'access-control-allow-methods': 'GET, OPTIONS',
   // The x402 payment headers must be readable and sendable from a browser: the `/intelligence`
   // page pays from the user's Hedera account and shows the receipt it gets back.
-  'access-control-allow-headers': 'content-type, payment-signature, x-payment, payment-required',
+  // `@x402/fetch` sets a *request* header literally named Access-Control-Expose-Headers on its
+  // paid retry; a browser's preflight refuses the whole request unless that name is allowed here.
+  'access-control-allow-headers': 'content-type, payment-signature, x-payment, payment-required, access-control-expose-headers',
   'access-control-expose-headers': 'payment-required, payment-response, x-payment-response',
 } as const;
 
