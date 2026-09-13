@@ -162,7 +162,7 @@ describe('computeChain / computeVault / computeQuoteContext', () => {
   });
 
   it('quote context: which vaults could take this size right now, and the fee they post', () => {
-    // 30 USDC on Arc: House (54) and B (27)? no — B's capacity is 27 → only House. C is 20.25.
+    // 30 USDC on Arc: House (60) and B (exactly 30) can take it; C (22.5) cannot.
     const thirty = computeQuoteContext(inputs(), USDC(30), ARC);
     expect(thirty).toMatchObject({ vaultsAbleToFill: 2, bestFeeBps: 10, feeRangeBps: [10, 15], estimatedOpportunitySize: USDC(60) });
     // 10 USDC: all three; cheapest is C at 5.
