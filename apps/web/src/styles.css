@@ -393,3 +393,11 @@
 @media (prefers-reduced-motion: reduce) {
   .vault-sigil { animation: none; }
 }
+
+/* WP-35 — a paid answer landing on /intelligence: one sweep of the accent, then rest. */
+@keyframes paid-flash {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-acid) 60%, transparent); background-color: color-mix(in oklab, var(--color-acid) 14%, transparent); }
+  100% { box-shadow: 0 0 0 12px transparent; background-color: transparent; }
+}
+.paid-flash { animation: paid-flash 1.4s ease-out 1; }
+@media (prefers-reduced-motion: reduce) { .paid-flash { animation: none; } }

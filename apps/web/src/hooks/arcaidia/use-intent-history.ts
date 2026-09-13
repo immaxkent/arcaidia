@@ -119,7 +119,13 @@ async function fetchIntentRowsFromNest(
       ),
     ),
   );
-  const rawIntents = perChain.flatMap((data) => data.rows);
+  // Each Nest answers for its own source chain, newest first; merged, the list must be one
+  // timeline, not one chain's block after the other's (which read as "all Ethereum→Arc for
+  // hours, then all Arc→Ethereum" when the generator was in fact alternating).
+  const rawIntents = perChain
+    .flatMap((data) => data.rows)
+    .sort((a, b) => Number(b.created_at_timestamp) - Number(a.created_at_timestamp))
+    .slice(0, 200);
   if (rawIntents.length === 0) return [];
 
   // Group by destination chain — that is where each intent's fill/settlement live.

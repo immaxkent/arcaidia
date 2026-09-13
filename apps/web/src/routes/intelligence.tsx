@@ -1,12 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { isHederaAccountId, payAndFetch, type PaidFetchResult } from "@/lib/arcaidia/x402-pay";
+import { ecosystemFromWire, type EcosystemIntelligenceView } from "@/hooks/arcaidia/use-market-intelligence";
 import { AwaitingSource, StateValue } from "@/components/data/state-views";
 import { ChainBadge } from "@/components/vaults/vault-bits";
 import { VaultName } from "@/components/vaults/vault-identity";
 import { useEcosystemIntelligence } from "@/hooks/arcaidia/use-market-intelligence";
+import { readyState } from "@/lib/arcaidia/data-state";
 import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
 import { useVaults, type VaultDirectoryRow } from "@/hooks/arcaidia/use-vaults";
-import { formatTinybar, gatewayBaseUrl, hashscanTransactionUrl, useChallenge, useGatewayPricing, type PaymentChallenge } from "@/hooks/arcaidia/use-x402-gateway";
+import { formatTinybar, gatewayBaseUrl, hashscanTransactionUrl, useChallenge, useGatewayPricing, type GatewayPricing, type PaymentChallenge } from "@/hooks/arcaidia/use-x402-gateway";
 import { NOT_AVAILABLE } from "@/lib/arcaidia/data-state";
 import { formatBps, formatDuration, formatUsdc } from "@/lib/arcaidia/format";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA } from "@/lib/arcaidia/types";
@@ -65,7 +69,7 @@ function IntelligencePage() {
           <Metric label="Aggregate utilisation" state={ecosystem} format={(v) => formatBps(v.aggregateUtilisationBps)} />
           <Metric label="Fee band (min · median · max)" state={ecosystem} format={(v) => [v.feeMinBps, v.feeMedianBps, v.feeMaxBps].map((b) => (b === null ? NOT_AVAILABLE : formatBps(b))).join(" · ")} />
           <Metric label="Scarcity score" state={ecosystem} format={(v) => `${(v.scarcityScoreBps / 100).toFixed(1)} / 100`} tone={(v) => (v.scarcityScoreBps >= 6_000 ? "text-warning" : "text-acid")} />
-          <Metric label="Outstanding intent volume" state={ecosystem} format={(v) => `${formatUsdc(v.outstandingIntentVolume)} USDC`} />
+          <Metric label="Open intents (unfilled)" state={ecosystem} format={(v) => `${formatUsdc(v.outstandingIntentVolume)} USDC`} />
           <Metric label="Pending CCTP exposure" state={ecosystem} format={(v) => `${formatUsdc(v.pendingCctpExposure)} USDC`} />
           <Metric label="Fill velocity" state={ecosystem} format={(v) => (v.recentFillVelocityPerHour === null ? NOT_AVAILABLE : `${v.recentFillVelocityPerHour.toFixed(1)} / hour`)} />
           <Metric
@@ -79,6 +83,8 @@ function IntelligencePage() {
           fee sits under the median and scarcity is above its threshold (D13).
         </AwaitingSource>
       </section>
+
+      <PayPanel pricing={pricing.status === "ready" ? pricing.data : null} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section className="panel p-5">
@@ -145,6 +151,112 @@ HEDERA_PRIVATE_KEY=<hex ECDSA key — never shared>`}
 
       <PayingSolvers />
     </div>
+  );
+}
+
+/**
+ * Pay for one answer from this browser with a Hedera testnet account you type in. The key never
+ * leaves the tab and signs exactly one transfer for the quoted price; the receipt that comes
+ * back is the settlement the facilitator made on Hedera. This is the demo's "pay on the front
+ * end": the same protocol round trip a solver makes, with the numbers and the transaction shown.
+ */
+function PayPanel({ pricing }: { pricing: GatewayPricing | null }) {
+  const gateway = gatewayBaseUrl();
+  const [accountId, setAccountId] = useState("");
+  const [privateKey, setPrivateKey] = useState("");
+  const [endpointId, setEndpointId] = useState("ecosystem");
+  const endpoint = pricing?.endpoints.find((e) => e.id === endpointId) ?? pricing?.endpoints[0] ?? null;
+  const selfPay = pricing !== null && accountId.trim() === pricing.payTo;
+  const ready = Boolean(gateway && endpoint && isHederaAccountId(accountId) && privateKey.trim().length >= 64 && !selfPay);
+  const pay = useMutation({
+    mutationFn: async (): Promise<PaidFetchResult> => {
+      if (!gateway || !endpoint) throw new Error("No gateway configured");
+      return payAndFetch({ accountId, privateKey, url: `${gateway}${endpoint.example}` });
+    },
+  });
+  const result = pay.data;
+  const paidView: EcosystemIntelligenceView | null =
+    result && result.status === 200 && endpoint?.id === "ecosystem" && result.body && typeof result.body === "object" && "scarcityScoreBps" in (result.body as object)
+      ? ecosystemFromWire(result.body as Parameters<typeof ecosystemFromWire>[0])
+      : null;
+  return (
+    <section className={`panel mt-6 p-5 ${result?.receipt ? "border-acid/60" : ""}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-text">Pay &amp; fetch from this browser</h2>
+        <span className="num text-[10px] uppercase tracking-wide text-text-dim">Hedera testnet · the key stays in this tab</span>
+      </div>
+      <p className="mt-2 text-xs text-text-dim">
+        The same round trip a solver makes: the gateway answers 402, this tab signs one HBAR transfer for the quoted price with the account below, the
+        facilitator settles it on Hedera, and the answer comes back with the receipt. Use a throwaway testnet account from portal.hedera.com.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <label className="block">
+          <span className="text-[11px] uppercase tracking-wide text-text-dim">Hedera account id</span>
+          <input value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="0.0.12345" autoComplete="off" className="num mt-1 w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text" />
+        </label>
+        <label className="block">
+          <span className="text-[11px] uppercase tracking-wide text-text-dim">ECDSA private key (hex)</span>
+          <input type="password" value={privateKey} onChange={(e) => setPrivateKey(e.target.value)} placeholder="never stored, never sent" autoComplete="off" className="num mt-1 w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text" />
+        </label>
+        <label className="block">
+          <span className="text-[11px] uppercase tracking-wide text-text-dim">Endpoint</span>
+          <select value={endpoint?.id ?? ""} onChange={(e) => setEndpointId(e.target.value)} className="num mt-1 w-full rounded-md border border-border bg-void px-2 py-2 text-sm text-text">
+            {(pricing?.endpoints ?? []).map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.id} · {formatTinybar(e.price.tinybar)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {selfPay ? <p className="mt-2 text-xs text-warning">That is the gateway's own pay-to account — a transfer to itself nets to zero and the facilitator rejects it. Pay from a different account.</p> : null}
+      <button
+        type="button"
+        disabled={!ready || pay.isPending}
+        onClick={() => pay.mutate()}
+        className="mt-3 rounded-lg border border-acid/60 bg-acid/15 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+      >
+        {pay.isPending ? "Signing, settling on Hedera…" : endpoint ? `Pay ${formatTinybar(endpoint.price.tinybar)} & fetch ${endpoint.id}` : "Pay & fetch"}
+      </button>
+      {pay.isError ? <p className="mt-3 text-xs text-warning">{pay.error.message}</p> : null}
+      {result ? (
+        <div className="mt-4 space-y-3">
+          <dl className="num grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-text-dim">
+            <dt>Result</dt>
+            <dd className={result.status === 200 ? "text-acid" : "text-warning"}>
+              {result.status === 200 ? "200 — paid and answered" : `${result.status}`} · {result.ms} ms round trip
+            </dd>
+            <dt>Receipt</dt>
+            <dd className="text-text">
+              {result.receipt ? (
+                <a href={hashscanTransactionUrl(result.receipt.transaction)} target="_blank" rel="noreferrer" className="text-electric-glow hover:underline">
+                  {result.receipt.transaction}
+                </a>
+              ) : (
+                "no settlement receipt"
+              )}
+            </dd>
+            <dt>Payer</dt>
+            <dd className="text-text">{result.receipt?.payer ?? NOT_AVAILABLE}</dd>
+          </dl>
+          {paidView ? (
+            <dl key={result.receipt?.transaction ?? "paid"} className="paid-flash grid grid-cols-2 gap-3 rounded-md border border-acid/40 p-3 lg:grid-cols-4">
+              <Metric label="Available liquidity" state={readyState(paidView)} format={(v) => `${formatUsdc(v.aggregateLiquidity)} USDC`} />
+              <Metric label="Aggregate utilisation" state={readyState(paidView)} format={(v) => formatBps(v.aggregateUtilisationBps)} />
+              <Metric label="Fee band (min · median · max)" state={readyState(paidView)} format={(v) => [v.feeMinBps, v.feeMedianBps, v.feeMaxBps].map((b) => (b === null ? NOT_AVAILABLE : formatBps(b))).join(" · ")} />
+              <Metric label="Scarcity score" state={readyState(paidView)} format={(v) => `${(v.scarcityScoreBps / 100).toFixed(1)} / 100`} />
+              <Metric label="Open intents (unfilled)" state={readyState(paidView)} format={(v) => `${formatUsdc(v.outstandingIntentVolume)} USDC`} />
+              <Metric label="Pending CCTP exposure" state={readyState(paidView)} format={(v) => `${formatUsdc(v.pendingCctpExposure)} USDC`} />
+              <Metric label="Fill velocity" state={readyState(paidView)} format={(v) => (v.recentFillVelocityPerHour === null ? NOT_AVAILABLE : `${v.recentFillVelocityPerHour.toFixed(1)} / hour`)} />
+              <Metric label="Largest fillable now" state={readyState(paidView)} format={(v) => `${formatUsdc(v.estimatedOpportunitySize)} USDC`} />
+            </dl>
+          ) : result.body !== undefined ? (
+            <pre className="num max-h-72 overflow-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">{JSON.stringify(result.body, null, 2)}</pre>
+          ) : null}
+        </div>
+      ) : null}
+      <AwaitingSource>One signed transfer per click, capped at 0.05 ℏ; the numbers are the relay's, the receipt is Hedera's</AwaitingSource>
+    </section>
   );
 }
 
