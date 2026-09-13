@@ -27,7 +27,7 @@
  *   VITE_MARKET_INTELLIGENCE_URL         (x402 market intelligence base URL)
  *   VITE_PRIVY_APP_ID                    (human owner login)
  */
-import { CHAINS as DOMAIN_CHAINS, DEPLOYMENTS, DEPLOYMENT_START_BLOCKS, type ChainKey } from "@arcaidia/domain";
+import { SWAP_INFRASTRUCTURE, CHAINS as DOMAIN_CHAINS, DEPLOYMENTS, DEPLOYMENT_START_BLOCKS, type ChainKey } from "@arcaidia/domain";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA, type Address } from "./types";
 
 type Env = Record<string, string | undefined>;
@@ -140,6 +140,14 @@ export const CHAIN_CONFIG: Record<number, ChainConfig> = {
  * can satisfy the swap.
  */
 export const TRADE_INTENTS_ENABLED = str("VITE_TRADE_INTENTS_ENABLED") === "true";
+
+/** WP-34: the `ISwapAdapter` a vault on `chainId` should point at, from the committed markets config; null when that chain has no market. */
+export function swapAdapterFor(chainId: number): Address | null {
+  for (const infra of Object.values(SWAP_INFRASTRUCTURE)) {
+    if (infra && infra.chainId === chainId) return infra.swapAdapter as Address;
+  }
+  return null;
+}
 
 export const SUPPORTED_CHAIN_IDS = [ETHEREUM_SEPOLIA, ARC_TESTNET] as const;
 

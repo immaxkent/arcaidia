@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 import { viemChainFor } from "@/lib/arcaidia/viem-chains";
-import { chainConfig, RETIRED_SETTLEMENT_RECEIVER } from "@/lib/arcaidia/config";
+import { chainConfig, RETIRED_SETTLEMENT_RECEIVER, swapAdapterFor } from "@/lib/arcaidia/config";
 import { ABIS } from "@arcaidia/domain";
 import { useHeldReimbursements } from "@/hooks/arcaidia/use-held-reimbursements";
 import { CopyValue } from "@/components/site/copy-value";
@@ -216,6 +216,34 @@ function ConsolePage() {
       toast.error("Could not update the settlement receiver", { description: error instanceof Error ? error.message : "Transaction failed." });
     } finally {
       setRepointing(false);
+    }
+  }
+  /** WP-34: `setSwapAdapter(<chain's adapter>)` on this vault, signed by its owner. */
+  const [settingAdapter, setSettingAdapter] = useState(false);
+  async function setSwapAdapter() {
+    if (!vault || !address) return;
+    const target = swapAdapterFor(vault.chainId);
+    const publicClient = publicClientFor(vault.chainId);
+    if (!target || !publicClient) return;
+    setSettingAdapter(true);
+    try {
+      await wallet.switchChain(vault.chainId);
+      const walletClient = await wallet.getWalletClient(vault.chainId);
+      const hash = await walletClient.writeContract({
+        address: vault.vaultAddress,
+        abi: solverVaultAbi,
+        functionName: "setSwapAdapter",
+        args: [target],
+        chain: viemChainFor(vault.chainId),
+        account: address,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      toast.success("Swap adapter set", { description: truncateAddress(target) });
+      await queryClient.invalidateQueries({ queryKey: ["vault-directory"] });
+    } catch (error) {
+      toast.error("Could not set the swap adapter", { description: error instanceof Error ? error.message : "Transaction failed." });
+    } finally {
+      setSettingAdapter(false);
     }
   }
   const vaultUtilisation = useVaultAnalytics(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
@@ -469,6 +497,26 @@ function ConsolePage() {
                   className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
                 >
                   {repointing ? "Signing…" : "Update settlement receiver (one signature)"}
+                </button>
+              ) : null}
+            </section>
+          ) : null}
+
+          {vault.swapAdapterCurrent === false ? (
+            <section className="panel mt-6 flex flex-wrap items-center gap-4 border-warning/50 p-5">
+              <p className="measure text-sm text-text-dim">
+                <span className="font-semibold text-warning">Swap adapter not set.</span> Trade intents (a non-USDC token out) that this vault
+                wins are delivered as USDC until its owner points it at {truncateAddress(swapAdapterFor(vault.chainId) ?? "0x")}, the
+                Uniswap adapter for {CHAINS[vault.chainId]?.short}. Plain transfers are unaffected.
+              </p>
+              {isVaultOwner ? (
+                <button
+                  type="button"
+                  disabled={settingAdapter}
+                  onClick={() => void setSwapAdapter()}
+                  className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                >
+                  {settingAdapter ? "Signing…" : "Set swap adapter (one signature)"}
                 </button>
               ) : null}
             </section>

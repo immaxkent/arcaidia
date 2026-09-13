@@ -28,7 +28,7 @@ import { useQuery } from "@tanstack/react-query";
 import { feeBpsAt, type FeePolicy } from "@arcaidia/domain";
 import { solverVaultAbi } from "@/lib/arcaidia/abis";
 import { factoryVaultsFromChain, fillsFromChain, vaultLabelsFromChain } from "@/lib/arcaidia/chain-history";
-import { chainConfig } from "@/lib/arcaidia/config";
+import { chainConfig, swapAdapterFor } from "@/lib/arcaidia/config";
 import {
   errorState,
   readyState,
@@ -112,6 +112,10 @@ export interface VaultDirectoryRow {
   telemetryPaired: boolean | null;
   /** Where this vault expects canonical settlement from (`settlementReceiver()`); null if unreadable. */
   settlementReceiver: Address | null;
+  /** WP-34: the `ISwapAdapter` this vault delivers trade intents through (`swapAdapter()`); zero address = none. */
+  swapAdapter: Address | null;
+  /** True when it matches the chain's committed adapter; false when unset or stale; null when unknown or the chain has no market. */
+  swapAdapterCurrent: boolean | null;
   /** True when that is the protocol's current receiver (D12) — false means the owner must re-point it. */
   settlementReceiverCurrent: boolean | null;
 }
@@ -157,6 +161,7 @@ async function readVaultRow(
         { ...base, functionName: "currentFeeBps" },
         { ...base, functionName: "feePolicy" },
         { ...base, functionName: "settlementReceiver" },
+        { ...base, functionName: "swapAdapter" },
       ],
     }),
     readVaultAggregates(chainId, vaultAddress),
@@ -169,8 +174,10 @@ async function readVaultRow(
   const rawFeeBps = value<number>(4);
   const rawPolicy = value<unknown>(5);
   const receiver = value<Address>(6);
+  const adapter = value<Address>(7);
   if (results[0]?.status !== "success") throw new Error(`Vault ${vaultAddress} on chain ${chainId} did not answer owner()`);
   const currentReceiver = chainConfig(chainId)?.settlementReceiver ?? null;
+  const expectedAdapter = swapAdapterFor(chainId);
 
   const isHouse = houseVault !== null && vaultAddress.toLowerCase() === houseVault.toLowerCase();
   const feePolicy = feePolicyFromTuple(rawPolicy);
@@ -195,6 +202,8 @@ async function readVaultRow(
     telemetryPaired: null,
     settlementReceiver: receiver,
     settlementReceiverCurrent: receiver && currentReceiver ? receiver.toLowerCase() === currentReceiver.toLowerCase() : null,
+    swapAdapter: adapter,
+    swapAdapterCurrent: adapter && expectedAdapter ? adapter.toLowerCase() === expectedAdapter.toLowerCase() : null,
   };
 }
 

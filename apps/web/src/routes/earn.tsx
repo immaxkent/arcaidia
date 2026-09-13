@@ -17,7 +17,7 @@ import { formatBps, formatUsdc, isAddressLike, parseUsdc, truncateAddress } from
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
 import { VaultName, VaultSigilBar } from "@/components/vaults/vault-identity";
 import { useWallet } from "@/components/wallet/wallet-context";
-import { chainConfig, SERVICES, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
+import { chainConfig, SERVICES, SUPPORTED_CHAIN_IDS, swapAdapterFor } from "@/lib/arcaidia/config";
 import { NOT_AVAILABLE, errorState, loadingState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateValue } from "@/components/data/state-views";
 import { useSolverMetrics, type SolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
@@ -215,6 +215,9 @@ interface ChainProgress {
   pauseError: string | null;
   /** D12: the factory still wires new vaults to the retired receiver; this flow re-points them at once. */
   receiverWired: boolean | null;
+  /** WP-34: set from a confirmed `setSwapAdapter` receipt, or read back as already current. */
+  adapterWired: boolean | null;
+  adapterError: string | null;
   receiverError: string | null;
 }
 
@@ -234,6 +237,8 @@ const EMPTY_PROGRESS: ChainProgress = {
   pausing: false,
   pauseError: null,
   receiverWired: null,
+  adapterWired: null,
+  adapterError: null,
   receiverError: null,
 };
 
@@ -583,6 +588,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
       patch(chainId, { vaultAddress: vault });
       toast.success(`Vault created on ${CHAINS[chainId]?.short}`, { description: vault });
       await wireSettlementReceiver(chainId, vault);
+      await wireSwapAdapter(chainId, vault);
     } catch (error) {
       patch(chainId, { deployError: message(error, chainId) });
     } finally {
@@ -610,6 +616,28 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
       patch(chainId, { receiverWired: true, receiverError: null });
     } catch (error) {
       patch(chainId, { receiverWired: false, receiverError: message(error, chainId) });
+    }
+  }
+
+  /**
+   * WP-34: the factory wires no swap adapter, so a fresh vault would deliver every trade intent
+   * as USDC. Point it at the chain's committed adapter; a chain with no market is left alone.
+   */
+  async function wireSwapAdapter(chainId: number, vaultAddress: Address) {
+    const target = swapAdapterFor(chainId);
+    const publicClient = publicClientFor(chainId);
+    if (!target || !publicClient || !address) return;
+    try {
+      const current = (await publicClient.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "swapAdapter" })) as Address;
+      if (current.toLowerCase() === target.toLowerCase()) return patch(chainId, { adapterWired: true, adapterError: null });
+      await onChain(chainId, async ({ walletClient, publicClient: client }) => {
+        const hash = await walletClient.writeContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "setSwapAdapter", args: [target], chain: viemChainFor(chainId), account: address });
+        const receipt = await waitForReceiptResilient(client, hash);
+        if (receipt?.status === "reverted") throw new Error("Setting the swap adapter reverted.");
+      });
+      patch(chainId, { adapterWired: true, adapterError: null });
+    } catch (error) {
+      patch(chainId, { adapterWired: false, adapterError: message(error, chainId) });
     }
   }
 
@@ -743,7 +771,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     const chains = SUPPORTED_CHAIN_IDS.filter((id) => group.chains.some((c) => c.chainId === id));
     setTargets(chains);
     for (const row of group.chains) {
-      patch(row.chainId, { vaultAddress: row.vaultAddress, receiverWired: row.settlementReceiverCurrent });
+      patch(row.chainId, { vaultAddress: row.vaultAddress, receiverWired: row.settlementReceiverCurrent, adapterWired: row.swapAdapterCurrent });
     }
     setVaultName(group.label ?? truncateAddress(group.address));
     setStep(3);
@@ -1380,6 +1408,14 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                           },
                         },
                         {
+                          label: "Swap adapter (trade intents)",
+                          cell: (id: number) => {
+                            const wired = progressOf(id).adapterWired;
+                            if (!swapAdapterFor(id)) return { done: true, detail: "no market on this chain" };
+                            return { done: wired === true, detail: wired === true ? "token-out trades delivered via Uniswap" : wired === false ? (progressOf(id).adapterError ?? "not yet") : "checked after deploy" };
+                          },
+                        },
+                        {
                           label: "Capital deposited",
                           cell: (id: number) => {
                             const m = statusOf(id).metrics;
@@ -1441,6 +1477,24 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                   return <Row key={id} k={`Posted fee now · ${CHAINS[id]?.short}`} v={m.status === "ready" && m.data.currentFeeBps !== null ? formatBps(m.data.currentFeeBps) : NOT_AVAILABLE} tone="text-acid" />;
                 })}
               </dl>
+
+              {targets.some((id) => progressOf(id).adapterWired === false) ? (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {targets
+                    .filter((id) => progressOf(id).adapterWired === false)
+                    .map((id) => (
+                      <button
+                        key={`adapter-${id}`}
+                        type="button"
+                        disabled={!connected || !progressOf(id).vaultAddress}
+                        onClick={() => void wireSwapAdapter(id, progressOf(id).vaultAddress!)}
+                        className={primaryButton}
+                      >
+                        Set swap adapter on {CHAINS[id]?.short}
+                      </button>
+                    ))}
+                </div>
+              ) : null}
 
               {targets.some((id) => progressOf(id).receiverWired === false) ? (
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
