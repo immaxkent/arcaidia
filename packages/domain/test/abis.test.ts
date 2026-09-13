@@ -35,6 +35,8 @@ describe('generated ABI barrel', () => {
       'MockSwapAdapter', // WP-26
       'MockUSDC',
       'SettlementReceiver',
+
+      'UniswapV2SwapAdapter',
     ]);
   });
 

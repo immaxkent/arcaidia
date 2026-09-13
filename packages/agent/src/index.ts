@@ -124,3 +124,4 @@ export { runSolverPass } from './worker/run-solver-pass.js';
 export type { SolverPassOutcome, SolverPassResult } from './worker/run-solver-pass.js';
 export { startSolverWorker } from './worker/solver-worker.js';
 export type { SolverWorkerHandle, SolverWorkerOptions } from './worker/solver-worker.js';
+export { ViemUniswapV2SwapAdapter, type SwapAdapterDeployment } from './adapters/viem-uniswap-v2-swap-adapter.js';

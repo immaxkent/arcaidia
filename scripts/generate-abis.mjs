@@ -28,6 +28,8 @@ const CONTRACTS = [
   'CircleCCTPInitiator',
   // WP-26
   'ArcaidiaVaultFactory',
+  // WP-34 (Line 1): the ISwapAdapter the vaults execute trade intents through
+  'UniswapV2SwapAdapter',
   'MockSwapAdapter',
   'MockMessageTransmitterV2',
 ];
