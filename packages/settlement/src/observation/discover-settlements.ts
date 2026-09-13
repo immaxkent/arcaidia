@@ -208,12 +208,15 @@ export class NestSettlementDiscovery implements SettlementDiscoveryProvider {
       [...byDestination.entries()].map(async ([destinationChainId, records]) => {
         const destination = this.sources.find((s) => s.chainId === destinationChainId);
         if (!destination) return;
-        const ids = records.map((r) => `'${r.reference.intentId.toLowerCase()}'`).join(', ');
-        const result = await this.client.query<{ intent_id: string }>(
-          destination.endpoint,
-          `SELECT intent_id FROM settlements WHERE intent_id IN (${ids})`,
-        );
-        for (const row of result.rows) settled.add(row.intent_id.toLowerCase());
+        // The Nest caps a query at 16 KB: never more than 100 ids per IN clause.
+        for (let i = 0; i < records.length; i += 100) {
+          const ids = records.slice(i, i + 100).map((r) => `'${r.reference.intentId.toLowerCase()}'`).join(', ');
+          const result = await this.client.query<{ intent_id: string }>(
+            destination.endpoint,
+            `SELECT intent_id FROM settlements WHERE intent_id IN (${ids})`,
+          );
+          for (const row of result.rows) settled.add(row.intent_id.toLowerCase());
+        }
       }),
     );
     return candidates.filter((r) => !settled.has(r.reference.intentId.toLowerCase()));

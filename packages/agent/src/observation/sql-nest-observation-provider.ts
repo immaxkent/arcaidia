@@ -126,6 +126,19 @@ interface RawProtocolStateRow {
   readonly pending_settlement_value: string;
 }
 
+/**
+ * The Nest caps a query at 16 KB; a 32-byte id costs ~70 bytes quoted, so an IN clause over the
+ * whole pending set (hundreds of rows once the indexer's status columns lag) blows past it and
+ * every discovery pass fails. Never more than this many ids per query.
+ */
+const IN_CLAUSE_CHUNK = 100;
+
+function chunked<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 function sqlInClause(hexValues: readonly string[]): string {
   for (const value of hexValues) {
     if (!HEX_32_PATTERN.test(value)) {
@@ -250,11 +263,13 @@ export class SqlNestObservationProvider implements ObservationProvider {
       perChain.map(async ({ source, rows }) => {
         if (rows.length === 0) return;
         const ids = rows.map((row) => row.id);
-        const result = await this.client.query<{ intentId: string; nonce: string }>(
-          source.endpoint,
-          `SELECT intentId, nonce FROM intent_router__intent_created WHERE intentId IN (${sqlInClause(ids)})`,
-        );
-        for (const row of result.rows) nonces.set(row.intentId.toLowerCase(), BigInt(row.nonce));
+        for (const chunk of chunked(ids, IN_CLAUSE_CHUNK)) {
+          const result = await this.client.query<{ intentId: string; nonce: string }>(
+            source.endpoint,
+            `SELECT intentId, nonce FROM intent_router__intent_created WHERE intentId IN (${sqlInClause(chunk)})`,
+          );
+          for (const row of result.rows) nonces.set(row.intentId.toLowerCase(), BigInt(row.nonce));
+        }
       }),
     );
 
@@ -434,10 +449,12 @@ export class SqlNestObservationProvider implements ObservationProvider {
     if (ids.length === 0) return new Set();
 
     const responses = await Promise.all(
-      this.sources.map((source) =>
-        this.client.query<{ intent_id: string }>(
-          source.endpoint,
-          `SELECT intent_id FROM fills WHERE intent_id IN (${sqlInClause(ids)})`,
+      this.sources.flatMap((source) =>
+        chunked(ids, IN_CLAUSE_CHUNK).map((chunk) =>
+          this.client.query<{ intent_id: string }>(
+            source.endpoint,
+            `SELECT intent_id FROM fills WHERE intent_id IN (${sqlInClause(chunk)})`,
+          ),
         ),
       ),
     );

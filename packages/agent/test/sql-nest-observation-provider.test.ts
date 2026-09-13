@@ -493,3 +493,22 @@ describe('settled-on-chain filter', () => {
     expect(health.pendingValue).toBe(1_000_000n);
   });
 });
+
+describe('Nest query size (16 KB cap)', () => {
+  it('splits the filled-intents lookup into chunks of at most 100 ids, each query under 16 KB', async () => {
+    const nest = new FakeNest();
+    const ids = Array.from({ length: 350 }, (_, i) => `0x${(i + 1).toString(16).padStart(64, '0')}`);
+    nest.setRows(SEPOLIA_ENDPOINT, 'pending_intents', ids.map((id) => rawIntent({ id })));
+    nest.setRows(SEPOLIA_ENDPOINT, 'intent_router__intent_created', ids.map((id) => ({ intentId: id, nonce: '1' })));
+    await provider(nest).pendingIntents();
+    const nonceQueries = nest.calls.filter((c) => /intent_router__intent_created WHERE intentId IN/.test(c.sql));
+    expect(nonceQueries.length).toBeGreaterThanOrEqual(4);
+    for (const q of nonceQueries) expect(Buffer.byteLength(q.sql, 'utf8')).toBeLessThan(16_384);
+    const fillQueries = nest.calls.filter((c) => /FROM fills WHERE intent_id IN/.test(c.sql));
+    expect(fillQueries.length).toBeGreaterThanOrEqual(4);
+    for (const q of fillQueries) {
+      expect(Buffer.byteLength(q.sql, 'utf8')).toBeLessThan(16_384);
+      expect((q.sql.match(/0x[0-9a-f]{64}/g) ?? []).length).toBeLessThanOrEqual(100);
+    }
+  });
+});
