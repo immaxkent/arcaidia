@@ -46,6 +46,13 @@ function address(key: string): Address | null {
 export interface ChainConfig {
   chainId: number;
   rpcUrl: string | null;
+  /**
+   * The RPC the *wallet* sends through (Privy takes it from the chain object). Kept separate
+   * from `rpcUrl` so the app's own polling can never starve a transaction of its provider — on
+   * Arc the read host (Circle's) is the slow one that drops under load, so sends go to dRPC.
+   * Override with VITE_WALLET_RPC_URL_<CHAIN>.
+   */
+  walletRpcUrl: string;
   usdc: Address | null;
   intentRouter: Address | null;
   /** V1 ships one Arcaidia House Vault per supported chain. */
@@ -97,6 +104,10 @@ export const CHAIN_CONFIG: Record<number, ChainConfig> = {
   [ETHEREUM_SEPOLIA]: {
     chainId: ETHEREUM_SEPOLIA,
     rpcUrl: str("VITE_RPC_URL_ETHEREUM_SEPOLIA"),
+    walletRpcUrl:
+      str("VITE_WALLET_RPC_URL_ETHEREUM_SEPOLIA") ??
+      str("VITE_RPC_URL_ETHEREUM_SEPOLIA") ??
+      "https://ethereum-sepolia-rpc.publicnode.com",
     usdc: address("VITE_USDC_ETHEREUM_SEPOLIA") ?? committed(ETHEREUM_SEPOLIA).usdc,
     intentRouter:
       address("VITE_INTENT_ROUTER_ETHEREUM_SEPOLIA") ?? committed(ETHEREUM_SEPOLIA).contracts.intentRouter ?? null,
@@ -111,6 +122,7 @@ export const CHAIN_CONFIG: Record<number, ChainConfig> = {
   [ARC_TESTNET]: {
     chainId: ARC_TESTNET,
     rpcUrl: str("VITE_RPC_URL_ARC_TESTNET"),
+    walletRpcUrl: str("VITE_WALLET_RPC_URL_ARC_TESTNET") ?? "https://arc-testnet.drpc.org",
     usdc: address("VITE_USDC_ARC_TESTNET") ?? committed(ARC_TESTNET).usdc,
     intentRouter: address("VITE_INTENT_ROUTER_ARC_TESTNET") ?? committed(ARC_TESTNET).contracts.intentRouter ?? null,
     houseVault: address("VITE_HOUSE_VAULT_ARC_TESTNET") ?? committed(ARC_TESTNET).contracts.liquidityVault ?? null,

@@ -6,6 +6,7 @@ import { createPublicClient, fallback, http, type PublicClient } from "viem";
 import { chainConfig } from "./config";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA } from "./types";
 import { viemChainFor } from "./viem-chains";
+import { throttledFetch } from "./rpc-throttle";
 
 /**
  * Public endpoints tried, in order, after the configured one. Circle's rpc.testnet.arc.* began
@@ -28,9 +29,12 @@ export function publicClientFor(chainId: number): PublicClient | null {
   const cached = clients.get(chainId);
   if (cached) return cached;
   const urls = [rpcUrl, ...(FALLBACK_RPCS[chainId] ?? []).filter((u) => u !== rpcUrl)];
+  // Arc's providers answer slowly and drop connections under ~4-wide bursts (measured
+  // 2026-09-13); Sepolia's tolerate more. One limiter per host, shared by every hook.
+  const fetchFn = throttledFetch({ maxConcurrent: chainId === ARC_TESTNET ? 2 : 4 });
   const client = createPublicClient({
     chain: viemChainFor(chainId),
-    transport: fallback(urls.map((u) => http(u, { retryCount: 1 })), { rank: false }),
+    transport: fallback(urls.map((u) => http(u, { retryCount: 1, fetchFn })), { rank: false }),
   });
   clients.set(chainId, client);
   return client;
