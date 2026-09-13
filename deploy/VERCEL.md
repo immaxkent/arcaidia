@@ -19,13 +19,13 @@ addresses, the box's hostnames, the Privy app id) — no secrets, no server-side
    The values that matter for production: `VITE_SOLVER_TELEMETRY_URL`, `VITE_SOLVER_QUOTE_URL`,
    `VITE_X402_GATEWAY_URL`, `VITE_MARKET_PRICE_URL` (the four `*.<ip>.sslip.io` hosts of the
    ops box), `VITE_TRADE_INTENTS_ENABLED=true`, the two RPC URLs, and `VITE_PRIVY_APP_ID`.
-3. **Deploy**:
+3. **Deploy** — built here, uploaded as one archive (Vercel's remote build of this monorepo
+   failed on upload; the prebuilt path is also faster and reproducible):
    ```bash
-   cd apps/web && vercel --prod
+   scripts/vercel-deploy.sh
    ```
-   Later deploys: pushes to `main` deploy automatically once the Git integration is connected
-   in the Vercel dashboard (Project → Settings → Git, repository `immaxkent/arcaidia`, root
-   directory `apps/web`).
+   `scripts/vercel-deploy.sh preview` makes a preview deployment instead. The Git integration
+   (Project → Settings → Git) is optional; it would run Vercel's own build on every push.
 4. **Domain**: Vercel project → Settings → Domains → add `arcaidia.io` and `www.arcaidia.io`.
    At the registrar: `A @ 76.76.21.21` and `CNAME www cname.vercel-dns.com` (Vercel shows the
    exact records). Certificates are automatic.
@@ -39,5 +39,12 @@ Browser → `arcaidia.io` (Vercel: static assets + the SSR function) → the box
 `prices.` (market price API); all four are CORS-open. Chain reads go straight to the RPCs.
 Nothing on Vercel holds a key; every write is signed in the user's own wallet.
 
-If the box's IP changes (see `deploy/README.md`), update the four `VITE_*_URL` values and
-redeploy: `scripts/vercel-env.sh && (cd apps/web && vercel --prod)`.
+If the box's IP changes (see `deploy/README.md`), update the four `VITE_*_URL` values in
+`apps/web/.env` and redeploy: `scripts/vercel-env.sh && scripts/vercel-deploy.sh`.
+
+## Why the server bundle is shaped the way it is
+
+The app server-renders every route in one Vercel function. Two things had to be true for
+that to work, both in `apps/web/vite.config.ts` and `components/wallet/`: the browser build maps
+`buffer` to the npm package (the Hedera SDK reads the `Buffer` global when it signs), while the
+server bundle keeps Node's builtin; and Privy is loaded after mount, in the browser only.
