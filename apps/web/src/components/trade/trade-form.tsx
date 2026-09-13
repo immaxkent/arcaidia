@@ -10,6 +10,7 @@ import { useIntent, useIntentQuote, type IntentRequest } from "@/hooks/arcaidia/
 import { targetMinOutFrom, useSwapQuote } from "@/hooks/arcaidia/use-swap-quote";
 import type { MarketsResponse } from "@/hooks/arcaidia/use-market-prices";
 import { cn } from "@/lib/utils";
+import { TokenPicker } from "./token-picker";
 
 const FEE_OPTIONS = [10, 30, 50, 100];
 const SLIPPAGE_OPTIONS = [50, 100, 200, 500];
@@ -154,21 +155,16 @@ export function TradeForm({
       </div>
 
       <div className="panel-raised mt-2 px-3 py-3">
-        <label htmlFor="trade-token" className="text-xs tracking-wide text-text-dim uppercase">You receive on {CHAINS[destination]?.short}</label>
-        <select id="trade-token" value={symbol ?? ""} onChange={(e) => onSymbol(e.target.value)} className="num mt-1 w-full bg-transparent text-sm text-text outline-none">
-          <option value="" className="bg-surface-raised">Pick a token</option>
-          {destinationMarkets.map((m) => {
-            const live = markets?.markets.find((x) => x.symbol === m.tokenOut.symbol)?.chains.find((c) => c.chainId === destination) ?? null;
-            const change = live?.change24hBps ?? null;
-            return (
-              <option key={m.tokenOut.address} value={m.tokenOut.symbol} className="bg-surface-raised">
-                {m.tokenOut.symbol}
-                {live?.price ? ` · ${live.price.display} USDC` : ""}
-                {change !== null ? ` · ${change >= 0 ? "+" : ""}${(change / 100).toFixed(2)}% 24h` : ""}
-              </option>
-            );
+        <TokenPicker
+          label={`You receive on ${CHAINS[destination]?.short}`}
+          value={symbol}
+          onChange={onSymbol}
+          options={destinationMarkets.map((m) => {
+            const entry = markets?.markets.find((x) => x.symbol === m.tokenOut.symbol) ?? null;
+            const live = entry?.chains.find((c) => c.chainId === destination) ?? null;
+            return { symbol: m.tokenOut.symbol, name: entry?.name ?? null, price: live?.price?.display ?? null, change24hBps: live?.change24hBps ?? null };
           })}
-        </select>
+        />
       </div>
 
       <div className="panel-raised mt-2 px-3 py-3">

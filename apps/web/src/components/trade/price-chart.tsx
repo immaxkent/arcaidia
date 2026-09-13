@@ -12,6 +12,17 @@ import { cn } from "@/lib/utils";
  *
  * `lightweight-charts` is loaded in the browser only (the route is server-rendered first).
  */
+/** Exponential moving average over `span` points; the first point seeds it. Pure, for the origin trend line. */
+export function emaOf(points: ReadonlyArray<{ time: number; value: number }>, span: number): Array<{ time: number; value: number }> {
+  if (points.length === 0) return [];
+  const k = 2 / (span + 1);
+  let ema = points[0]!.value;
+  return points.map((p, i) => {
+    ema = i === 0 ? p.value : p.value * k + ema * (1 - k);
+    return { time: p.time, value: ema };
+  });
+}
+
 export function PriceChart({
   symbol,
   destinationChainId,
@@ -34,7 +45,7 @@ export function PriceChart({
   onTimeframe: (id: TimeframeId) => void;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<{ chart: unknown; candles: unknown; line: unknown } | null>(null);
+  const chartRef = useRef<{ chart: unknown; candles: unknown; line: unknown; trend: unknown } | null>(null);
   const [ready, setReady] = useState(false);
   const frame = TIMEFRAMES.find((t) => t.id === timeframe) ?? TIMEFRAMES[1];
   const candles = useMemo(
@@ -48,6 +59,7 @@ export function PriceChart({
         : [],
     [originHistory, frame.bucketSeconds],
   );
+  const originTrend = useMemo(() => emaOf(originLine, 12), [originLine]);
   const spread = spreadBps(originSpot?.price?.e18, destinationSpot?.price?.e18);
 
   useEffect(() => {
@@ -78,12 +90,22 @@ export function PriceChart({
       });
       const line = chart.addSeries(lib.LineSeries, {
         color: token("--color-electric-glow", "#7cc4ff"),
-        lineWidth: 2,
-        priceLineVisible: false,
+        lineWidth: 3,
+        priceLineVisible: true,
         lastValueVisible: true,
         priceFormat: { type: "price", precision: 6, minMove: 0.000001 },
       });
-      chartRef.current = { chart, candles: candlesSeries, line };
+      // The origin chain's trend: a 12-bucket exponential moving average, dashed.
+      const trend = chart.addSeries(lib.LineSeries, {
+        color: token("--color-gold-glow", "#ffd36b"),
+        lineWidth: 2,
+        lineStyle: lib.LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        priceFormat: { type: "price", precision: 6, minMove: 0.000001 },
+      });
+      chartRef.current = { chart, candles: candlesSeries, line, trend };
       setReady(true);
     });
     return () => {
@@ -100,12 +122,14 @@ export function PriceChart({
       chart: { timeScale(): { fitContent(): void } };
       candles: { setData(d: unknown[]): void };
       line: { setData(d: unknown[]): void };
+      trend: { setData(d: unknown[]): void };
     } | null;
     if (!ready || !current) return;
     current.candles.setData(candles);
     current.line.setData(originLine);
+    current.trend.setData(originTrend);
     current.chart.timeScale().fitContent();
-  }, [ready, candles, originLine]);
+  }, [ready, candles, originLine, originTrend]);
 
   const change = destinationHistory.status === "ready" ? destinationHistory.data.changeBps : null;
   const destinationName = CHAINS[destinationChainId]?.short ?? String(destinationChainId);
@@ -176,7 +200,10 @@ export function PriceChart({
           <span className="inline-block size-2 rounded-sm bg-acid" aria-hidden="true" /> {destinationName} candles, {frame.bucketSeconds / 60} min each
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-0.5 w-4 bg-electric-glow" aria-hidden="true" /> {originName} close
+          <span className="inline-block h-0.5 w-4 bg-electric-glow" aria-hidden="true" /> {originName} price
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-0.5 w-4 border-t-2 border-dashed border-gold-glow" aria-hidden="true" /> {originName} trend (12-candle average)
         </span>
         <span className="ml-auto">
           Sampled about once a minute by the market's price API
