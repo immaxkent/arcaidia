@@ -36,11 +36,10 @@ export function isHederaAccountId(value: string): boolean {
   return /^0\.0\.[0-9]+$/.test(value.trim());
 }
 
-/** The Hedera SDK expects Node's `Buffer` global; give it the userland one once, before it loads. */
+/** The Hedera SDK expects Node's `Buffer` global in the browser; give it the npm package's once, before it loads. */
 async function ensureBuffer(): Promise<void> {
   const g = globalThis as { Buffer?: unknown };
   if (g.Buffer) return;
-  // Aliased in vite.config.ts to the npm package by absolute path (never Node's builtin).
   const { Buffer } = await import("buffer");
   g.Buffer = Buffer;
 }

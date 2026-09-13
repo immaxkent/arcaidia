@@ -1,5 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { toast } from "sonner";
 import { ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
@@ -26,7 +25,7 @@ import { viemChainFor } from "@/lib/arcaidia/viem-chains";
  */
 export type WalletStatus = "DISCONNECTED" | "CONNECTING" | "CONNECTED";
 
-interface WalletValue {
+export interface WalletValue {
   status: WalletStatus;
   address: Address | null;
   /** Active chain from the wallet/RPC once connected; before that, the user's UI selection. */
@@ -41,78 +40,54 @@ interface WalletValue {
   getWalletClient: (chainId: number) => Promise<WalletClient>;
 }
 
-const WalletContext = createContext<WalletValue | null>(null);
+export const WalletContext = createContext<WalletValue | null>(null);
 
+/**
+ * Privy is loaded in the browser only. Its package carries the Hedera SDK, whose server-side
+ * evaluation breaks under the bundled `buffer` shim (every server render 500'd on Vercel), and
+ * a wallet has no meaning during server rendering anyway. Until the module arrives the tree
+ * renders with a "connecting" wallet, then swaps to the real provider once, before any
+ * interaction is possible.
+ */
 export function WalletProvider({ children }: { children: ReactNode }) {
-  return SERVICES.privyAppId ? (
-    <ConfiguredWalletProvider>{children}</ConfiguredWalletProvider>
-  ) : (
-    <UnconfiguredWalletProvider>{children}</UnconfiguredWalletProvider>
-  );
+  const [Privy, setPrivy] = useState<ComponentType<{ children: ReactNode }> | null>(null);
+  useEffect(() => {
+    if (!SERVICES.privyAppId) return;
+    let cancelled = false;
+    void import("./privy-wallet").then((m) => {
+      if (!cancelled) setPrivy(() => m.PrivyWalletProvider);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!SERVICES.privyAppId) return <UnconfiguredWalletProvider>{children}</UnconfiguredWalletProvider>;
+  return Privy ? <Privy>{children}</Privy> : <ConnectingWalletProvider>{children}</ConnectingWalletProvider>;
 }
 
-/** Real Privy — rendered only inside `ArcaidiaPrivyProvider`'s mounted context. */
-function ConfiguredWalletProvider({ children }: { children: ReactNode }) {
-  const { ready, authenticated, login, logout } = usePrivy();
-  const { wallets } = useWallets();
+/** Before Privy has loaded in the browser (and on the server): configured, not yet ready. */
+function ConnectingWalletProvider({ children }: { children: ReactNode }) {
   const [chainId, setChainId] = useState<number>(ETHEREUM_SEPOLIA);
-
-  // The embedded wallet Privy created on login, or the first connected wallet.
-  const activeWallet = wallets[0];
-  const address = (activeWallet?.address as Address | undefined) ?? null;
-
-  const status: WalletStatus = !ready ? "CONNECTING" : authenticated && address ? "CONNECTED" : "DISCONNECTED";
-
-  const connect = useCallback(() => {
-    login();
-  }, [login]);
-
-  const disconnect = useCallback(() => {
-    logout();
-  }, [logout]);
-
-  const switchChain = useCallback(
-    async (next: number) => {
-      const target = SUPPORTED_CHAIN_IDS.includes(next as never) ? next : ETHEREUM_SEPOLIA;
-      setChainId(target);
-      if (activeWallet) {
-        // Privy throws if the target chain is not in supportedChains (see
-        // privy-provider.tsx) — both chains are always registered there, so
-        // this should never surface, but a failed switch must not silently
-        // leave the UI pointed at a chain the wallet disagrees with.
-        try {
-          await activeWallet.switchChain(target);
-        } catch (error) {
-          toast.error("Could not switch network", {
-            description: error instanceof Error ? error.message : "Wallet rejected the chain switch.",
-          });
-          throw error;
-        }
-      }
-    },
-    [activeWallet],
-  );
-
-  const getWalletClient = useCallback(
-    async (targetChainId: number) => {
-      if (!activeWallet || !address) throw new Error("No wallet connected.");
-      const provider = await activeWallet.getEthereumProvider();
-      return createWalletClient({
-        account: address,
-        chain: viemChainFor(targetChainId),
-        transport: custom(provider),
-      });
-    },
-    [activeWallet, address],
-  );
-
   const value = useMemo<WalletValue>(
-    () => ({ status, address, chainId, loginConfigured: true, connect, disconnect, switchChain, getWalletClient }),
-    [status, address, chainId, connect, disconnect, switchChain, getWalletClient],
+    () => ({
+      status: "CONNECTING",
+      address: null,
+      chainId,
+      loginConfigured: true,
+      connect: () => {},
+      disconnect: () => {},
+      switchChain: async (next: number) => {
+        setChainId(next);
+      },
+      getWalletClient: async () => {
+        throw new Error("Wallet not ready yet.");
+      },
+    }),
+    [chainId],
   );
-
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
+
 
 /** No Privy app id configured for this deployment — honest, not faked. */
 function UnconfiguredWalletProvider({ children }: { children: ReactNode }) {

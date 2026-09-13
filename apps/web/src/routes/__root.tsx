@@ -15,7 +15,6 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { ArcBackground } from "@/components/background/arc-background";
 import { SiteFooter, TopBar } from "@/components/site/top-bar";
 import { WalletProvider } from "@/components/wallet/wallet-context";
-import { ArcaidiaPrivyProvider } from "@/components/wallet/privy-provider";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -146,7 +145,6 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ArcaidiaPrivyProvider>
         <WalletProvider>
           <ArcBackground dim={dim} />
           <TopBar />
@@ -157,7 +155,6 @@ function RootComponent() {
           <SiteFooter />
           <Toaster />
         </WalletProvider>
-      </ArcaidiaPrivyProvider>
     </QueryClientProvider>
   );
 }

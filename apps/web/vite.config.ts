@@ -4,20 +4,32 @@
 //     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
 //     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
-import { nodePolyfills } from "vite-plugin-node-polyfills";
+
+/** The npm `buffer` package's entry, by absolute path — what the browser build gets for `buffer`. */
+const bufferForBrowser = fileURLToPath(import.meta.resolve("buffer/index.js"));
 
 export default defineConfig({
-  // Deploy target. Unset = the wrapper's default (cloudflare-module) for local builds;
-  // Vercel sets NITRO_PRESET=vercel (see deploy/VERCEL.md) and gets the Build Output API layout.
+  // Deploy target. Unset = the wrapper's default (cloudflare-module); Vercel sets
+  // NITRO_PRESET=vercel (deploy/VERCEL.md) and gets the Build Output API layout.
   ...(process.env["NITRO_PRESET"] ? { nitro: { preset: process.env["NITRO_PRESET"] } } : {}),
   vite: {
-    // WP-35: the Hedera SDK (behind @x402/hedera) imports `node:buffer` and reads the `Buffer`
-    // global when it signs a transfer in the browser. Polyfill exactly that, nothing else.
-    // Only the import mapping — no global injection, which would reach every workspace package
-    // (including the SSR pass) where the shim cannot be resolved. The global itself is set at
-    // runtime by ensureBuffer() in src/lib/arcaidia/x402-pay.ts before the SDK loads.
-    plugins: [nodePolyfills({ include: ["buffer"], globals: { Buffer: false, global: false, process: false } })],
+    // WP-35: the Hedera SDK's browser build imports `buffer` and reads the Buffer global when it
+    // signs a transfer. In the CLIENT build only, `buffer` is the npm package (the global is set
+    // by src/lib/arcaidia/x402-pay.ts before the SDK loads). The server bundle must keep Node's
+    // builtin: a shim there lacks buffer.constants, and every server render 500'd on Vercel —
+    // which is exactly what vite-plugin-node-polyfills did despite an environment guard.
+    plugins: [
+      {
+        name: "arcaidia:buffer-in-the-browser",
+        enforce: "pre",
+        applyToEnvironment: (env) => env.name === "client",
+        resolveId(id) {
+          return id === "buffer" || id === "node:buffer" ? bufferForBrowser : null;
+        },
+      },
+    ],
   },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
