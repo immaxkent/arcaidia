@@ -102,11 +102,11 @@ explicitly in the submission.
 ### Arc/Circle P2 — Best Agentic Economy Application
 
 - [x] Agents with **clear decision logic tied to real signals** → `AgentDecision.inputsUsed` records live liquidity, exposure, utilisation and settlement latency behind every quote (WP-04, WP-08, WP-14). Verified live.
-- [ ] **Autonomous spending and settlement flows using USDC** → the *mechanism* is real and live (solver fast-fills from the vault with no human approval), but the signer is still `LocalAgentSigner`, not the sponsor's wallet — see next row. Partial.
-- [ ] **Agent Stack integration** connecting wallets to onchain actions → **not started**. WP-09 is still parked, blocked on the user obtaining a Circle API key.
-- [ ] Nanopayments / Paymaster / App Kits where relevant → not evaluated; folded into WP-09.
-- [ ] Arc names the core products for this prize as: **Arc, USDC, Agent Stack, App Kits, Circle Wallets, Circle Contracts, Nanopayments, Paymaster**. We hit Arc and USDC live. Agent Stack/Circle Wallets are **not** hit yet — today's wallet layer is Privy's embedded wallet, not a Circle Wallet, and that's a real product-naming gap until WP-09 lands.
-- [ ] Architecture diagram, video, docs, repo → repo done; diagram/video/docs not started (WP-12).
+- [x] **Autonomous spending and settlement flows using USDC** → live: solvers fast-fill from their vaults with no human approval, and canonical USDC settlement repays them by CCTP proof (`settleWithProof`, D8/D12). The House Vault's solver signs every fill with a **Circle Developer-Controlled Wallet** (`0x6b73…3424`, WP-09), e.g. intent `0xfb648f…829a` on Arc, 2026-09-12; the first fully-proven cycle (`0x2a2bf4…3f20`, 20 USDC Sepolia→Arc, fast-filled in 2 min, `LpReimbursed` by proof) ran 2026-09-13.
+- [x] **Agent Stack integration** connecting wallets to onchain actions → WP-09 landed: `CircleAgentWalletSigner` signs EIP-712 fill authorisations and, since 2026-09-13, personal-signs the telemetry relay's pairing challenge through Circle's `signMessage`, so a Circle-signed solver is a first-class operator (paired, heartbeating, filling). `/earn` step 4 offers "Sign with a Circle Agent Wallet" to every operator (2026-09-13).
+- [ ] Nanopayments / Paymaster / App Kits where relevant → not used; the fee mechanism is on-chain USDC, and gas is paid by a plain submitter key by design (the signer never holds funds).
+- [x] Arc names the core products for this prize as: **Arc, USDC, Agent Stack, App Kits, Circle Wallets, Circle Contracts, Nanopayments, Paymaster**. Live: Arc, USDC, Circle Wallets (developer-controlled) as the agent's signer, CCTP V2 (`depositForBurnWithHook`, `receiveMessage`). The user-facing wallet is Privy's embedded wallet, which is the Privy prize's own requirement; the *agent's* wallet is Circle's.
+- [ ] Architecture diagram, video, docs, repo → repo, README bounty section and LICENSE done (2026-09-13); diagram and video not started (WP-12).
 
 ### Arc/Circle P4 — Launch on Arc Testnet & Push to Mainnet
 
@@ -125,10 +125,10 @@ explicitly in the submission.
 ### The Graph P2 — Best AI Tooling or AI Use Case (From Scratch)
 
 - [x] **The Graph is load-bearing** → asserted as a test, not a claim: disabling it halts discovery (WP-08 gate).
-- [x] **Live data from a Graph provider** → both subgraphs deployed and queried live at v0.0.2 on Subgraph Studio, wired into the frontend this session (WP-08, this session's frontend wiring).
-- [ ] **No mocked or static datasets in the qualifying path** → true today (mocks only in the local E2E harness), but the *qualifying run itself* (WP-11.1, Privy → Graph discovery → Agent Wallet → fast-fill → CCTP settle, one continuous path) has never actually been executed — it can't complete until WP-09 lands. Real risk decisions and real quotes are live; the single unbroken qualifying run is not yet captured.
+- [x] **Live data from a Graph provider** → the Graph-hosted Nest indexer (SQL over HTTP, WP-22) serves both chains at tip; re-seeded for v2 on 2026-09-12. Solver, settlement worker, relay intelligence and the site all read it; the site falls back to the chain when it lags.
+- [x] **No mocked or static datasets in the qualifying path** → the continuous path ran live on 2026-09-13: Privy wallet → intent `0x2a2bf4…3f20` (20 USDC, Sepolia→Arc) → discovered from the Graph-hosted Nest → three solvers competed, Vault B fast-filled in 2 min at 15 bps → Circle attestation → `settleWithProof` → `LpReimbursed`. The Circle-signed House solver filled `0xfb648f…829a` the day before. Every figure on the site is real or null; mocks exist only in the local E2E harness.
 - [x] **Meaningful work with the data**: reasoning, decisions, automation → the risk engine decides, prices and acts on it, live (WP-04, WP-14).
-- [ ] Open-source with clear README → README is substantial but has no LICENSE file yet (MIT/Apache, WP-00.2) and no bounty-mapping section (see deliverables table below).
+- [x] Open-source with clear README → MIT `LICENSE` and the README's bounty-mapping section added 2026-09-13.
 - [ ] Public repo + 2–4 minute demo video → repo done; video not started.
 - [x] **Begun and built during the hackathon** → confirmed against `git log`: first commit 2026-09-04, clean incremental history through today, no prior code.
 - [ ] **Start Fresh pool selected** in the dashboard → can't verify from the repo; needs the user to confirm on the ETHGlobal project entry.

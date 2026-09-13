@@ -35,6 +35,23 @@ enforces replay/expiry/caps, and pays the recipient in seconds. Minutes later CC
 canonical USDC to `SettlementReceiver`, which reimburses the LP vault — or, if nobody fast-filled,
 pays the recipient directly as the fallback.
 
+## ETHOnline 2026 — bounties this project is submitted for
+
+Arcaidia is submitted for the following prizes. Every claim below points at the code and the
+live evidence that backs it; the mapping is kept current in
+[`work-packages/BOUNTY-REQUIREMENTS.md`](work-packages/BOUNTY-REQUIREMENTS.md).
+
+| Sponsor | Prize | What we built for it |
+| --- | --- | --- |
+| **Arc / Circle** | Best Agentic Economy Application | Autonomous solvers that price and fill cross-chain USDC intents from real signals (`AgentDecision.inputsUsed`), the House Vault's solver signing every fill through a **Circle Developer-Controlled (Agent) Wallet**, and an operator flow on `/earn` that offers a Circle Agent Wallet as a solver identity. Canonical settlement by proof against CCTP V2 attestations. |
+| **Arc / Circle** | Launch on Arc Testnet & Push to Mainnet | Five CREATE2-parity contracts live on Arc Testnet and Ethereum Sepolia (table below); real CCTP V2 burns and mints both ways; deployment is a config diff away from mainnet. |
+| **Arc / Circle** | Best DeFi / Onchain Finance Application | A permissionless liquidity market: anyone deploys a vault through the factory, sets an immutable utilisation-tiered fee policy, and competes under first-valid-fill with the user's fee cap enforced on chain. |
+| **The Graph** | Best AI Tooling or AI Use Case (From Scratch) | The solver's whole world view comes from the Graph-hosted Nest indexer (SQL over HTTP): pending intents, vault state, settlement health. Disabling it halts discovery — asserted by test. Built from scratch during the hackathon. |
+| **The Graph** | Best Use of Composable or Standardized Graph Products | A generic, published **ERC-4626 vault-flows Substreams module** ([substreams.dev/packages/erc4626-vault-flows](https://substreams.dev/packages/erc4626-vault-flows/v0.1.1)), live-verified against vaults that are not ours — the prize text's own named example. |
+| **Privy** | Best Financial Flow | The whole user journey — embedded wallet, cross-chain transfer with a fee cap, live quote, fast fill, canonical settlement tracked separately — runs on Privy. |
+
+Licensed under the [MIT License](LICENSE). Begun 2026-09-04; every commit is in this repository.
+
 ## Non-negotiable design rules
 
 1. **Direction is data, not code.** The same Solidity is deployed on both Ethereum and Arc. The
