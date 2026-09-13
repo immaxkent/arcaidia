@@ -13,6 +13,18 @@ outbound workers; two are what a visitor's browser talks to and need a public HT
 | `loadgen` | Real testnet traffic with organic scarcity (`--profile loadgen`) | no |
 | `caddy` | HTTPS in front of the two public ones, certificates fetched automatically | — |
 
+## Building: on your machine, not the box
+
+`BUILD=local scripts/ops-deploy.sh ubuntu@<ip>` builds the one shared service image
+(`arcaidia-service`, `deploy/Dockerfile.service`) here for linux/amd64 and streams it to the
+box, which only loads it and restarts. This is the recommended path: a t3.small (2 GB) runs
+the eight containers at the edge of its memory, and building or unpacking images there means
+an hour of swapping and a full disk. Without `BUILD=local` the box builds the image itself.
+
+If the box keeps swapping at idle (`free -m` shows most of the 2 GB used), the fix is a
+t3.medium (4 GB). Allocate an Elastic IP and attach it first so the address, and therefore
+every `*.<ip>.sslip.io` hostname, survives the stop/start a resize needs.
+
 ## One-time
 
 1. Any Ubuntu/Debian box with a public IP (a $5 VPS is plenty). SSH access as a user with sudo.
