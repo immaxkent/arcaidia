@@ -5,9 +5,13 @@
  * cached for `cacheSeconds` so a burst of page loads and solver polls costs the Nest one round
  * of queries. A failed fetch throws — the endpoints answer 503, never a fabricated picture.
  *
- * Settlement latency is the one cross-chain join: a settlement is recorded on the destination
- * chain, the intent it settles was created on the source chain, so each chain's settlements
- * are matched against the *other* chain's `intents` rows by id.
+ * Two cross-chain joins, because each chain's Nest only sees its own events. Settlement latency:
+ * a settlement is recorded on the destination chain, the intent it settles was created on the
+ * source chain, so each chain's settlements are matched against the *other* chain's `intents`
+ * rows by id. Outstanding intents: the source chain's `intents` view keeps `fast_status`/
+ * `canonical_status` at PENDING forever (the fill and the settlement land on the destination
+ * chain's Nest), so "pending" is source-chain rows minus the ids the destination chain has
+ * filled or settled, minus anything past its deadline — otherwise the figure is cumulative.
  */
 import type { Address, ChainIntelligence, EcosystemIntelligence, QuoteContext, VaultIntelligence } from '@arcaidia/domain';
 import type { NestQueryClient } from '../nest-client.js';
@@ -48,13 +52,18 @@ interface RawVault {
   updated_at_block: number | string | null;
 }
 interface RawPending {
+  id: string;
   source_chain_id: number | string;
   destination_chain_id: number | string;
   amount: string;
+  deadline: number | string | null;
   created_at_timestamp: number | string;
 }
 interface RawFill {
   timestamp: number | string;
+}
+interface RawIntentRef {
+  intent_id: string;
 }
 interface RawSettlement {
   intent_id: string;
@@ -131,8 +140,9 @@ export class IntelligenceService {
           ),
           this.client.query<RawPending>(
             source.endpoint,
-            'SELECT source_chain_id, destination_chain_id, amount, created_at_timestamp FROM intents ' +
-              "WHERE fast_status = 'PENDING' AND canonical_status = 'PENDING' ORDER BY created_at_timestamp DESC LIMIT 500",
+            'SELECT id, source_chain_id, destination_chain_id, amount, deadline, created_at_timestamp FROM intents ' +
+              `WHERE fast_status = 'PENDING' AND canonical_status = 'PENDING' AND CAST(deadline AS BIGINT) > ${now} ` +
+              'ORDER BY created_at_timestamp DESC LIMIT 500',
           ),
           this.client.query<RawFill>(source.endpoint, `SELECT timestamp FROM fills WHERE timestamp >= ${from} LIMIT 5000`),
           this.client.query<RawSettlement>(
@@ -172,6 +182,31 @@ export class IntelligenceService {
       }
     }
 
+    // Outstanding: drop every source-chain PENDING row the destination chain has already filled or
+    // settled (its Nest is the only one that saw either), and anything already past its deadline.
+    const resolved = new Set<string>();
+    await Promise.all(
+      perChain.map(async (destination) => {
+        const ids = perChain
+          .filter((source) => source.source.chainId !== destination.source.chainId)
+          .flatMap((source) => source.pending.filter((i) => Number(i.destination_chain_id) === destination.source.chainId).map((i) => i.id))
+          .filter((id): id is string => typeof id === 'string');
+        if (ids.length === 0) return;
+        const [filled, settled] = await Promise.all([
+          this.client.query<RawIntentRef>(destination.source.endpoint, `SELECT intent_id FROM fills WHERE intent_id IN (${inClause(ids)})`),
+          this.client.query<RawIntentRef>(destination.source.endpoint, `SELECT intent_id FROM settlements WHERE intent_id IN (${inClause(ids)})`),
+        ]);
+        for (const row of [...filled.rows, ...settled.rows]) {
+          if (typeof row.intent_id === 'string') resolved.add(row.intent_id.toLowerCase());
+        }
+      }),
+    );
+    const stillOpen = (i: RawPending): boolean => {
+      if (typeof i.id === 'string' && resolved.has(i.id.toLowerCase())) return false;
+      if (i.deadline !== null && i.deadline !== undefined && Number(i.deadline) <= now) return false;
+      return true;
+    };
+
     const vaults: VaultRow[] = perChain.flatMap((c) =>
       c.vaults.map((v) => ({
         chainId: c.source.chainId,
@@ -187,7 +222,7 @@ export class IntelligenceService {
       })),
     );
     const pendingIntents: PendingIntentRow[] = perChain.flatMap((c) =>
-      c.pending.map((i) => ({
+      c.pending.filter(stillOpen).map((i) => ({
         sourceChainId: Number(i.source_chain_id),
         destinationChainId: Number(i.destination_chain_id),
         amount: BigInt(i.amount),

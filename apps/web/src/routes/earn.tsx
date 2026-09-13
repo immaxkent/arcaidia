@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { decodeEventLog, encodeEventTopics, parseEther } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { InvalidFeePolicyError, feeBpsAt, validateFeePolicy, type FeePolicy } from "@arcaidia/domain";
 import { erc20Abi, solverVaultAbi, vaultFactoryAbi } from "@/lib/arcaidia/abis";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
+import { authorisedSignersFromChain } from "@/lib/arcaidia/chain-history";
 import { viemChainFor } from "@/lib/arcaidia/viem-chains";
 import { reportTxError, waitForCode, waitForReceiptResilient } from "@/lib/arcaidia/tx";
 import { toast } from "sonner";
@@ -16,7 +18,7 @@ import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/va
 import { VaultName, VaultSigilBar } from "@/components/vaults/vault-identity";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { chainConfig, SERVICES, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
-import { NOT_AVAILABLE, type DataState } from "@/lib/arcaidia/data-state";
+import { NOT_AVAILABLE, errorState, loadingState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
 import { AwaitingSource, StateValue } from "@/components/data/state-views";
 import { useSolverMetrics, type SolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
 import { useSolverTelemetry, type SolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
@@ -235,6 +237,26 @@ interface ChainStatus {
   readonly live: boolean;
 }
 
+/**
+ * Every signer the vault currently authorises, from its own `AuthorisedSignerSet` history —
+ * so a vault that already has one (created by `CreateVault.s.sol`, or authorised in an earlier
+ * session) says so here instead of silently reading "Authorised" for a solver the owner never
+ * set up. The list, not the fact: `isAuthorisedSigner` on the typed operator stays the fact.
+ */
+function useAuthorisedSigners(chainId: number, vaultAddress: Address | null): DataState<Address[]> {
+  const query = useQuery({
+    queryKey: ["vault-signers", chainId, vaultAddress],
+    queryFn: () => authorisedSignersFromChain(chainId, vaultAddress as Address),
+    enabled: Boolean(vaultAddress && chainConfig(chainId)?.rpcUrl),
+    refetchInterval: 30_000,
+  });
+  if (!vaultAddress) return unavailableState("deploy first");
+  if (!chainConfig(chainId)?.rpcUrl) return unavailableState("RPC not configured");
+  if (query.isPending) return loadingState();
+  if (query.isError) return errorState(query.error instanceof Error ? query.error.message : String(query.error));
+  return readyState(query.data);
+}
+
 function useChainStatus(chainId: number, vaultAddress: Address | null, typedOperator: Address | null): ChainStatus {
   // Telemetry first: its reported operator/online state feeds useSolverMetrics
   // below (WP-19.4's own rule — telemetry only ever supplies a *candidate*
@@ -445,6 +467,15 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
   const sepolia = useChainStatus(ETHEREUM_SEPOLIA, progressOf(ETHEREUM_SEPOLIA).vaultAddress, typedOperator);
   const arc = useChainStatus(ARC_TESTNET, progressOf(ARC_TESTNET).vaultAddress, typedOperator);
   const statusOf = (chainId: number): ChainStatus => (chainId === ARC_TESTNET ? arc : sepolia);
+  const sepoliaSigners = useAuthorisedSigners(ETHEREUM_SEPOLIA, progressOf(ETHEREUM_SEPOLIA).vaultAddress);
+  const arcSigners = useAuthorisedSigners(ARC_TESTNET, progressOf(ARC_TESTNET).vaultAddress);
+  const signersOf = (chainId: number): DataState<Address[]> => (chainId === ARC_TESTNET ? arcSigners : sepoliaSigners);
+  const queryClient = useQueryClient();
+  /** A signer set changed on chain: re-read the list and the authorisation fact, don't wait for the poll. */
+  const refreshSigners = () => {
+    void queryClient.invalidateQueries({ queryKey: ["vault-signers"] });
+    void queryClient.invalidateQueries({ queryKey: ["solver-metrics"] });
+  };
   const owned = useOwnedVaults(connected ? (address as Address) : null);
   /** Owned vaults grouped by address: a vault deployed on both chains is one entry, two chains. */
   const ownedGroups = useMemo(() => {
@@ -614,6 +645,27 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
         if (receipt?.status === "reverted") throw new Error("Authorisation reverted.");
       });
       toast.success(`Solver authorised on ${CHAINS[chainId]?.short}`, { description: truncateAddress(typedOperator) });
+      refreshSigners();
+    } catch (error) {
+      patch(chainId, { authoriseError: message(error, chainId) });
+    } finally {
+      patch(chainId, { authorising: false });
+    }
+  }
+
+  /** `setAuthorisedSigner(signer, false)` — the owner removing a signer they do not (or no longer) run. */
+  async function revokeOn(chainId: number, signer: Address) {
+    const vaultAddress = progressOf(chainId).vaultAddress;
+    if (!vaultAddress || !address) return;
+    patch(chainId, { authorising: true, authoriseError: null });
+    try {
+      await onChain(chainId, async ({ walletClient, publicClient }) => {
+        const hash = await walletClient.writeContract({ address: vaultAddress, abi: solverVaultAbi, functionName: "setAuthorisedSigner", args: [signer, false], chain: viemChainFor(chainId), account: address });
+        const receipt = await waitForReceiptResilient(publicClient, hash);
+        if (receipt?.status === "reverted") throw new Error("Revocation reverted.");
+      });
+      toast.success(`Signer revoked on ${CHAINS[chainId]?.short}`, { description: truncateAddress(signer) });
+      refreshSigners();
     } catch (error) {
       patch(chainId, { authoriseError: message(error, chainId) });
     } finally {
@@ -1059,7 +1111,16 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                   {/* 5 — authorise */}
                   <div className="panel-raised px-3 py-3">
                     <p className="text-[11px] uppercase tracking-wide text-text-dim">5 · Authorise the wallet on your vault</p>
-                    <AuthoriseRows targets={targets} progressOf={progressOf} statusOf={statusOf} enabled={connected && operatorValid} onAuthorise={authoriseOn} />
+                    <AuthoriseRows
+                      targets={targets}
+                      progressOf={progressOf}
+                      statusOf={statusOf}
+                      signersOf={signersOf}
+                      typedOperator={typedOperator}
+                      enabled={connected && operatorValid}
+                      onAuthorise={authoriseOn}
+                      onRevoke={revokeOn}
+                    />
                   </div>
                   {/* 6 — run */}
                   <div className="panel-raised px-3 py-3">
@@ -1128,7 +1189,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                   <div className="panel-raised px-3 py-3">
                     <p className="text-[11px] uppercase tracking-wide text-text-dim">4 · Authorise on your vault</p>
                     <p className="mt-2 text-xs text-text-dim">Writes the signer to your vault on chain. Only authorised signers can ever move your vault's capital, and you can revoke at any time.</p>
-                    <AuthoriseRows targets={targets} progressOf={progressOf} statusOf={statusOf} enabled={connected && operatorValid} onAuthorise={authoriseOn} />
+                    <AuthoriseRows targets={targets} progressOf={progressOf} statusOf={statusOf} signersOf={signersOf} typedOperator={typedOperator} enabled={connected && operatorValid} onAuthorise={authoriseOn} onRevoke={revokeOn} />
                   </div>
 
                   {/* 5 — run */}
@@ -1175,7 +1236,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                   </div>
                   <div className="panel-raised px-3 py-3">
                     <p className="text-[11px] uppercase tracking-wide text-text-dim">2 · Authorise the signer</p>
-                    <AuthoriseRows targets={targets} progressOf={progressOf} statusOf={statusOf} enabled={connected && operatorValid} onAuthorise={authoriseOn} />
+                    <AuthoriseRows targets={targets} progressOf={progressOf} statusOf={statusOf} signersOf={signersOf} typedOperator={typedOperator} enabled={connected && operatorValid} onAuthorise={authoriseOn} onRevoke={revokeOn} />
                   </div>
                   <div className="panel-raised px-3 py-3">
                     <p className="text-[11px] uppercase tracking-wide text-text-dim">3 · Gas for the submitter</p>
@@ -1445,33 +1506,76 @@ function AuthoriseRows({
   targets,
   progressOf,
   statusOf,
+  signersOf,
+  typedOperator,
   enabled,
   onAuthorise,
+  onRevoke,
 }: {
   targets: readonly number[];
   progressOf: (chainId: number) => ChainProgress;
   statusOf: (chainId: number) => ChainStatus;
+  signersOf: (chainId: number) => DataState<Address[]>;
+  typedOperator: Address | null;
   enabled: boolean;
   onAuthorise: (chainId: number) => Promise<void>;
+  onRevoke: (chainId: number, signer: Address) => Promise<void>;
 }) {
   return (
     <ul className="mt-3 space-y-2">
       {targets.map((id) => {
         const p = progressOf(id);
-        const authorised = statusOf(id).authorised;
+        const signers = signersOf(id);
+        const existing = signers.status === "ready" ? signers.data : [];
+        // "Authorised" is only a fact about the solver being set up here — with nothing typed
+        // yet, the chain read falls back to whichever signer the vault already has.
+        const authorised = typedOperator !== null && statusOf(id).authorised;
+        const typedIsExisting = typedOperator !== null && existing.some((a) => a.toLowerCase() === typedOperator.toLowerCase());
         return (
-          <li key={id} className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 px-3 py-2">
-            <ChainBadge chainId={id} />
-            <span className="num text-[11px] text-text-dim">{p.vaultAddress ? truncateAddress(p.vaultAddress) : "deploy first"}</span>
-            <button
-              type="button"
-              disabled={!enabled || !p.vaultAddress || authorised || p.authorising}
-              onClick={() => void onAuthorise(id)}
-              className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
-            >
-              {authorised ? "Authorised" : p.authorising ? "Signing…" : "Authorise (one signature)"}
-            </button>
-            {p.authoriseError ? <p className="w-full text-xs text-warning">{p.authoriseError}</p> : null}
+          <li key={id} className="rounded-md border border-border/60 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <ChainBadge chainId={id} />
+              <span className="num text-[11px] text-text-dim">{p.vaultAddress ? truncateAddress(p.vaultAddress) : "deploy first"}</span>
+              <button
+                type="button"
+                disabled={!enabled || !p.vaultAddress || authorised || typedIsExisting || p.authorising}
+                onClick={() => void onAuthorise(id)}
+                className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+              >
+                {authorised || typedIsExisting ? "Authorised" : p.authorising ? "Signing…" : "Authorise (one signature)"}
+              </button>
+            </div>
+            {p.vaultAddress ? (
+              <div className="mt-2 border-t border-border/40 pt-2">
+                <p className="text-[10px] uppercase tracking-wide text-text-dim">
+                  Signers authorised on this vault now
+                  {signers.status === "loading" ? " · reading the chain…" : signers.status === "error" ? " · could not read the chain" : null}
+                </p>
+                {signers.status === "ready" && existing.length === 0 ? (
+                  <p className="mt-1 text-xs text-text-dim">None yet — nothing can move this vault's capital until you authorise a solver.</p>
+                ) : null}
+                {existing.map((signer) => {
+                  const mine = typedOperator !== null && signer.toLowerCase() === typedOperator.toLowerCase();
+                  return (
+                    <div key={signer} className="mt-1 flex flex-wrap items-center gap-2">
+                      <CopyValue value={signer} className="num text-[11px] text-text" />
+                      <span className={`text-[10px] uppercase tracking-wide ${mine ? "text-acid" : "text-text-dim"}`}>
+                        {mine ? "this solver" : "set earlier — by a script, or in a previous session"}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={p.authorising}
+                        onClick={() => void onRevoke(id, signer)}
+                        className="ml-auto rounded-md border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-dim hover:text-warning disabled:opacity-50"
+                      >
+                        {p.authorising ? "Signing…" : "Revoke"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {p.authoriseError ? <p className="mt-2 w-full text-xs text-warning">{p.authoriseError}</p> : null}
           </li>
         );
       })}

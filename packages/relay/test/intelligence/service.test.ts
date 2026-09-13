@@ -10,6 +10,9 @@ const SEP = 'https://nest.local/sepolia';
 const ARCN = 'https://nest.local/arc';
 const VAULT_B = '0x8c924ca38856f4fdb2e8f672fd0084689b1ee47b';
 const INTENT = `0x${'d0'.repeat(32)}`;
+const OPEN_INTENT = `0x${'a1'.repeat(32)}`;
+const FILLED_INTENT = `0x${'b2'.repeat(32)}`;
+const EXPIRED_INTENT = `0x${'c3'.repeat(32)}`;
 
 /** Answers by (endpoint, table) — the SQL is matched on its FROM clause, the way the Nest is used. */
 class FakeNest implements NestQueryClient {
@@ -42,7 +45,7 @@ function seeded(): FakeNest {
   nest.set(ARCN, 'vaults', [vaultRow('0xb4ba190d5c78869366e7963f5cccf4c3167d855c', '120000000', 10), vaultRow(VAULT_B, '60000000', 15)]);
   nest.set(SEP, 'vaults', [{ ...vaultRow('0xb4ba190d5c78869366e7963f5cccf4c3167d855c', '120000000', 10), updated_at_block: '11690000' }]);
   nest.set(SEP, 'intents', [
-    { source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '3780000', created_at_timestamp: 1_789_237_116 },
+    { id: OPEN_INTENT, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '3780000', deadline: '1789300000', created_at_timestamp: 1_789_237_116 },
     // The row the latency join asks for by id:
     { id: INTENT, created_at_timestamp: 1_789_237_116 },
   ]);
@@ -69,6 +72,29 @@ describe('IntelligenceService', () => {
     expect(view.recentSettlementLatency).toEqual({ p50Seconds: 1_200, p95Seconds: 1_200, sampleSize: 1 });
     expect(view.sourceBlocks).toEqual({ [SEPOLIA]: 11_690_000n, [ARC]: 61_736_000n });
     expect(nest.calls.find((c) => c.endpoint === SEP && /WHERE id IN/.test(c.sql))?.sql).toContain(INTENT);
+  });
+
+  it('counts as outstanding only what is still fillable: not filled or settled on the destination chain, not past deadline', async () => {
+    const nest = seeded();
+    // Each chain's Nest keeps its own `intents` rows at PENDING forever — the fill lands on the
+    // other chain — so without the cross-chain join this would read as cumulative volume.
+    nest.set(SEP, 'intents', [
+      { id: OPEN_INTENT, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '3780000', deadline: '1789300000', created_at_timestamp: 1_789_237_116 },
+      { id: FILLED_INTENT, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '9020000', deadline: '1789300000', created_at_timestamp: 1_789_237_200 },
+      { id: INTENT, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '15000000', deadline: '1789300000', created_at_timestamp: 1_789_237_116 },
+      { id: EXPIRED_INTENT, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '6130000', deadline: '1789239000', created_at_timestamp: 1_789_237_300 },
+    ]);
+    nest.set(ARCN, 'fills', [{ intent_id: FILLED_INTENT, timestamp: 1_789_237_239 }]);
+    const service = new IntelligenceService({ sources, client: nest, clock: () => 1_789_240_000 });
+    const view = await service.ecosystem();
+    // OPEN only: FILLED_INTENT is in Arc's fills, INTENT is in Arc's settlements, EXPIRED_INTENT's deadline has passed.
+    expect(view.outstandingIntentVolume).toBe(3_780_000n);
+    expect((await service.chain(ARC))?.outstandingIntentVolume).toBe(3_780_000n);
+    const lookups = nest.calls.filter((c) => c.endpoint === ARCN && /WHERE intent_id IN/.test(c.sql));
+    expect(lookups.map((c) => /FROM (\w+)/.exec(c.sql)?.[1]).sort()).toEqual(['fills', 'settlements']);
+    for (const c of lookups) expect(c.sql).toContain(OPEN_INTENT);
+    // The SQL itself already excludes expired rows, so the 500-row window is not spent on them.
+    expect(nest.calls.find((c) => c.endpoint === SEP && /fast_status = 'PENDING'/.test(c.sql))?.sql).toContain('CAST(deadline AS BIGINT) > 1789240000');
   });
 
   it('serves every view from one cached fetch inside the cache window', async () => {
