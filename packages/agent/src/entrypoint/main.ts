@@ -15,7 +15,7 @@
 import { appendFileSync } from 'node:fs';
 import { NoopTelemetryClient } from '@arcaidia/telemetry';
 import { JsonLinesDecisionLog, startSolverWorker, type SolverPassResult } from '../index.js';
-import { buildSolverDependencies, pairAllVaultsInBackground, startHeartbeats } from './build-dependencies.js';
+import { buildSolverDependencies, pairAllVaultsInBackground, startHeartbeats, startRepairing } from './build-dependencies.js';
 import { ConfigError, loadSolverConfig } from './config.js';
 import { startQuoteServer } from './quote-server.js';
 
@@ -76,6 +76,7 @@ async function main(): Promise<void> {
   pairAllVaultsInBackground(config, deps.authority);
   // WP-18.2: "solver online" on its own clock — see startHeartbeats.
   const stopHeartbeats = startHeartbeats(config, deps.authority, deps.telemetry ?? new NoopTelemetryClient());
+  const stopRepairing = startRepairing(config, deps.authority);
 
   const handle = startSolverWorker(deps, {
     pollIntervalMs: config.pollIntervalMs,
@@ -96,6 +97,7 @@ async function main(): Promise<void> {
       console.log(`[solver] ${signal} received, stopping after the current pass`);
       handle.stop();
       stopHeartbeats();
+      stopRepairing();
       void quoteServer.close();
       process.exit(0);
     });

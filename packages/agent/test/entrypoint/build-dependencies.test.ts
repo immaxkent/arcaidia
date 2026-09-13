@@ -10,6 +10,7 @@ import {
   buildWriteClients,
   pairAllVaultsInBackground,
   startHeartbeats,
+  startRepairing,
   HEARTBEAT_INTERVAL_MS,
 } from '../../src/entrypoint/build-dependencies.js';
 import { GraphObservationProvider, LocalAgentSigner, SqlNestObservationProvider } from '../../src/index.js';
@@ -350,5 +351,33 @@ describe('startHeartbeats (WP-18.2 — "solver online" on its own clock)', () =>
     startHeartbeats(config({ telemetry: telemetryOn }), noSign as never, telemetry);
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2);
     expect(telemetry.heartbeat).not.toHaveBeenCalled();
+  });
+});
+
+describe('startRepairing — pairing survives a relay restart', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('re-pairs every interval (one challenge per chain each time) until stopped', async () => {
+    const fetchSpy = vi.fn(async () => new Response(null, { status: 503 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const built = config({ telemetry: { enabled: true, relayUrl: 'https://relay.example' } });
+    const stop = startRepairing(built, new LocalAgentSigner(SIGNER_KEY), { intervalMs: 1_000 });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    stop();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it('does nothing with telemetry off', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    startRepairing(config(), new LocalAgentSigner(SIGNER_KEY), { intervalMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

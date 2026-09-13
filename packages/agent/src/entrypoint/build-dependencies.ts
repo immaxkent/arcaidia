@@ -173,6 +173,25 @@ export function pairAllVaultsInBackground(
 
 /** Relay sweeps a paired operator to offline after 30s of silence; a third of that keeps it live. */
 export const HEARTBEAT_INTERVAL_MS = 10_000;
+/** The relay keeps pairings in memory: after it restarts, every heartbeat is a 401 until the solver pairs again. */
+export const REPAIR_INTERVAL_MS = 2 * 60_000;
+
+/**
+ * Re-run pairing on a timer. The relay's pairing table is in-process state, so a relay restart
+ * (a redeploy, a crash) silently orphans every solver: heartbeats answer 401 and the vault reads
+ * offline until the solver pairs again. Pairing is idempotent on the relay, so repeating it every
+ * couple of minutes costs two signed challenges and keeps "online" true through relay restarts.
+ */
+export function startRepairing(
+  config: SolverEntrypointConfig,
+  authority: AgentAuthority,
+  options: { readonly intervalMs?: number } = {},
+): () => void {
+  if (!config.telemetry.enabled || !canSignMessages(authority)) return () => {};
+  const timer = setInterval(() => pairAllVaultsInBackground(config, authority), options.intervalMs ?? REPAIR_INTERVAL_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
 
 /**
  * WP-18.2: the "solver online" fact. A heartbeat says one thing — this process is still
