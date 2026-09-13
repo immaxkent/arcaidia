@@ -99,8 +99,8 @@ function TradePageContent() {
           ) : null}
 
           <DecisionPanel decision={liveQuote} />
-          <IntentHistoryPanel owner={address} />
-          <AllTransfersPanel />
+          <IntentHistoryPanel owner={address} kind="trades" />
+          <AllTransfersPanel kind="trades" />
         </div>
       </div>
     </div>

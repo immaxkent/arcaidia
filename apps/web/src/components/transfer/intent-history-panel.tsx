@@ -8,6 +8,7 @@
  * real per-intent facts — the same two-track model the rest of the app holds
  * to, never merged into one boolean.
  */
+import { useState } from "react";
 import { toast } from "sonner";
 import { ETHEREUM_SEPOLIA, ARC_TESTNET, type Address, type Hex } from "@/lib/arcaidia/types";
 import { formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
@@ -163,16 +164,35 @@ function CanonicalStatusChip({ status }: { status: "PENDING" | "SETTLED" }) {
   );
 }
 
-export function IntentHistoryPanel({ owner }: { owner: Address | null }) {
-  const history = useIntentHistory(owner, [ETHEREUM_SEPOLIA, ARC_TESTNET]);
+/** WP-34: which intents a history panel lists — plain USDC transfers, trades (a token out), or both. */
+export type HistoryKind = "transfers" | "trades" | "all";
+
+function isTrade(row: IntentHistoryRow): boolean {
+  return Boolean(row.intent.tokenOut) && !/^0x0{40}$/i.test(row.intent.tokenOut);
+}
+
+function filterKind(history: DataState<IntentHistoryRow[]>, kind: HistoryKind): DataState<IntentHistoryRow[]> {
+  if (history.status !== "ready" || kind === "all") return history;
+  return { status: "ready", data: history.data.filter((row) => (kind === "trades" ? isTrade(row) : !isTrade(row))) };
+}
+
+const NOUN: Record<HistoryKind, { one: string; many: string }> = {
+  transfers: { one: "transfer", many: "transfers" },
+  trades: { one: "trade", many: "trades" },
+  all: { one: "transfer", many: "transfers" },
+};
+
+export function IntentHistoryPanel({ owner, kind = "all" }: { owner: Address | null; kind?: HistoryKind }) {
+  const history = filterKind(useIntentHistory(owner, [ETHEREUM_SEPOLIA, ARC_TESTNET]), kind);
+  const noun = NOUN[kind];
   return (
     <IntentHistoryTable
-      title="Your transfers"
+      title={`Your ${noun.many}`}
       history={history}
-      emptyTitle="No transfers yet"
-      emptyNote="Every transfer you create appears here, live — the fast advance and the canonical settlement, tracked separately."
-      unavailableTitle="No transfers yet"
-      unavailableNote="Connect a wallet to see your transfer history."
+      emptyTitle={`No ${noun.many} yet`}
+      emptyNote={`Every ${noun.one} you create appears here, live — the fast advance and the canonical settlement, tracked separately.`}
+      unavailableTitle={`No ${noun.many} yet`}
+      unavailableNote={`Connect a wallet to see your ${noun.one} history.`}
     />
   );
 }
@@ -183,19 +203,22 @@ export function IntentHistoryPanel({ owner }: { owner: Address | null }) {
  * wallet" gate: unlike `IntentHistoryPanel`, nothing here ever depended on
  * who's connected.
  */
-export function AllTransfersPanel() {
-  const history = useAllTransfers([ETHEREUM_SEPOLIA, ARC_TESTNET]);
+export function AllTransfersPanel({ kind = "all" }: { kind?: HistoryKind }) {
+  const history = filterKind(useAllTransfers([ETHEREUM_SEPOLIA, ARC_TESTNET]), kind);
+  const noun = NOUN[kind];
   return (
     <IntentHistoryTable
-      title="All transfers"
+      title={`All ${noun.many}`}
       history={history}
-      emptyTitle="No transfers yet"
-      emptyNote="Every transfer across the market appears here, live — the fast advance and the canonical settlement, tracked separately."
-      unavailableTitle="No transfers yet"
+      emptyTitle={`No ${noun.many} yet`}
+      emptyNote={`Every ${noun.one} across the market appears here, live — the fast advance and the canonical settlement, tracked separately.`}
+      unavailableTitle={`No ${noun.many} yet`}
       unavailableNote="Indexer not connected."
     />
   );
 }
+
+const PAGE_SIZE = 20;
 
 function IntentHistoryTable({
   title,
@@ -212,9 +235,22 @@ function IntentHistoryTable({
   unavailableTitle: string;
   unavailableNote: string;
 }) {
+  const [page, setPage] = useState(0);
+  const total = history.status === "ready" ? history.data.length : 0;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const current = Math.min(page, pages - 1);
   return (
     <section className="panel p-5">
-      <h3 className="text-sm font-semibold tracking-wide text-text uppercase">{title}</h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold tracking-wide text-text uppercase">{title}</h3>
+        {total > PAGE_SIZE ? (
+          <span className="num flex items-center gap-2 text-[11px] text-text-dim">
+            {current * PAGE_SIZE + 1}–{Math.min(total, (current + 1) * PAGE_SIZE)} of {total}
+            <button type="button" disabled={current === 0} onClick={() => setPage(current - 1)} className="rounded border border-border px-1.5 py-0.5 disabled:opacity-40">‹</button>
+            <button type="button" disabled={current >= pages - 1} onClick={() => setPage(current + 1)} className="rounded border border-border px-1.5 py-0.5 disabled:opacity-40">›</button>
+          </span>
+        ) : null}
+      </div>
       <StateSection
         state={history}
         emptyTitle={emptyTitle}
@@ -239,7 +275,7 @@ function IntentHistoryTable({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {rows.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map((row) => {
                   const resolution = resolutionFor(row);
                   return (
                     <tr key={row.intent.intentId} className="border-t border-border/60">

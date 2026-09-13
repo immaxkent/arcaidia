@@ -81,8 +81,8 @@ function TransferPageContent() {
 
           <DecisionPanel decision={liveQuote} />
 
-          <IntentHistoryPanel owner={address} />
-          <AllTransfersPanel />
+          <IntentHistoryPanel owner={address} kind="transfers" />
+          <AllTransfersPanel kind="transfers" />
         </div>
       </div>
     </div>

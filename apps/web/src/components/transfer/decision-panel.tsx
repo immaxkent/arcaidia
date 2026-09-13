@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AgentDecision, Verdict } from "@/lib/arcaidia/types";
 import { formatBps, formatDuration, formatUsdc } from "@/lib/arcaidia/format";
 import { cn } from "@/lib/utils";
+import { SERVICES } from "@/lib/arcaidia/config";
 
 export function VerdictBadge({ verdict }: { verdict: Verdict }) {
   return (
@@ -63,7 +64,7 @@ export function DecisionInputsReadout({ decision }: { decision: AgentDecision })
     <dl className="grid gap-x-8 md:grid-cols-2">
       <Row label="Requested amount" value={`${formatUsdc(i.requestedAmount)} USDC`} />
       <Row label="Available liquidity" value={`${formatUsdc(i.availableLiquidity)} USDC`} />
-      <Row label="Reserve floor" value={`${formatUsdc(i.reserveFloor)} USDC`} />
+      <Row label="Reserve floor" value={`${formatUsdc(i.reserveFloor)} USDC`} hint="Capital this vault keeps unadvanced at all times (its reserveFloorBps of total assets). Unrelated to what is awaiting settlement." />
       <Row label="Outstanding exposure" value={`${formatUsdc(i.outstandingExposure)} USDC`} />
       <Row label="Utilisation" value={formatBps(i.utilisationBps)} hint={`${i.utilisationBps} bps`} />
       <Row label="Your fee ceiling" value={formatBps(i.userMaxFeeBps)} hint={`${i.userMaxFeeBps} bps`} />
@@ -79,14 +80,15 @@ export function DecisionInputsReadout({ decision }: { decision: AgentDecision })
       <Row label="Observation age" value={formatDuration(i.observationAgeSeconds)} />
       <Row label="Transport" value={<TransportBadge transport={i.settlementHealth.transport} />} />
       <Row
-        label="Settlement backlog"
+        label="Oldest unsettled intent"
         value={
           i.settlementHealth.oldestUnsettledAgeSeconds === null
             ? "none"
-            : `oldest ${formatDuration(i.settlementHealth.oldestUnsettledAgeSeconds)}`
+            : formatDuration(i.settlementHealth.oldestUnsettledAgeSeconds)
         }
+        hint="Market-wide: the oldest intent whose canonical CCTP settlement has not landed yet. The solver pauses when this exceeds its policy's limit."
       />
-      <Row label="Pending value" value={`${formatUsdc(i.settlementHealth.pendingValue)} USDC`} />
+      <Row label="Awaiting canonical settlement" value={`${formatUsdc(i.settlementHealth.pendingValue)} USDC`} hint="Market-wide: the value of every intent (any vault, filled or not) still waiting for CCTP to deliver. Not this vault's exposure." />
       <Row
         label="Avg settlement latency"
         value={
@@ -126,11 +128,19 @@ export function DecisionPanel({ decision }: { decision: AgentDecision | null }) 
       >
         <h3 className="text-sm font-semibold tracking-wide text-text uppercase">Agent decision</h3>
         <VerdictBadge verdict={decision.verdict} />
+        <span className="num text-[10px] uppercase tracking-wide text-text-dim/70" title={SERVICES.solverQuoteUrl ?? undefined}>
+          House solver
+        </span>
         <span className="num text-[10px] uppercase tracking-wide text-text-dim/70">Estimated</span>
         <span className="num ml-auto text-xs text-text-dim">{open ? "hide inputs −" : "show inputs +"}</span>
       </button>
       {open ? (
         <div className="mt-4 leading-relaxed">
+          <p className="mb-3 text-xs text-text-dim">
+            This is the Arcaidia House solver's answer to your exact request, from its quote endpoint — what it would do if your
+            intent appeared right now, with the inputs it decided on. Other solvers (Vault B, Vault C) decide independently and may
+            win the fill instead; the first valid fill on chain is what counts.
+          </p>
           <DecisionInputsReadout decision={decision} />
         </div>
       ) : null}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { parseUnits as viemParseUnits } from "viem";
 import { formatUnits } from "viem";
 import { useWallet, useWalletBalance } from "@/components/wallet/wallet-context";
 import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address, type AgentDecision } from "@/lib/arcaidia/types";
@@ -89,7 +90,30 @@ export function TradeForm({
 
   // The adapter's quote for that USDC → tokenOut, on the destination chain.
   const swap = useSwapQuote(destination, (market?.tokenOut.address as Address | undefined) ?? null, swapAmountIn);
-  const targetMinOut = swap.status === "ready" ? targetMinOutFrom(swap.data.amountOut, slippageBps) : null;
+  const suggestedFloor = swap.status === "ready" ? targetMinOutFrom(swap.data.amountOut, slippageBps) : null;
+
+  // The floor the intent carries: prefilled from the quote less slippage, but the user's own number
+  // once they type one (a fresh token or amount resets it).
+  const [floorInput, setFloorInput] = useState("");
+  const [floorTouched, setFloorTouched] = useState(false);
+  useEffect(() => {
+    setFloorTouched(false);
+    setFloorInput("");
+  }, [symbol, destination]);
+  useEffect(() => {
+    if (floorTouched || suggestedFloor === null || !market) return;
+    setFloorInput(formatUnits(suggestedFloor, market.tokenOut.decimals));
+  }, [suggestedFloor, floorTouched, market]);
+  const targetMinOut = useMemo<bigint | null>(() => {
+    if (!market) return null;
+    const trimmed = floorInput.trim();
+    if (!/^\d*(\.\d*)?$/.test(trimmed) || trimmed === "" || trimmed === ".") return null;
+    try {
+      return viemParseUnits(trimmed, market.tokenOut.decimals);
+    } catch {
+      return null;
+    }
+  }, [floorInput, market]);
 
   const request = useMemo<IntentRequest | null>(() => {
     if (!usdcRequest || !market || targetMinOut === null || targetMinOut <= 0n) return null;
@@ -171,6 +195,17 @@ export function TradeForm({
             return { symbol: m.tokenOut.symbol, name: entry?.name ?? null, price: live?.price?.display ?? null, change24hBps: live?.change24hBps ?? null };
           })}
         />
+        {market ? (
+          <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-border/60 pt-3">
+            <span className="text-xs tracking-wide text-text-dim uppercase">You receive ({quoteIsEstimate ? "estimated" : "quoted"})</span>
+            <span className="num text-xl text-acid" data-testid="quoted-out">
+              {!amount || amount === 0n ? "—" : <StateValue state={swap} format={(s) => `≈ ${formatTokenAmount(s.amountOut, market.tokenOut.decimals)} ${market.tokenOut.symbol}`} />}
+            </span>
+          </div>
+        ) : null}
+        {market && amount && swap.status === "error" ? (
+          <p className="num mt-1 text-[11px] text-danger/80">Adapter quote failed on {CHAINS[destination]?.short} — retrying</p>
+        ) : null}
       </div>
 
       <div className="panel-raised mt-2 px-3 py-3">
@@ -212,7 +247,7 @@ export function TradeForm({
         </div>
       </div>
       <p className="mt-2 text-xs text-text-dim">
-        The floor is the adapter's quote less your tolerance. If no vault can deliver at least that much {market?.tokenOut.symbol ?? "token"}, you receive USDC instead — nothing is stranded.
+        The minimum below is prefilled at the adapter's quote less your tolerance; type your own to override it. That number is written into the intent. If no vault can deliver at least that much {market?.tokenOut.symbol ?? "token"}, you receive USDC instead — nothing is stranded.
       </p>
 
       <div className="mt-4 border-t border-border pt-4">
@@ -237,16 +272,34 @@ export function TradeForm({
               <dt className="text-text-dim">Swapped by the vault</dt>
               <dd className="num text-text"><StateValue state={quote} format={(q) => `${formatUsdc(q.outputAmount)} USDC`} /></dd>
             </div>
-            <div className="flex justify-between">
-              <dt className="text-text">You receive ({quoteIsEstimate ? "estimated" : "quoted"})</dt>
-              <dd className="num text-acid" data-testid="quoted-out">
-                <StateValue state={swap} format={(s) => `≈ ${formatTokenAmount(s.amountOut, market.tokenOut.decimals)} ${market.tokenOut.symbol}`} />
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-text">
+                <label htmlFor="trade-floor">Minimum you accept</label>
+              </dt>
+              <dd className="num flex items-baseline gap-1 text-text">
+                <input
+                  id="trade-floor"
+                  inputMode="decimal"
+                  value={floorInput}
+                  onChange={(e) => {
+                    setFloorTouched(true);
+                    setFloorInput(e.target.value);
+                  }}
+                  placeholder={suggestedFloor !== null ? formatUnits(suggestedFloor, market.tokenOut.decimals) : "0.0"}
+                  className="w-44 rounded-md border border-border bg-void px-2 py-1 text-right text-sm text-text outline-none focus:border-acid/60"
+                />
+                <span className="text-text-dim">{market.tokenOut.symbol}</span>
               </dd>
             </div>
-            <div className="flex justify-between">
-              <dt className="text-text-dim">Minimum you accept</dt>
-              <dd className="num text-text">{targetMinOut !== null ? `${formatTokenAmount(targetMinOut, market.tokenOut.decimals)} ${market.tokenOut.symbol}` : "—"}</dd>
-            </div>
+            {floorTouched && suggestedFloor !== null ? (
+              <p className="num text-right text-[11px] text-text-dim">
+                Suggested {formatTokenAmount(suggestedFloor, market.tokenOut.decimals)} ({(slippageBps / 100).toFixed(1)}% under the quote) ·{" "}
+                <button type="button" className="text-acid hover:underline" onClick={() => { setFloorTouched(false); }}>use it</button>
+              </p>
+            ) : null}
+            {targetMinOut !== null && swap.status === "ready" && targetMinOut > swap.data.amountOut ? (
+              <p className="num text-right text-[11px] text-warning">Above the current quote — no vault can meet it, so USDC would arrive instead.</p>
+            ) : null}
             {marketPriceOut !== null ? (
               <div className="flex justify-between">
                 <dt className="text-text-dim">At the chart price, for context</dt>
