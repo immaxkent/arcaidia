@@ -19,6 +19,7 @@ import { sepolia } from 'viem/chains';
 import { parseLoadgenConfig } from '../config.js';
 import { NestMarketObserver } from '../observe.js';
 import { runLoadgen } from '../run.js';
+import { mulberry32 } from '../rng.js';
 import { DryRunSubmitter, ViemIntentSubmitter, type ChainEndpoint } from '../submit.js';
 
 const arcTestnet = defineChain({
@@ -65,9 +66,14 @@ async function main(): Promise<void> {
   let stop = false;
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { console.log(`[loadgen] ${signal}, finishing`); stop = true; });
 
-  console.log(`[loadgen] ${dryRun ? 'DRY RUN' : 'LIVE'} seed=${config.seed} wallets=${keys.length} phases=${config.phases.map((p) => p.kind).join(',')}`);
+  // A live run seeds from the clock unless LOADGEN_SEED pins it: every container restart (each
+  // deploy) otherwise replays the same plan from the top — the same 9.49 USDC intent first, every
+  // time — which reads as a broken generator. Tests and dry runs keep the config's seed.
+  const seed = process.env.LOADGEN_SEED ? Number(process.env.LOADGEN_SEED) : dryRun ? config.seed : Date.now() % 2_147_483_647;
+  console.log(`[loadgen] ${dryRun ? 'DRY RUN' : 'LIVE'} seed=${seed} wallets=${keys.length} phases=${config.phases.map((p) => p.kind).join(',')}`);
   const summary = await runLoadgen({
     config,
+    rng: mulberry32(seed),
     submitter,
     observer,
     clock: () => Math.floor(Date.now() / 1000),
