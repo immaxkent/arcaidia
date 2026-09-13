@@ -97,6 +97,9 @@ services:
         SERVICE: packages/loadgen/src/entrypoint/main.ts
     restart: unless-stopped
     env_file: [.env.loadgen]
+    environment:
+      LOADGEN_JOURNAL_PATH: /tmp/loadgen.jsonl
+      LOADGEN_METRICS_PATH: /tmp/loadgen.metrics.json
     volumes:
       - ./loadgen.config.json:/app/loadgen.config.json:ro
 

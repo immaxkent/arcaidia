@@ -8,6 +8,7 @@
  *   LOADGEN_CONFIG      path to the config (default loadgen.config.json)
  *   LOADGEN_DRY_RUN     "true" → plan and journal, send nothing
  *   LOADGEN_TOTAL_SECONDS optional bound; unset = until Ctrl-C
+ *   LOADGEN_JOURNAL_PATH / LOADGEN_METRICS_PATH override the config's file paths (containers)
  *   {PREFIX}_RPC_URL    optional RPC overrides, as for the solver
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -70,8 +71,9 @@ async function main(): Promise<void> {
     observer,
     clock: () => Math.floor(Date.now() / 1000),
     sleep: (s) => new Promise((r) => setTimeout(r, s * 1000)),
-    onJournal: (entry) => appendFileSync(config.journalPath, JSON.stringify(entry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) + '\n'),
-    onMetrics: (m) => writeFileSync(config.metricsPath, JSON.stringify(m, null, 2)),
+    // The container image is read-only for its unprivileged user: let the paths be overridden.
+    onJournal: (entry) => appendFileSync(process.env.LOADGEN_JOURNAL_PATH ?? config.journalPath, JSON.stringify(entry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) + '\n'),
+    onMetrics: (m) => writeFileSync(process.env.LOADGEN_METRICS_PATH ?? config.metricsPath, JSON.stringify(m, null, 2)),
     log: (line) => console.log(`[loadgen] ${line}`),
     totalSeconds,
     shouldStop: () => stop,
