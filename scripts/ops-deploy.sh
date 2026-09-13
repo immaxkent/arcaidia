@@ -4,6 +4,11 @@
 #   scripts/ops-deploy.sh ubuntu@203.0.113.7                # relay + House solver + worker
 #   SSH_KEY=~/.ssh/my-aws-key.pem scripts/ops-deploy.sh ubuntu@203.0.113.7
 #   PROFILES="--profile operators --profile loadgen" scripts/ops-deploy.sh ubuntu@203.0.113.7
+#   BUILD=local scripts/ops-deploy.sh ubuntu@203.0.113.7      # build the image here, ship it
+#
+# BUILD=local builds the one shared service image on this machine (linux/amd64, needs Docker)
+# and streams it to the box, which then only loads and restarts. A 2 GB box cannot build the
+# image without swapping for an hour; it loads one in about a minute.
 #
 # Needs: ssh access to an Ubuntu/Debian box with Docker (installed on first run if missing),
 # and the env files present locally: .env, and .env.solver-b / .env.solver-c / .env.loadgen for
@@ -37,9 +42,19 @@ for f in .env .env.solver-b .env.solver-c .env.loadgen; do
   [ -f "$ROOT/$f" ] && rsync -az "$ROOT/$f" "$HOST:$REMOTE_DIR/$f"
 done
 
+BUILD=${BUILD:-remote}
+UP_FLAGS="--build"
+if [ "$BUILD" = "local" ]; then
+  echo "== building arcaidia-service for linux/amd64 locally"
+  docker build --platform linux/amd64 -f "$ROOT/deploy/Dockerfile.service" -t arcaidia-service:latest "$ROOT"
+  echo "== shipping the image to $HOST"
+  docker save arcaidia-service:latest | gzip | ssh "$HOST" 'docker info >/dev/null 2>&1 && docker load || sudo docker load'
+  UP_FLAGS="--no-build"
+fi
+
 # sudo drops the environment, so OPS_HOST rides along explicitly when compose needs root.
 # Build one image at a time: seven parallel builds on a 2 GB box swap for an hour and starve sshd.
-ssh "$HOST" "cd $REMOTE_DIR && DC='env OPS_HOST=$OPS_HOST COMPOSE_BAKE=false COMPOSE_PARALLEL_LIMIT=1 docker compose'; docker info >/dev/null 2>&1 || DC='sudo env OPS_HOST=$OPS_HOST COMPOSE_BAKE=false COMPOSE_PARALLEL_LIMIT=1 docker compose'; \$DC -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && \$DC -f docker-compose.ops.yml ps"
+ssh "$HOST" "cd $REMOTE_DIR && DC='env OPS_HOST=$OPS_HOST COMPOSE_BAKE=false COMPOSE_PARALLEL_LIMIT=1 docker compose'; docker info >/dev/null 2>&1 || DC='sudo env OPS_HOST=$OPS_HOST COMPOSE_BAKE=false COMPOSE_PARALLEL_LIMIT=1 docker compose'; \$DC -f docker-compose.ops.yml $PROFILES up -d $UP_FLAGS --remove-orphans && \$DC -f docker-compose.ops.yml ps && docker image prune -f >/dev/null 2>&1 || sudo docker image prune -f >/dev/null 2>&1"
 echo "== relay:  https://relay.$OPS_HOST/health"
 echo "== quote:  https://quote.$OPS_HOST/quote"
 echo "== intel:  https://intel.$OPS_HOST/v1/pricing  (WP-35 — 402 on /v1/intelligence/*)"
