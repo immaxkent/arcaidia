@@ -7,6 +7,11 @@
 #
 # Config is env files, never baked into images: .env (House solver + worker + relay),
 # .env.solver-b / .env.solver-c (operators), .env.loadgen (load generator). See deploy/README.md.
+#
+# One image for every Node service (`arcaidia-service`, deploy/Dockerfile.service): the same
+# workspace, the entrypoint chosen per container by SERVICE. Built once, by `relay`; every other
+# service reuses it. Seven separate builds of the same tree used to take a 2 GB box an hour of
+# swapping and filled its disk with build cache.
 services:
   caddy:
     image: caddy:2-alpine
@@ -26,26 +31,23 @@ services:
       - x402-gateway
 
   relay:
+    image: arcaidia-service:latest
     build:
       context: .
       dockerfile: deploy/Dockerfile.service
-      args:
-        SERVICE: packages/relay/src/entrypoint/main.ts
     restart: unless-stopped
     env_file: [.env]
     environment:
+      SERVICE: packages/relay/src/entrypoint/main.ts
       RELAY_PORT: '8090'
     expose: ['8090']
 
   x402-gateway:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.service
-      args:
-        SERVICE: packages/x402-gateway/src/entrypoint/main.ts
+    image: arcaidia-service:latest
     restart: unless-stopped
     env_file: [.env]
     environment:
+      SERVICE: packages/x402-gateway/src/entrypoint/main.ts
       X402_GATEWAY_PORT: '8402'
       # Paid requests are forwarded to the relay over the compose network.
       INTELLIGENCE_UPSTREAM: http://relay:8090
@@ -53,12 +55,11 @@ services:
     depends_on: [relay]
 
   house-solver:
-    build:
-      context: .
-      dockerfile: packages/agent/Dockerfile
+    image: arcaidia-service:latest
     restart: unless-stopped
     env_file: [.env]
     environment:
+      SERVICE: packages/agent/src/entrypoint/main.ts
       SOLVER_QUOTE_PORT: '8787'
       # Inside the compose network the relay is reachable by service name, not by public URL.
       ARCAIDIA_TELEMETRY_URL: http://relay:8090
@@ -72,22 +73,20 @@ services:
     depends_on: [relay, x402-gateway]
 
   settlement:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.service
-      args:
-        SERVICE: packages/settlement/src/entrypoint/main.ts
+    image: arcaidia-service:latest
     restart: unless-stopped
     env_file: [.env]
+    environment:
+      SERVICE: packages/settlement/src/entrypoint/main.ts
+    depends_on: [relay]
 
   solver-b:
     profiles: [operators]
-    build:
-      context: .
-      dockerfile: packages/agent/Dockerfile
+    image: arcaidia-service:latest
     restart: unless-stopped
     env_file: [.env.solver-b]
     environment:
+      SERVICE: packages/agent/src/entrypoint/main.ts
       SOLVER_QUOTE_PORT: '8787'
       ARCAIDIA_TELEMETRY_URL: http://relay:8090
       TELEMETRY_ENABLED: 'true'
@@ -96,12 +95,11 @@ services:
 
   solver-c:
     profiles: [operators]
-    build:
-      context: .
-      dockerfile: packages/agent/Dockerfile
+    image: arcaidia-service:latest
     restart: unless-stopped
     env_file: [.env.solver-c]
     environment:
+      SERVICE: packages/agent/src/entrypoint/main.ts
       SOLVER_QUOTE_PORT: '8787'
       ARCAIDIA_TELEMETRY_URL: http://relay:8090
       TELEMETRY_ENABLED: 'true'
@@ -110,18 +108,16 @@ services:
 
   loadgen:
     profiles: [loadgen]
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.service
-      args:
-        SERVICE: packages/loadgen/src/entrypoint/main.ts
+    image: arcaidia-service:latest
     restart: unless-stopped
     env_file: [.env.loadgen]
     environment:
+      SERVICE: packages/loadgen/src/entrypoint/main.ts
       LOADGEN_JOURNAL_PATH: /tmp/loadgen.jsonl
       LOADGEN_METRICS_PATH: /tmp/loadgen.metrics.json
     volumes:
       - ./loadgen.config.json:/app/loadgen.config.json:ro
+    depends_on: [relay]
 
 volumes:
   caddy-data:

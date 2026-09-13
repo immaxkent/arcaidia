@@ -1,9 +1,12 @@
-# One image recipe for every Arcaidia Node service (relay, settlement worker, load generator).
-# The solver has its own Dockerfile (packages/agent/Dockerfile); this one is the same idea —
-# ship TypeScript source, run it with tsx, exactly the code path the tests cover — with the
-# entrypoint chosen at build time:
+# One image for every Arcaidia Node service (relay, x402 gateway, solvers, settlement worker,
+# load generator): ship the TypeScript source and run it with tsx — exactly the code path the
+# tests cover — with the entrypoint chosen at *run* time by the SERVICE environment variable:
 #
-#   docker build -f deploy/Dockerfile.service --build-arg SERVICE=packages/relay/src/entrypoint/main.ts .
+#   docker build -f deploy/Dockerfile.service -t arcaidia-service .
+#   docker run -e SERVICE=packages/relay/src/entrypoint/main.ts arcaidia-service
+#
+# Only the packages the services need are installed (no web app, no e2e harness): the image is
+# a third of the size and a 2 GB box unpacks it once instead of seven times.
 #
 # Build from the repo root: pnpm workspaces need the whole workspace tree to resolve
 # `workspace:*` dependencies.
@@ -23,13 +26,14 @@ COPY packages/x402-gateway/package.json packages/x402-gateway/package.json
 COPY packages/loadgen/package.json packages/loadgen/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY tests/e2e/package.json tests/e2e/package.json
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --filter '@arcaidia/agent...' --filter '@arcaidia/relay...' --filter '@arcaidia/settlement...' --filter '@arcaidia/loadgen...' --filter '@arcaidia/x402-gateway...'
 
 COPY packages packages
 
-ARG SERVICE
+# Default entrypoint for a bare `docker run`; compose sets SERVICE per container.
+ARG SERVICE=packages/relay/src/entrypoint/main.ts
 ENV SERVICE=${SERVICE}
-RUN test -n "$SERVICE" && test -f "$SERVICE"
+RUN test -f "$SERVICE"
 
 RUN useradd --create-home --shell /bin/false arcaidia
 USER arcaidia
