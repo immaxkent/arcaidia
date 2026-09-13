@@ -59,6 +59,11 @@ export interface CircleSigningClient {
     readonly walletId: string;
     readonly data: string;
   }): Promise<{ readonly data?: { readonly signature?: string } }>;
+  /** EIP-191 personal-sign of a plain message — what the telemetry relay's pairing challenge needs. */
+  signMessage(input: {
+    readonly walletId: string;
+    readonly message: string;
+  }): Promise<{ readonly data?: { readonly signature?: string } }>;
 }
 
 /** Wraps Circle's real SDK client behind `CircleSigningClient` — the only place this process calls out to Circle. */
@@ -98,5 +103,19 @@ export class CircleAgentWalletSigner implements AgentAuthority {
     }
 
     return { authorization, signature: signature as Hex, signer: this.address };
+  }
+
+  /**
+   * Personal-sign a message through Circle — the same key that signs fills proves, to the
+   * telemetry relay, that this solver holds the vault's authorised signer (WP-18 pairing).
+   */
+  async signMessage(message: string): Promise<Hex> {
+    const response = await this.client.signMessage({ walletId: this.walletId, message });
+    const signature = response.data?.signature;
+    if (!signature) throw new CircleSigningError('Circle signMessage returned no signature.');
+    if (!EVM_SIGNATURE_PATTERN.test(signature)) {
+      throw new CircleSigningError(`Circle signMessage returned a signature in an unexpected format: ${signature}`);
+    }
+    return signature as Hex;
   }
 }

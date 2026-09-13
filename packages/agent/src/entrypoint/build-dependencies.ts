@@ -133,7 +133,8 @@ function buildTelemetryClient(config: SolverEntrypointConfig['telemetry']): Tele
  * alone block, the solver actually starting to fill (WP-17.4's own point,
  * one layer up). Every failure is caught and logged here, never thrown.
  *
- * Only wired for `LocalAgentSigner` today: pairing needs a plain
+ * Wired for any authority with a personal-sign — the local signer and the Circle Agent
+ * Wallet (Circle's `signMessage`) both have one. Pairing needs a plain
  * personal-sign over an arbitrary challenge, which `AgentAuthority` doesn't
  * expose (deliberately — see that port's own doc comment) and Circle's
  * Developer-Controlled Wallets signing surface this codebase talks to is
@@ -141,17 +142,19 @@ function buildTelemetryClient(config: SolverEntrypointConfig['telemetry']): Tele
  * separate work, not a gap in this call — see `WP-INTENT-MARKET.md` §7's own
  * open question on whether Circle Agent Wallets become mandatory here.
  */
+/** Pairing and heartbeats need a personal-sign; both the local signer and the Circle Agent Wallet have one. */
+function canSignMessages(authority: AgentAuthority): authority is AgentAuthority & { signMessage(message: string): Promise<`0x${string}`> } {
+  return typeof (authority as { signMessage?: unknown }).signMessage === 'function';
+}
+
 export function pairAllVaultsInBackground(
   config: SolverEntrypointConfig,
   authority: AgentAuthority,
 ): void {
   if (!config.telemetry.enabled) return;
 
-  if (!(authority instanceof LocalAgentSigner)) {
-    console.warn(
-      '[telemetry] pairing skipped: no personal-sign pairing path exists yet for ' +
-        `${config.signerAuthority.mode === 'circle' ? 'a Circle Agent Wallet' : 'this signer'}.`,
-    );
+  if (!canSignMessages(authority)) {
+    console.warn('[telemetry] pairing skipped: this signer cannot personal-sign the relay challenge.');
     return;
   }
 
@@ -186,7 +189,7 @@ export function startHeartbeats(
   telemetry: TelemetryClient,
   options: { readonly intervalMs?: number; readonly clock?: () => number } = {},
 ): () => void {
-  if (!config.telemetry.enabled || !(authority instanceof LocalAgentSigner)) return () => {};
+  if (!config.telemetry.enabled || !canSignMessages(authority)) return () => {};
   const clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
   const beat = () => {
     const at = clock();

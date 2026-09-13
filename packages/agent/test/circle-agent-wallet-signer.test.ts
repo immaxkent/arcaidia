@@ -34,7 +34,10 @@ async function realSignatureFor(auth: FillAuthorization): Promise<`0x${string}`>
 }
 
 function fakeClient(signature: string | undefined): CircleSigningClient {
-  return { signTypedData: vi.fn().mockResolvedValue({ data: { signature } }) };
+  return {
+    signTypedData: vi.fn().mockResolvedValue({ data: { signature } }),
+    signMessage: vi.fn().mockResolvedValue({ data: { signature } }),
+  };
 }
 
 describe('CircleAgentWalletSigner', () => {
@@ -106,11 +109,29 @@ describe('CircleAgentWalletSigner', () => {
   it('propagates a network/API error from the client rather than swallowing it', async () => {
     const client: CircleSigningClient = {
       signTypedData: vi.fn().mockRejectedValue(new Error('Circle API unreachable')),
+      signMessage: vi.fn().mockRejectedValue(new Error('Circle API unreachable')),
     };
     const signer = new CircleAgentWalletSigner(client, WALLET_ADDRESS, WALLET_ID);
 
     await expect(signer.signFillAuthorization(authorization, domain)).rejects.toThrow(
       'Circle API unreachable',
     );
+  });
+
+  it('personal-signs a relay pairing challenge through Circle and returns the signature verbatim', async () => {
+    const account = privateKeyToAccount(WALLET_KEY);
+    const signature = await account.signMessage({ message: 'arcaidia pairing challenge' });
+    const client: CircleSigningClient = {
+      signTypedData: vi.fn(),
+      signMessage: vi.fn().mockResolvedValue({ data: { signature } }),
+    };
+    const signer = new CircleAgentWalletSigner(client, WALLET_ADDRESS, WALLET_ID);
+    expect(await signer.signMessage('arcaidia pairing challenge')).toBe(signature);
+    expect(client.signMessage).toHaveBeenCalledWith({ walletId: WALLET_ID, message: 'arcaidia pairing challenge' });
+  });
+
+  it('refuses a malformed personal-sign signature', async () => {
+    const signer = new CircleAgentWalletSigner(fakeClient('0xnope'), WALLET_ADDRESS, WALLET_ID);
+    await expect(signer.signMessage('x')).rejects.toThrow(/unexpected format/);
   });
 });

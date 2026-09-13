@@ -251,8 +251,8 @@ describe('pairAllVaultsInBackground', () => {
     expect(challengeCalls).toHaveLength(2); // one per configured chain
   });
 
-  it('skips pairing entirely for a Circle Agent Wallet signer, without throwing', async () => {
-    const fetchSpy = vi.fn();
+  it('pairs a Circle Agent Wallet signer too — Circle personal-signs the challenge — without throwing', async () => {
+    const fetchSpy = vi.fn(async () => new Response(null, { status: 503 }));
     vi.stubGlobal('fetch', fetchSpy);
 
     const built = { ...circleConfig(), telemetry: { enabled: true as const, relayUrl: 'https://relay.example' } };
@@ -261,6 +261,17 @@ describe('pairAllVaultsInBackground', () => {
     expect(() => pairAllVaultsInBackground(built, deps.authority)).not.toThrow();
     await flushMicrotasks();
 
+    // One challenge request per configured chain reached the relay.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips pairing, without throwing, for an authority that cannot personal-sign', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const built = { ...config(), telemetry: { enabled: true as const, relayUrl: 'https://relay.example' } };
+    const noSign = { address: privateKeyToAccount(SIGNER_KEY).address, signFillAuthorization: vi.fn() };
+    expect(() => pairAllVaultsInBackground(built, noSign as never)).not.toThrow();
+    await flushMicrotasks();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -325,10 +336,18 @@ describe('startHeartbeats (WP-18.2 — "solver online" on its own clock)', () =>
     expect(telemetry.heartbeat).not.toHaveBeenCalled();
   });
 
-  it('sends nothing for a signer that cannot have paired (no personal-sign path), so the relay never sees a 401 storm', () => {
+  it('beats for a Circle Agent Wallet signer as its own address — it can pair, so it heartbeats', () => {
     const telemetry = { reportStage: vi.fn(), heartbeat: vi.fn() };
     const circle = buildSolverDependencies({ ...circleConfig(), telemetry: telemetryOn }, { log: new InMemoryDecisionLog() });
-    startHeartbeats({ ...circleConfig(), telemetry: telemetryOn }, circle.deps.authority, telemetry);
+    const stop = startHeartbeats({ ...circleConfig(), telemetry: telemetryOn }, circle.deps.authority, telemetry);
+    expect(telemetry.heartbeat).toHaveBeenCalledWith(expect.objectContaining({ operatorAddress: CIRCLE_ADDRESS }));
+    stop();
+  });
+
+  it('sends nothing for an authority that cannot personal-sign, so the relay never sees a 401 storm', () => {
+    const telemetry = { reportStage: vi.fn(), heartbeat: vi.fn() };
+    const noSign = { address: privateKeyToAccount(SIGNER_KEY).address, signFillAuthorization: vi.fn() };
+    startHeartbeats(config({ telemetry: telemetryOn }), noSign as never, telemetry);
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2);
     expect(telemetry.heartbeat).not.toHaveBeenCalled();
   });
