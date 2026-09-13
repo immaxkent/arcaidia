@@ -302,6 +302,22 @@ export function fundingPlan(rows: readonly Row[]): FundingLine[] {
     }));
 }
 
+/**
+ * What a watcher left running should speak up about: every wallet that is not healthy,
+ * and what is wrong with it. Two polls with the same signature say nothing new, so a
+ * long quiet run stays quiet and a change is the only thing that prints.
+ *
+ * Balances themselves are deliberately not part of it — they move on every poll, and a
+ * watcher that reprinted for a spent 0.0001 ETH would be the log spam it exists to avoid.
+ */
+export function alertSignature(rows: readonly Row[]): string {
+  return rows
+    .filter((row) => row.status !== 'ok')
+    .map((row) => `${row.label}|${row.holding.chain}|${row.holding.asset}|${row.status}`)
+    .sort()
+    .join(',');
+}
+
 // --- report ----------------------------------------------------------------
 
 const MARK: Record<Status, string> = { ok: 'ok', low: 'LOW', critical: 'CRIT', unknown: '??' };

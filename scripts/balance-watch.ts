@@ -4,6 +4,7 @@
  *
  *   pnpm balances            # redraws every 60s until you stop it
  *   pnpm balances --once     # one report, for a shell or a cron
+ *   pnpm balances --quiet    # print only when something crosses a threshold
  *   pnpm balances --json     # the funding plan only; what fund-bots.sh reads
  *
  * The roster, the thresholds and the table live in bot-balances.ts, which is pure and
@@ -28,6 +29,7 @@ import { promisify } from 'node:util';
 import {
   CHAINS,
   ROSTER,
+  alertSignature,
   formatReport,
   fundingPlan,
   keysFrom,
@@ -209,12 +211,17 @@ async function main(): Promise<void> {
     return;
   }
 
+  const quiet = argv.includes('--quiet');
   const colour = process.stdout.isTTY === true;
   const draw = (rows: readonly Row[]): void => {
     const report = formatReport(rows, { colour, at: new Date() });
     const notes = skipped.map((note) => `  (skipped) ${note}`);
-    const footer = once ? [] : ['', `refreshing every ${intervalSeconds(argv)}s — ctrl-c to stop`];
-    if (!once && colour) process.stdout.write(`${String.fromCharCode(27)}[2J${String.fromCharCode(27)}[H`);
+    const footer = once
+      ? []
+      : ['', quiet
+          ? `watching every ${intervalSeconds(argv)}s; prints again when something crosses a threshold`
+          : `refreshing every ${intervalSeconds(argv)}s - ctrl-c to stop`];
+    if (!once && !quiet && colour) process.stdout.write(`${String.fromCharCode(27)}[2J${String.fromCharCode(27)}[H`);
     console.log([report, ...(notes.length > 0 ? ['', ...notes] : []), ...footer].join('\n'));
   };
 
@@ -226,9 +233,20 @@ async function main(): Promise<void> {
   }
 
   const every = intervalSeconds(argv) * 1000;
+  let lastAlert = alertSignature(first);
   for (;;) {
     await sleep(every);
-    draw(await poll());
+    const rows = await poll();
+    // In quiet mode the first report above is the baseline; after it, only a wallet
+    // crossing a threshold is worth a line. Left running for days, that stays readable.
+    if (!quiet) {
+      draw(rows);
+      continue;
+    }
+    const alert = alertSignature(rows);
+    if (alert === lastAlert) continue;
+    lastAlert = alert;
+    draw(rows);
   }
 }
 

@@ -12,6 +12,7 @@ import {
   parseEnvFile,
   parseUnits,
   worst,
+  alertSignature,
   type BotSpec,
   type Holding,
   type Row,
@@ -140,6 +141,42 @@ describe('fundingPlan', () => {
       { kind: 'erc20', token: '0xUSDC' },
       { kind: 'native' },
     ]);
+  });
+});
+
+describe('alertSignature', () => {
+  it('is empty while everything is healthy', () => {
+    expect(alertSignature([row(GAS, parseUnits('1', 18))])).toBe('');
+  });
+
+  /** A balance that moved but stayed healthy must not make the watcher speak twice. */
+  it('does not change when only the balances move', () => {
+    const before = alertSignature([row(GAS, parseUnits('1', 18)), row(GAS, parseUnits('0.008', 18), 'thin')]);
+    const after = alertSignature([row(GAS, parseUnits('0.9', 18)), row(GAS, parseUnits('0.007', 18), 'thin')]);
+    expect(after).toBe(before);
+  });
+
+  it('changes when a wallet crosses a threshold', () => {
+    const low = alertSignature([row(GAS, parseUnits('0.008', 18), 'thin')]);
+    const critical = alertSignature([row(GAS, parseUnits('0.001', 18), 'thin')]);
+    expect(critical).not.toBe(low);
+  });
+
+  it('changes when another wallet joins the unhealthy set', () => {
+    const one = alertSignature([row(GAS, 0n, 'a')]);
+    const two = alertSignature([row(GAS, 0n, 'a'), row(GAS, 0n, 'b')]);
+    expect(two).not.toBe(one);
+  });
+
+  /** Row order is an accident of how the polls were batched, not a change worth printing. */
+  it('ignores the order rows arrive in', () => {
+    const a = row(GAS, 0n, 'a');
+    const b = row(USDC, 0n, 'b');
+    expect(alertSignature([a, b])).toBe(alertSignature([b, a]));
+  });
+
+  it('notes a wallet that became unreadable', () => {
+    expect(alertSignature([row(GAS, null, 'offline', 'timeout')])).toContain('unknown');
   });
 });
 
