@@ -17,37 +17,41 @@ function nestResponse(rows: unknown[]) {
 beforeEach(() => vi.unstubAllGlobals());
 afterEach(() => vi.unstubAllGlobals());
 
-describe("readVaultAggregates (WP-23)", () => {
-  it("reads fill_count from vault and total_fees_earned from protocol_state, correctly parsed", async () => {
+vi.mock("@/lib/arcaidia/chain-history", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/arcaidia/chain-history")>();
+  return { ...original, fillsFromChain: vi.fn(async () => { throw new Error("rpc down"); }) };
+});
+import { fillsFromChain } from "@/lib/arcaidia/chain-history";
+
+describe("readVaultAggregates (per vault: fills, fees, volume)", () => {
+  it("reads fill_count and total_fees_earned from the vault's own row, and volume as the sum of its fills", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         const sql = decodeSql(url);
-        if (sql.includes("FROM vault")) {
+        if (sql.includes("FROM vaults")) {
           expect(sql).toContain(VAULT.toLowerCase());
-          return nestResponse([{ fill_count: 7 }]);
+          return nestResponse([{ fill_count: 7, total_fees_earned: "123456" }]);
         }
-        if (sql.includes("FROM protocol_state")) return nestResponse([{ total_fees_earned: "123456" }]);
+        if (sql.includes("SUM(output_amount)")) return nestResponse([{ total_volume: "5550000" }]);
         throw new Error(`unexpected query: ${sql}`);
       }),
     );
-
-    const result = await readVaultAggregates(ARC_TESTNET, VAULT);
-    expect(result).toEqual({ successfulFillCount: 7, lifetimeFees: 123_456n });
+    expect(await readVaultAggregates(ARC_TESTNET, VAULT)).toEqual({ successfulFillCount: 7, lifetimeFees: 123_456n, lifetimeVolume: 5_550_000n });
   });
 
-  it("degrades to null fields, never throws, when the Nest is unreachable", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 500 })));
-
-    const result = await readVaultAggregates(ARC_TESTNET, VAULT);
-    expect(result).toEqual({ successfulFillCount: null, lifetimeFees: null });
-  });
-
-  it("reports null, not zero, when the vault has never been indexed", async () => {
+  it("falls back to the vault's FastFilled events when the Nest has no row for it", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => nestResponse([])));
+    vi.mocked(fillsFromChain).mockResolvedValueOnce([
+      { intentId: `0x${"11".repeat(32)}`, vault: VAULT, recipient: VAULT, signer: VAULT, inputAmount: 2_000_000n, outputAmount: 1_990_000n, feeAmount: 10_000n, feeBps: 50, txHash: `0x${"22".repeat(32)}`, blockNumber: 1n, timestamp: 1 },
+      { intentId: `0x${"33".repeat(32)}`, vault: VAULT, recipient: VAULT, signer: VAULT, inputAmount: 1_000_000n, outputAmount: 995_000n, feeAmount: 5_000n, feeBps: 50, txHash: `0x${"44".repeat(32)}`, blockNumber: 2n, timestamp: 2 },
+    ]);
+    expect(await readVaultAggregates(ARC_TESTNET, VAULT)).toEqual({ successfulFillCount: 2, lifetimeFees: 15_000n, lifetimeVolume: 2_985_000n });
+  });
 
-    const result = await readVaultAggregates(ARC_TESTNET, VAULT);
-    expect(result).toEqual({ successfulFillCount: null, lifetimeFees: null });
+  it("degrades to null fields, never throws, when neither the Nest nor the chain can answer", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 500 })));
+    expect(await readVaultAggregates(ARC_TESTNET, VAULT)).toEqual({ successfulFillCount: null, lifetimeFees: null, lifetimeVolume: null });
   });
 });
 

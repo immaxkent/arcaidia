@@ -189,6 +189,8 @@ describe('GraphSettlementDiscovery', () => {
 class FakeNestClient implements NestQueryClient {
   readonly calls: Array<{ endpoint: string; sql: string }> = [];
   responses = new Map<string, Record<string, unknown>[]>();
+  /** Answers to `FROM settlements` queries, per endpoint — empty unless a test says otherwise. */
+  settlements = new Map<string, Array<{ intent_id: string }>>();
   failWith = new Map<string, Error>();
   flags: Partial<Pick<NestQueryResult<unknown>, 'truncated' | 'degraded'>> = {};
 
@@ -196,6 +198,10 @@ class FakeNestClient implements NestQueryClient {
     this.calls.push({ endpoint, sql });
     const failure = this.failWith.get(endpoint);
     if (failure) throw failure;
+    if (/FROM settlements/.test(sql)) {
+      const rows = (this.settlements.get(endpoint) ?? []) as T[];
+      return { rows, count: rows.length, truncated: false, degraded: false };
+    }
     const rows = (this.responses.get(endpoint) ?? []) as T[];
     return { rows, count: rows.length, truncated: this.flags.truncated ?? false, degraded: this.flags.degraded ?? false };
   }
@@ -234,8 +240,10 @@ describe('NestSettlementDiscovery', () => {
 
     const records = await discovery.pendingSettlements();
 
-    expect(client.calls.map((c) => c.endpoint)).toEqual([SEPOLIA_ENDPOINT, ARC_ENDPOINT]);
+    // Two pending-intent reads (one per source), then the destination's settlements for the candidates.
+    expect(client.calls.map((c) => c.endpoint)).toEqual([SEPOLIA_ENDPOINT, ARC_ENDPOINT, ARC_ENDPOINT]);
     expect(client.calls[0]!.sql).toContain("FROM intents WHERE canonical_status = 'PENDING'");
+    expect(client.calls[2]!.sql).toContain('FROM settlements WHERE intent_id IN');
     expect(records).toHaveLength(1);
     const raw = rawIntent(1);
     expect(records[0]).toEqual({
@@ -253,6 +261,23 @@ describe('NestSettlementDiscovery', () => {
       amount: USDC(1_000),
       fallbackRecipient: raw.recipient,
     });
+  });
+
+  it('drops an intent the destination Nest already shows settled — the source view never learns that', async () => {
+    const client = new FakeNestClient();
+    client.responses.set(SEPOLIA_ENDPOINT, [nestRow(1), nestRow(2)]);
+    client.settlements.set(ARC_ENDPOINT, [{ intent_id: rawIntent(1).id.toLowerCase() }]);
+    const discovery = new NestSettlementDiscovery({
+      sources: [
+        { chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT },
+        { chainId: ARC, endpoint: ARC_ENDPOINT },
+      ],
+      client,
+      domainFor,
+    });
+    const records = await discovery.pendingSettlements();
+    expect(records.map((r) => r.reference.intentId)).toEqual([rawIntent(2).id]);
+    expect(client.calls.some((c) => c.endpoint === ARC_ENDPOINT && /FROM settlements WHERE intent_id IN/.test(c.sql))).toBe(true);
   });
 
   it('leaves hookData off a v1 row (no intent_version), so it settles by the reporter path', async () => {

@@ -630,7 +630,8 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                   {g.chains.map((c) => (
                     <span key={c.chainId} className="num mt-1 block text-[11px] text-text-dim">
                       {CHAINS[c.chainId]?.short}: {c.availableLiquidity !== null ? `${formatUsdc(c.availableLiquidity)} USDC available` : "—"} · fee{" "}
-                      {c.currentFeeBps !== null ? formatBps(c.currentFeeBps) : "—"}
+                      {c.currentFeeBps !== null ? formatBps(c.currentFeeBps) : "—"} · {c.successfulFillCount ?? "—"} fills · volume{" "}
+                      {c.lifetimeVolume !== null ? formatUsdc(c.lifetimeVolume) : "—"} · fees {c.lifetimeFees !== null ? formatUsdc(c.lifetimeFees) : "—"}
                     </span>
                   ))}
                   <span className="num mt-1 block text-[10px] uppercase tracking-wide text-acid">Continue with this vault →</span>

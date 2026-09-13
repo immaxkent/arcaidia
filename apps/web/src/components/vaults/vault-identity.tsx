@@ -21,8 +21,11 @@ export function vaultSignature(label: string | null | undefined, address: string
     h ^= seed.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  const hue = h % 360;
-  const hue2 = (hue + 70 + ((h >>> 9) % 160)) % 360;
+  // Golden-angle spread: neighbouring hashes land far apart on the wheel, so a handful of
+  // vaults never share a colour family by accident (plain `h % 360` put two of the first three
+  // within 20° of each other).
+  const hue = Math.round(((h % 4096) * 137.508) % 360);
+  const hue2 = (hue + 150 + ((h >>> 12) % 60)) % 360;
   const angle = (h >>> 17) % 360;
   const seconds = 7 + ((h >>> 22) % 8);
   return {

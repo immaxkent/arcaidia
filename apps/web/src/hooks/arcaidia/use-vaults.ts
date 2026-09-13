@@ -27,7 +27,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { feeBpsAt, type FeePolicy } from "@arcaidia/domain";
 import { solverVaultAbi } from "@/lib/arcaidia/abis";
-import { factoryVaultsFromChain, vaultLabelsFromChain } from "@/lib/arcaidia/chain-history";
+import { factoryVaultsFromChain, fillsFromChain, vaultLabelsFromChain } from "@/lib/arcaidia/chain-history";
 import { chainConfig } from "@/lib/arcaidia/config";
 import {
   errorState,
@@ -42,33 +42,47 @@ import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 interface VaultAggregates {
   successfulFillCount: number | null;
   lifetimeFees: bigint | null;
+  lifetimeVolume: bigint | null;
 }
 
+/**
+ * Per-vault lifetime figures: the Nest's `vaults` row (`fill_count`, `total_fees_earned`) plus
+ * the sum of its winning fills' `output_amount`; when the Nest has no row for the vault (or is
+ * unreachable) the vault's own `FastFilled` events on chain answer instead.
+ */
 export async function readVaultAggregates(
   chainId: number,
   vaultAddress: Address,
 ): Promise<VaultAggregates> {
   const endpoint = chainConfig(chainId)?.subgraphUrl;
-  if (!endpoint) return { successfulFillCount: null, lifetimeFees: null };
-
+  if (endpoint) {
+    try {
+      const idLiteral = sqlHex20Literal(vaultAddress);
+      const [vaultResult, volumeResult] = await Promise.all([
+        queryVaultRow<{ fill_count: number; total_fees_earned: string }>(endpoint, "fill_count, total_fees_earned", idLiteral),
+        queryNest<{ total_volume: string | null }>(endpoint, `SELECT SUM(output_amount) AS total_volume FROM fills WHERE vault = ${idLiteral}`),
+      ]);
+      const row = vaultResult.rows[0];
+      if (row) {
+        return {
+          successfulFillCount: Number(row.fill_count),
+          lifetimeFees: BigInt(row.total_fees_earned),
+          lifetimeVolume: volumeResult.rows[0]?.total_volume != null ? BigInt(volumeResult.rows[0].total_volume) : 0n,
+        };
+      }
+    } catch {
+      // Fall through to the chain.
+    }
+  }
   try {
-    const idLiteral = sqlHex20Literal(vaultAddress);
-    const [vaultResult, protocolStateResult] = await Promise.all([
-      queryVaultRow<{ fill_count: number }>(endpoint, "fill_count", idLiteral),
-      queryNest<{ total_fees_earned: string }>(
-        endpoint,
-        "SELECT total_fees_earned FROM protocol_state WHERE id = 'arcaidia'",
-      ),
-    ]);
-
+    const fills = await fillsFromChain(chainId, { vaults: [vaultAddress] });
     return {
-      successfulFillCount: vaultResult.rows[0] ? Number(vaultResult.rows[0].fill_count) : null,
-      lifetimeFees: protocolStateResult.rows[0] ? BigInt(protocolStateResult.rows[0].total_fees_earned) : null,
+      successfulFillCount: fills.length,
+      lifetimeFees: fills.reduce((sum, f) => sum + f.feeAmount, 0n),
+      lifetimeVolume: fills.reduce((sum, f) => sum + f.outputAmount, 0n),
     };
   } catch {
-    // Indexer hiccup degrades to unavailable for these two fields only —
-    // never fabricated, and never taken down the whole vault row with it.
-    return { successfulFillCount: null, lifetimeFees: null };
+    return { successfulFillCount: null, lifetimeFees: null, lifetimeVolume: null };
   }
 }
 
@@ -90,6 +104,8 @@ export interface VaultDirectoryRow {
   feePolicy: FeePolicy | null;
   successfulFillCount: number | null;
   lifetimeFees: bigint | null;
+  /** Sum of every winning fill's output, in USDC units. */
+  lifetimeVolume: bigint | null;
   status: VaultStatus | null;
   authorisedSolver: Address | null;
   /** Telemetry pairing only — NOT authorisation. */
@@ -173,6 +189,7 @@ async function readVaultRow(
     feePolicy,
     successfulFillCount: aggregates.successfulFillCount,
     lifetimeFees: aggregates.lifetimeFees,
+    lifetimeVolume: aggregates.lifetimeVolume,
     status: paused ? "PAUSED" : "ACTIVE",
     authorisedSolver: null,
     telemetryPaired: null,

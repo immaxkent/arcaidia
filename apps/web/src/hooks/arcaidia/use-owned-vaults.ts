@@ -28,6 +28,9 @@ export interface OwnedVaultRow {
   capabilities: Record<VaultCapability, boolean> | null;
   /** D12: whether the vault points at the protocol's current settlement receiver. */
   settlementReceiverCurrent: boolean | null;
+  successfulFillCount: number | null;
+  lifetimeFees: bigint | null;
+  lifetimeVolume: bigint | null;
 }
 
 function toOwnedRow(row: VaultDirectoryRow): OwnedVaultRow {
@@ -45,6 +48,9 @@ function toOwnedRow(row: VaultDirectoryRow): OwnedVaultRow {
     solverKind: null,
     capabilities: vaultCapabilitiesFromAbi(solverVaultAbi as unknown as ReadonlyArray<{ type: string; name?: string }>),
     settlementReceiverCurrent: row.settlementReceiverCurrent,
+    successfulFillCount: row.successfulFillCount,
+    lifetimeFees: row.lifetimeFees,
+    lifetimeVolume: row.lifetimeVolume,
   };
 }
 

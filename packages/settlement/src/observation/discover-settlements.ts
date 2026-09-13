@@ -191,7 +191,32 @@ export class NestSettlementDiscovery implements SettlementDiscoveryProvider {
         return result.rows.map((raw) => this.toRecord(raw, source));
       }),
     );
-    return perChain.flat();
+    const candidates = perChain.flat();
+
+    // A settlement is recorded on the *destination* chain, which the source chain's `intents`
+    // view never sees — so `canonical_status` there stays PENDING forever. Ask each destination
+    // Nest which of these it has already settled (by any receiver, current or retired) and drop
+    // them; what remains is genuinely unsettled work.
+    const byDestination = new Map<number, SettlementRecord[]>();
+    for (const record of candidates) {
+      const list = byDestination.get(record.reference.destinationChainId) ?? [];
+      list.push(record);
+      byDestination.set(record.reference.destinationChainId, list);
+    }
+    const settled = new Set<string>();
+    await Promise.all(
+      [...byDestination.entries()].map(async ([destinationChainId, records]) => {
+        const destination = this.sources.find((s) => s.chainId === destinationChainId);
+        if (!destination) return;
+        const ids = records.map((r) => `'${r.reference.intentId.toLowerCase()}'`).join(', ');
+        const result = await this.client.query<{ intent_id: string }>(
+          destination.endpoint,
+          `SELECT intent_id FROM settlements WHERE intent_id IN (${ids})`,
+        );
+        for (const row of result.rows) settled.add(row.intent_id.toLowerCase());
+      }),
+    );
+    return candidates.filter((r) => !settled.has(r.reference.intentId.toLowerCase()));
   }
 
   private toRecord(raw: RawNestIntent, _source: SettlementChainSource): SettlementRecord {
