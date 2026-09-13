@@ -160,9 +160,25 @@ async function fetchIntentRowsFromNest(
       settlementByIntentId.set(settlement.intent_id, settlement);
   }
 
+  // The indexer may lag the current settlement receiver (D12: a receiver it was not yet told
+  // about). For anything it shows unsettled, the receiver's own events on chain are the answer.
+  await Promise.all(
+    [...idsByDestination.entries()].map(async ([destinationChainId, ids]) => {
+      const missing = ids.filter((id) => !settlementByIntentId.has(id) && !settlementByIntentId.has(id.toLowerCase()));
+      if (missing.length === 0) return;
+      try {
+        for (const s of await settlementsFromChain(destinationChainId, missing)) {
+          settlementByIntentId.set(s.intentId, { id: s.intentId, intent_id: s.intentId, outcome: s.outcome, amount: s.amount.toString(), timestamp: s.timestamp, tx_hash: s.txHash });
+        }
+      } catch {
+        // Chain read failed — the indexer's view stands.
+      }
+    }),
+  );
+
   return rawIntents.map((raw): IntentHistoryRow => {
-    const fill = fillByIntentId.get(raw.id) ?? null;
-    const settlement = settlementByIntentId.get(raw.id) ?? null;
+    const fill = fillByIntentId.get(raw.id) ?? fillByIntentId.get(raw.id.toLowerCase()) ?? null;
+    const settlement = settlementByIntentId.get(raw.id) ?? settlementByIntentId.get(raw.id.toLowerCase()) ?? null;
     const destinationChainId = Number(raw.destination_chain_id);
     const createdAt = raw.created_at_timestamp;
 

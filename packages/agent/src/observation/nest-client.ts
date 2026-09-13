@@ -35,13 +35,33 @@ interface RawReadyResponse {
 }
 
 /** A `fetch`-based client. Errors are surfaced, never swallowed — see the provider. */
+const RETRYABLE_STATUS = new Set([429, 503]);
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 300;
+
+/**
+ * The Nest enforces a small concurrency cap and answers `503 server busy` (or `429`) when a
+ * handful of solvers and the site poll at once — confirmed live 2026-09-13, on `/ready` as much
+ * as `/sql`. A transient rejection retried a moment later is not an outage, so both paths retry
+ * briefly before giving up; a persistent one still surfaces as the error it is.
+ */
+async function fetchWithRetry(fetchImpl: typeof fetch, url: string): Promise<Response> {
+  let last: Response | undefined;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    last = await fetchImpl(url);
+    if (!RETRYABLE_STATUS.has(last.status) || attempt === MAX_ATTEMPTS) return last;
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+  }
+  return last!;
+}
+
 export class FetchNestQueryClient implements NestQueryClient {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
   async query<T>(endpoint: string, sql: string): Promise<NestQueryResult<T>> {
     const url = `${endpoint.replace(/\/+$/, '')}/sql?q=${encodeURIComponent(sql)}`;
-    const response = await this.fetchImpl(url);
-    const body = (await response.json()) as RawNestResponse<T>;
+    const response = await fetchWithRetry(this.fetchImpl, url);
+    const body = (await response.json().catch(() => ({}))) as RawNestResponse<T>;
 
     if (!response.ok) {
       throw new Error(`Nest query failed: ${response.status} ${body.error ?? response.statusText}`);
@@ -56,7 +76,7 @@ export class FetchNestQueryClient implements NestQueryClient {
   }
 
   async ready(endpoint: string): Promise<{ lastPollUnixtime: number; ready: boolean }> {
-    const response = await this.fetchImpl(`${endpoint.replace(/\/+$/, '')}/ready`);
+    const response = await fetchWithRetry(this.fetchImpl, `${endpoint.replace(/\/+$/, '')}/ready`);
     if (!response.ok) {
       throw new Error(`Nest /ready failed: ${response.status} ${response.statusText}`);
     }

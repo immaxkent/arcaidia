@@ -5,6 +5,14 @@ import type { ReactNode } from "react";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA } from "@/lib/arcaidia/types";
 import { useAllTransfers, useIntentHistory } from "./use-intent-history";
 
+// The chain is a seam here (covered in lib/arcaidia/chain-history.test.ts): the Nest join is
+// what these tests exercise, so the chain answers nothing.
+vi.mock("@/lib/arcaidia/chain-history", () => ({
+  intentsFromChain: vi.fn(async () => []),
+  fillsFromChain: vi.fn(async () => []),
+  settlementsFromChain: vi.fn(async () => []),
+}));
+
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;

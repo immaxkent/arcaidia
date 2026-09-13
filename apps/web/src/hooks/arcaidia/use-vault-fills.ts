@@ -91,11 +91,24 @@ async function fetchVaultFillsFromNest(chainId: number, vaultAddress: Address): 
       : Promise.resolve({ rows: [] as RawIntent[], count: 0, truncated: false, degraded: false }),
   ]);
 
-  const settlementByIntentId = new Map(settlements.map((s) => [s.intent_id, s]));
+  const settlementByIntentId = new Map(settlements.map((s) => [s.intent_id.toLowerCase(), s]));
   const intentByIntentId = new Map(sourceIntents.rows.map((i) => [i.id, i]));
 
+  // D12: settlements the indexer has not seen yet (a receiver it was not told about) — the
+  // current receiver's own events on chain fill the gap.
+  const unsettled = ids.filter((id) => !settlementByIntentId.has(id.toLowerCase()));
+  if (unsettled.length > 0) {
+    try {
+      for (const s of await settlementsFromChain(chainId, unsettled)) {
+        settlementByIntentId.set(s.intentId.toLowerCase(), { intent_id: s.intentId, outcome: s.outcome, amount: s.amount.toString(), timestamp: s.timestamp, tx_hash: s.txHash });
+      }
+    } catch {
+      // Chain read failed — the indexer's view stands.
+    }
+  }
+
   return fills.map((fill): FillRow => {
-    const settlement = settlementByIntentId.get(fill.intent_id) ?? null;
+    const settlement = settlementByIntentId.get(fill.intent_id.toLowerCase()) ?? null;
     const sourceIntent = intentByIntentId.get(fill.intent_id) ?? null;
     const canonicalStatus: CanonicalStatus = settlement ? "SETTLED" : "PENDING";
 

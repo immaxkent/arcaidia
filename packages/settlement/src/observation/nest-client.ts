@@ -27,13 +27,28 @@ interface RawNestResponse<T> {
 }
 
 /** A `fetch`-based client. Errors are surfaced, never swallowed — see the discovery provider. */
+const RETRYABLE_STATUS = new Set([429, 503]);
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 300;
+
+/** Same brief retry as the agent's client: the Nest's concurrency cap answers 503 under load. */
+async function fetchWithRetry(fetchImpl: typeof fetch, url: string): Promise<Response> {
+  let last: Response | undefined;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    last = await fetchImpl(url);
+    if (!RETRYABLE_STATUS.has(last.status) || attempt === MAX_ATTEMPTS) return last;
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+  }
+  return last!;
+}
+
 export class FetchNestQueryClient implements NestQueryClient {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
   async query<T>(endpoint: string, sql: string): Promise<NestQueryResult<T>> {
     const url = `${endpoint.replace(/\/+$/, '')}/sql?q=${encodeURIComponent(sql)}`;
-    const response = await this.fetchImpl(url);
-    const body = (await response.json()) as RawNestResponse<T>;
+    const response = await fetchWithRetry(this.fetchImpl, url);
+    const body = (await response.json().catch(() => ({}))) as RawNestResponse<T>;
 
     if (!response.ok) {
       throw new Error(`Nest query failed: ${response.status} ${body.error ?? response.statusText}`);
