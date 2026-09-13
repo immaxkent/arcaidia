@@ -10,6 +10,7 @@
 
 export { ArcaidiaTools } from './tools.js';
 export type {
+  EcosystemReport,
   ArcaidiaToolOptions,
   VaultReport,
   SettlementReport,

@@ -68,6 +68,11 @@ export interface SolverEntrypointConfig {
    * for both chains: the committed defaults are Nest SQL endpoints, not GraphQL.
    */
   readonly observationSource: 'nest' | 'graph';
+  /**
+   * WP-33: the relay (or the WP-35 gateway) serving `/v1/intelligence/*`. Optional — unset is
+   * the baseline solver; set, it only ever decorates the decision narrative.
+   */
+  readonly intelligenceUrl: string | null;
 }
 
 export class ConfigError extends Error {}
@@ -202,6 +207,7 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
     chains: [chainConfig('ethereum-sepolia', env), chainConfig('arc-testnet', env)],
     telemetry: loadTelemetryConfig(env),
     observationSource,
+    intelligenceUrl: env.INTELLIGENCE_URL || null,
   };
 }
 

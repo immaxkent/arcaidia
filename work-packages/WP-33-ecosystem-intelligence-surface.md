@@ -8,25 +8,25 @@ payment, no Hedera, no contract change.
 
 ## Sub-tasks
 
-- [ ] **33.1 Types (from WP-24.6)** `EcosystemIntelligence`: `aggregateAvailableLiquidity`,
+- [x] **33.1 Types (from WP-24.6)** — plus `ChainIntelligence`, `VaultIntelligence`, `QuoteContext` (2026-09-12). `EcosystemIntelligence`: `aggregateAvailableLiquidity`,
       `aggregateUtilisationBps`, `feeDistribution` (per vault current fee + min/median/max),
       `outstandingIntentVolume`, `pendingCctpExposure`, `recentFillVelocity`,
       `recentSettlementLatency` (p50/p95), `liquidityConcentration` (HHI over vault liquidity),
       `estimatedOpportunitySize`, `scarcityScore`, `computedAt`, `sourceBlocks` per chain.
-- [ ] **33.2 Relay endpoints** (`GET`, CORS open): `/v1/intelligence/ecosystem`,
+- [x] **33.2 Relay endpoints** — `packages/relay/src/intelligence/{compute,service}.ts`, routes in `server.ts`, on by default (2026-09-12). (`GET`, CORS open): `/v1/intelligence/ecosystem`,
       `/v1/intelligence/chain/{chainId}`, `/v1/intelligence/vault/{chainId}/{vault}`,
       `/v1/intelligence/quote-context?amount&destinationChainId`. Computed from the Nest via the
       existing `NestQueryClient`, cached 10 s, every number real or `null` (DataState convention).
-- [ ] **33.3 Consumers.** `apps/web/use-market-intelligence.ts` wired to these (unpaid);
+- [x] **33.3 Consumers.** — web `useMarketIntelligence` → `/v1/intelligence/chain/{id}` (Liquidity page market state); agent `HttpIntelligenceProvider` behind `INTELLIGENCE_URL`; MCP `ecosystemIntelligence` (2026-09-12). `apps/web/use-market-intelligence.ts` wired to these (unpaid);
       `packages/agent` `HttpIntelligenceProvider` (optional; absent = baseline solver);
       `packages/mcp` gains one `ecosystem_intelligence` read-only tool.
-- [ ] **33.4 x402 readiness notes** in the relay README: the endpoints are stateless, idempotent,
+- [x] **33.4 x402 readiness notes** — `packages/relay/README.md` (2026-09-12). in the relay README: the endpoints are stateless, idempotent,
       and versioned under `/v1/`; the gateway (WP-35) wraps them with 402 + Hedera payment
       verification without changing their shape.
 
 ## Tests
 
-- [ ] Pure computation tests over fixture rows (each metric); endpoint tests with `FakeNestClient`;
+- [x] Pure computation tests over fixture rows (each metric); endpoint tests with `FakeNestClient`;
       solver test proving a failing/absent provider changes no verdict.
 
 ## Acceptance gate

@@ -352,6 +352,9 @@ importers:
 
   packages/relay:
     dependencies:
+      '@arcaidia/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@arcaidia/telemetry':
         specifier: workspace:*
         version: link:../telemetry

@@ -47,6 +47,7 @@ function config(overrides: Partial<SolverEntrypointConfig> = {}): SolverEntrypoi
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
     telemetry: { enabled: false },
     observationSource: 'nest',
+    intelligenceUrl: null,
     ...overrides,
   };
 }
@@ -379,5 +380,13 @@ describe('startRepairing — pairing survives a relay restart', () => {
     startRepairing(config(), new LocalAgentSigner(SIGNER_KEY), { intervalMs: 1_000 });
     await vi.advanceTimersByTimeAsync(3_000);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('intelligence provider (WP-33)', () => {
+  it('is absent by default and present only with INTELLIGENCE_URL — the baseline solver is unchanged', () => {
+    expect(buildSolverDependencies(config(), { log: new InMemoryDecisionLog() }).deps).not.toHaveProperty('intelligence');
+    const withIt = buildSolverDependencies(config({ intelligenceUrl: 'https://relay.example' }), { log: new InMemoryDecisionLog() });
+    expect(withIt.deps.intelligence).toBeDefined();
   });
 });

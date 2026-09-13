@@ -12,6 +12,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { AgentAuthority } from '@arcaidia/domain';
 import { HttpTelemetryClient, NoopTelemetryClient, pairWithRelay, type TelemetryClient } from '@arcaidia/telemetry';
 import { buildReceiptWaiters } from '../adapters/evm-clients.js';
+import { HttpIntelligenceProvider } from '../adapters/http-intelligence-provider.js';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
   buildCircleSigningClient,
@@ -288,6 +289,8 @@ export function buildSolverDependencies(
       authorizationTtlSeconds: config.authorizationTtlSeconds,
     },
     telemetry: buildTelemetryClient(config.telemetry),
+    // WP-33: narrative-only; absent = the baseline solver, byte for byte.
+    ...(config.intelligenceUrl ? { intelligence: new HttpIntelligenceProvider({ baseUrl: config.intelligenceUrl }) } : {}),
     // WP-17.1's per-instance vault, now applied where fills are *submitted* too (WP-29).
     vaults: new Map(config.chains.map((chain) => [chain.chainId, chain.liquidityVault])),
   };

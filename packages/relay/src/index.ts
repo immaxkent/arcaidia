@@ -26,3 +26,20 @@ export {
 export { filterForVault, filterKnownParticipants } from './vault-flows/filter.js';
 export { VaultFlowsService } from './vault-flows/service.js';
 export type { VaultFlowDeposit, VaultFlowEvent, VaultFlowSource, VaultFlowWithdraw } from './vault-flows/types.js';
+export { IntelligenceService, type IntelligenceServiceOptions, type IntelligenceSource } from './intelligence/service.js';
+export {
+  computeEcosystem,
+  computeChain,
+  computeVault,
+  computeQuoteContext,
+  availableOf,
+  fillCapacityOf,
+  opportunitySize,
+  scarcityBps,
+  concentrationBps,
+  percentile,
+  type IntelligenceInputs,
+  type VaultRow,
+  type PendingIntentRow,
+  type FillRow,
+} from './intelligence/compute.js';

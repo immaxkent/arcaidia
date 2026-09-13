@@ -8,6 +8,19 @@ import { useVaultFills } from "./use-vault-fills";
 
 // The chain fallback is exercised on its own terms in lib/arcaidia/chain-history.test.ts; here
 // it is a seam, so each test states exactly what the chain would have answered.
+// These tests must not depend on a developer's local apps/web/.env: the chain fallback is
+// gated on an RPC URL being configured, so pin one here.
+vi.mock("@/lib/arcaidia/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/arcaidia/config")>();
+  return {
+    ...original,
+    chainConfig: (chainId: number) => {
+      const config = original.chainConfig(chainId);
+      return config ? { ...config, rpcUrl: config.rpcUrl ?? "http://rpc.test.invalid" } : null;
+    },
+  };
+});
+
 vi.mock("@/lib/arcaidia/chain-history", () => ({
   fillsFromChain: vi.fn(async () => {
     throw new Error("rpc down");
