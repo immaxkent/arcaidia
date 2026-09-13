@@ -25,6 +25,7 @@ import {
 } from "@/hooks/arcaidia/use-vaults";
 import { useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
 import { useMarketIntelligence } from "@/hooks/arcaidia/use-market-intelligence";
+import { VaultName } from "@/components/vaults/vault-identity";
 import { useEcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
 import { UtilisationChart } from "@/components/solver/utilisation-chart";
 
@@ -255,9 +256,7 @@ function LiquidityPage() {
                     >
                       <td className="px-4 py-3">
                         <span className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-text">
-                            {v.operatorLabel ?? truncateAddress(v.vaultAddress)}
-                          </span>
+                          <VaultName label={v.operatorLabel} address={v.vaultAddress} className="text-xs" />
                           <OperatorBadge type={v.operatorType} />
                           <ChainBadge chainId={v.chainId} />
                         </span>
@@ -346,7 +345,7 @@ function VaultDetail({
       <div className="flex flex-wrap items-start gap-3">
         <div>
           <h2 className="font-display text-3xl uppercase text-newsprint">
-            {vault.operatorLabel ?? truncateAddress(vault.vaultAddress)}
+            <VaultName label={vault.operatorLabel} address={vault.vaultAddress} size="lg" className="font-display text-3xl" />
           </h2>
           <p className="num mt-1 flex flex-wrap items-center gap-2 text-xs text-text-dim">
             <CopyValue value={vault.vaultAddress} label="vault address" />

@@ -24,6 +24,21 @@ vi.mock("./viem-clients", async () => {
         if (functionName === "vaults") return store.vaults[Number((args as bigint[])[0])];
         throw new Error(`unexpected read ${functionName}`);
       },
+      // Multicall3 over the same fake reads: the production code batches, the fake answers one by one.
+      multicall: async ({ contracts, allowFailure }: { contracts: Array<{ functionName: string; args?: unknown[] }>; allowFailure?: boolean }) => {
+        const results = await Promise.all(
+          contracts.map(async (c) => {
+            try {
+              const result = c.functionName === "vaultCount" ? BigInt(store.vaults.length) : c.functionName === "vaults" ? store.vaults[Number((c.args as bigint[])[0])] : (() => { throw new Error(`unexpected read ${c.functionName}`); })();
+              return allowFailure === false ? result : { status: "success", result };
+            } catch (error) {
+              if (allowFailure === false) throw error;
+              return { status: "failure", error };
+            }
+          }),
+        );
+        return results;
+      },
       getLogs: async (p: { address: string | string[]; event: AbiEvent; args?: Record<string, unknown>; fromBlock: bigint; toBlock: bigint }) => {
         store.getLogsCalls += 1;
         if (store.refuseWiderThan !== null && p.toBlock - p.fromBlock > store.refuseWiderThan) throw new Error("query returned more than 10000 results");
@@ -91,6 +106,8 @@ beforeEach(async () => {
   store.vaults = [VAULT_B, VAULT_C];
   const { resetBlockTimestampCache } = await import("./chain-logs");
   resetBlockTimestampCache();
+  // The label cache lives in localStorage and would otherwise leak between tests.
+  localStorage.clear();
 });
 afterEach(() => vi.restoreAllMocks());
 

@@ -22,6 +22,9 @@ export const arcTestnetChain: Chain = defineChain({
   name: CHAINS[ARC_TESTNET]?.name ?? "Arc Testnet",
   nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
   rpcUrls: { default: { http: [arcTestnetRpc] } },
+  // Canonical Multicall3, verified deployed on Arc testnet (2026-09-13) — lets the directory read
+  // every vault in one round trip instead of seven.
+  contracts: { multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" } },
   blockExplorers: {
     default: { name: "Arcscan", url: CHAINS[ARC_TESTNET]?.explorer ?? "https://testnet.arcscan.app" },
   },

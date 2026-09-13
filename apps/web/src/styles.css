@@ -368,3 +368,28 @@
 @media (prefers-reduced-motion: reduce) {
   .orb-spin, .orb-spin-reverse, .orb-pulse { animation: none; }
 }
+
+/* Vault signature (components/vaults/vault-identity.tsx): two hues from the vault's name, a fine
+   grid and a slow shimmer sweep. Hues arrive as --sig-h1/--sig-h2, angle and duration too. */
+@keyframes sigil-sweep {
+  from { background-position: -220% 0, 0 0, 0 0; }
+  to { background-position: 220% 0, 0 0, 0 0; }
+}
+@utility vault-sigil {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background-color: color-mix(in srgb, hsl(var(--sig-h1) 70% 30%) 55%, var(--void));
+  background-image:
+    linear-gradient(105deg, transparent 38%, hsl(var(--sig-h1) 95% 78% / 0.45) 50%, transparent 62%),
+    repeating-linear-gradient(90deg, hsl(var(--sig-h2) 70% 70% / 0.12) 0 1px, transparent 1px 6px),
+    linear-gradient(var(--sig-angle), hsl(var(--sig-h1) 80% 42% / 0.85), hsl(var(--sig-h2) 80% 40% / 0.85));
+  background-size: 260% 100%, auto, auto;
+  border-color: hsl(var(--sig-h1) 85% 65% / 0.75);
+  box-shadow: inset 0 0 0 1px hsl(var(--sig-h2) 80% 70% / 0.15), 0 0 10px hsl(var(--sig-h1) 90% 55% / 0.25);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+  animation: sigil-sweep var(--sig-dur, 9s) linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vault-sigil { animation: none; }
+}

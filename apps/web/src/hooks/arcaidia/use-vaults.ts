@@ -127,21 +127,33 @@ async function readVaultRow(
 ): Promise<VaultDirectoryRow> {
   const client = publicClientFor(chainId);
   if (!client) throw new Error("RPC not configured");
-  const read = (functionName: "owner" | "availableLiquidity" | "outstandingExposure" | "paused" | "currentFeeBps" | "feePolicy" | "settlementReceiver") =>
-    client.readContract({ address: vaultAddress, abi: solverVaultAbi, functionName });
-  const [owner, availableLiquidity, outstandingExposure, paused, rawFeeBps, rawPolicy, aggregates, receiver] = await Promise.all([
-    read("owner") as Promise<Address>,
-    read("availableLiquidity") as Promise<bigint>,
-    read("outstandingExposure") as Promise<bigint>,
-    read("paused") as Promise<boolean>,
-    // v2-only surface (D7). A vault that predates the fee policy (the retired v1 House Vault,
-    // until WP-31) reverts here; that degrades these two fields to null rather than hiding the
-    // vault — the liquidity/exposure/status reads are the load-bearing ones.
-    (read("currentFeeBps") as Promise<number>).catch(() => null),
-    (read("feePolicy") as Promise<unknown>).catch(() => null),
+  // One round trip for the seven reads (Multicall3 on both chains); a v2-only function reverting
+  // on an older vault degrades that field alone, exactly as the per-call version did.
+  const base = { address: vaultAddress, abi: solverVaultAbi } as const;
+  const [results, aggregates] = await Promise.all([
+    client.multicall({
+      allowFailure: true,
+      contracts: [
+        { ...base, functionName: "owner" },
+        { ...base, functionName: "availableLiquidity" },
+        { ...base, functionName: "outstandingExposure" },
+        { ...base, functionName: "paused" },
+        { ...base, functionName: "currentFeeBps" },
+        { ...base, functionName: "feePolicy" },
+        { ...base, functionName: "settlementReceiver" },
+      ],
+    }),
     readVaultAggregates(chainId, vaultAddress),
-    (read("settlementReceiver") as Promise<Address>).catch(() => null),
   ]);
+  const value = <T,>(i: number): T | null => (results[i]?.status === "success" ? (results[i]!.result as T) : null);
+  const owner = value<Address>(0);
+  const availableLiquidity = value<bigint>(1) ?? 0n;
+  const outstandingExposure = value<bigint>(2) ?? 0n;
+  const paused = value<boolean>(3) ?? false;
+  const rawFeeBps = value<number>(4);
+  const rawPolicy = value<unknown>(5);
+  const receiver = value<Address>(6);
+  if (results[0]?.status !== "success") throw new Error(`Vault ${vaultAddress} on chain ${chainId} did not answer owner()`);
   const currentReceiver = chainConfig(chainId)?.settlementReceiver ?? null;
 
   const isHouse = houseVault !== null && vaultAddress.toLowerCase() === houseVault.toLowerCase();

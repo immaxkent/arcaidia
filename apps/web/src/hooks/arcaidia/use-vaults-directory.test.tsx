@@ -14,7 +14,24 @@ const FACTORY = "0xfacfacfacfacfacfacfacfacfacfacfacfacfac1";
  */
 const readContractMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/arcaidia/viem-clients", () => ({
-  publicClientFor: () => ({ readContract: readContractMock }),
+  publicClientFor: () => ({
+    readContract: readContractMock,
+    getBlockNumber: async () => 100n,
+    getLogs: async () => [],
+    // Multicall3 over the same mocked reads; a read that throws becomes a failed entry.
+    multicall: async ({ contracts, allowFailure }: { contracts: Array<{ address: string; functionName: string; args?: readonly unknown[] }>; allowFailure?: boolean }) =>
+      Promise.all(
+        contracts.map(async (c) => {
+          try {
+            const result = await readContractMock(c);
+            return allowFailure === false ? result : { status: "success", result };
+          } catch (error) {
+            if (allowFailure === false) throw error;
+            return { status: "failure", error };
+          }
+        }),
+      ),
+  }),
 }));
 vi.mock("@/lib/arcaidia/config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/arcaidia/config")>();

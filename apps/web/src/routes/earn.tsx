@@ -12,6 +12,7 @@ import { TimeValue } from "@/components/site/time-value";
 import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA, type Address, type Hex } from "@/lib/arcaidia/types";
 import { formatBps, formatUsdc, isAddressLike, parseUsdc, truncateAddress } from "@/lib/arcaidia/format";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
+import { VaultName, VaultSigilBar } from "@/components/vaults/vault-identity";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { chainConfig, SERVICES, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
 import { NOT_AVAILABLE, type DataState } from "@/lib/arcaidia/data-state";
@@ -621,7 +622,8 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
             {ownedGroups.map((g) => (
               <li key={g.address}>
                 <button type="button" onClick={() => resumeGroup(g)} className="instrument w-full p-3 text-left">
-                  <span className="block text-sm font-semibold text-text">{g.label ?? truncateAddress(g.address)}</span>
+                  <VaultSigilBar label={g.label} address={g.address} className="mb-2" />
+                  <VaultName label={g.label} address={g.address} className="text-sm" />
                   <span className="num mt-1 block text-[11px] text-text-dim">
                     {truncateAddress(g.address)} · {g.chains.map((c) => CHAINS[c.chainId]?.short).join(" + ")}
                   </span>

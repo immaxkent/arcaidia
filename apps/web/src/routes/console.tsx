@@ -11,6 +11,7 @@ import { TimeValue } from "@/components/site/time-value";
 import { SolverOrb } from "@/components/solver/solver-orb";
 import { VaultFeeTierChart, VaultUtilisationChart } from "@/components/solver/utilisation-chart";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
+import { VaultName, vaultSignature } from "@/components/vaults/vault-identity";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { CHAINS, type ActivityRow, type Address, type SolverAuthState, type SolverRuntimeStatus } from "@/lib/arcaidia/types";
 import { formatBps, formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
@@ -292,13 +293,12 @@ function ConsolePage() {
                   type="button"
                   onClick={() => setSelected(i)}
                   aria-pressed={i === selected}
-                  className={`rounded-full border px-3 py-1 text-xs uppercase tracking-wide transition-colors ${
-                    i === selected
-                      ? "border-acid/60 bg-acid/15 text-acid"
-                      : "border-border text-text-dim hover:text-text"
+                  style={vaultSignature(v.operatorLabel, v.vaultAddress).style}
+                  className={`vault-sigil rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide text-newsprint transition-all ${
+                    i === selected ? "ring-2 ring-acid/80 ring-offset-2 ring-offset-void" : "opacity-75 hover:opacity-100"
                   }`}
                 >
-                  {v.operatorLabel ?? truncateAddress(v.vaultAddress)} · {CHAINS[v.chainId]?.short}
+                  <span className="relative">{v.operatorLabel ?? truncateAddress(v.vaultAddress)} · {CHAINS[v.chainId]?.short}</span>
                 </button>
               ))}
             </div>
@@ -307,7 +307,7 @@ function ConsolePage() {
           <section className="panel mt-4 p-5">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-display text-2xl uppercase text-newsprint">
-                {vault.operatorLabel ?? truncateAddress(vault.vaultAddress)}
+                <VaultName label={vault.operatorLabel} address={vault.vaultAddress} size="lg" className="font-display" />
               </h2>
               <ChainBadge chainId={vault.chainId} />
               <AuthChip authState={authState} />

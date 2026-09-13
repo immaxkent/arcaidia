@@ -47,15 +47,53 @@ export interface ChainVaultLabel {
   readonly createdAtBlock: bigint;
 }
 
-/** The creator's label for every factory vault — it lives in `VaultCreated`, not in storage. */
+interface LabelCache {
+  readonly scannedTo: string;
+  readonly vaults: Record<string, { vault: Address; owner: Address; label: string; createdAtBlock: string }>;
+}
+
+function labelCacheKey(chainId: number, factory: Address): string {
+  return `arcaidia:vault-labels:v1:${chainId}:${factory.toLowerCase()}`;
+}
+
+function readLabelCache(key: string): LabelCache | null {
+  try {
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as LabelCache) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLabelCache(key: string, cache: LabelCache): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(key, JSON.stringify(cache));
+  } catch {
+    // Storage full or blocked — the next load simply scans again.
+  }
+}
+
+/**
+ * The creator's label for every factory vault — it lives in `VaultCreated`, not in storage.
+ * A label never changes, so the scan is incremental: the browser remembers every label and the
+ * block it scanned to, and each load only reads the logs since (Arc mints blocks fast, and a
+ * full scan there is what made its vaults appear late).
+ */
 export async function vaultLabelsFromChain(chainId: number): Promise<Map<string, ChainVaultLabel>> {
   const r = ready(chainId);
   const out = new Map<string, ChainVaultLabel>();
   if (!r || !r.config.vaultFactory) return out;
+  const key = labelCacheKey(chainId, r.config.vaultFactory);
+  const cached = readLabelCache(key);
+  for (const v of Object.values(cached?.vaults ?? {})) {
+    out.set(v.vault.toLowerCase(), { vault: v.vault, owner: v.owner, label: v.label, createdAtBlock: BigInt(v.createdAtBlock) });
+  }
+  const head = await r.client.getBlockNumber();
+  const from = cached ? Number(cached.scannedTo) + 1 : r.config.startBlock;
   const logs = await readLogsSince<{ vault: Address; owner: Address; label: string }>(
     r.client,
     { address: r.config.vaultFactory, event: VAULT_CREATED },
-    r.config.startBlock,
+    from,
   );
   for (const log of logs) {
     out.set(log.args.vault.toLowerCase(), {
@@ -65,6 +103,10 @@ export async function vaultLabelsFromChain(chainId: number): Promise<Map<string,
       createdAtBlock: log.blockNumber,
     });
   }
+  writeLabelCache(key, {
+    scannedTo: head.toString(),
+    vaults: Object.fromEntries([...out.entries()].map(([k, v]) => [k, { ...v, createdAtBlock: v.createdAtBlock.toString() }])),
+  });
   return out;
 }
 
@@ -74,11 +116,12 @@ export async function factoryVaultsFromChain(chainId: number): Promise<Address[]
   if (!r || !r.config.vaultFactory) return [];
   const factory = r.config.vaultFactory;
   const count = (await r.client.readContract({ address: factory, abi: vaultFactoryAbi, functionName: "vaultCount" })) as bigint;
-  return Promise.all(
-    Array.from({ length: Number(count) }, (_, i) =>
-      r.client.readContract({ address: factory, abi: vaultFactoryAbi, functionName: "vaults", args: [BigInt(i)] }) as Promise<Address>,
-    ),
-  );
+  if (count === 0n) return [];
+  const results = await r.client.multicall({
+    allowFailure: false,
+    contracts: Array.from({ length: Number(count) }, (_, i) => ({ address: factory, abi: vaultFactoryAbi, functionName: "vaults" as const, args: [BigInt(i)] as const })),
+  });
+  return results as Address[];
 }
 
 /**
