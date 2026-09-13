@@ -39,6 +39,7 @@ import { useQuery } from "@tanstack/react-query";
 import { decodeEventLog, encodeEventTopics } from "viem";
 import { USDC_TOKEN_OUT } from "@arcaidia/domain";
 import { erc20Abi, intentRouterAbi } from "@/lib/arcaidia/abis";
+import { ensureWalletChain, reportTxError, waitForReceiptResilient } from "@/lib/arcaidia/tx";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { chainConfig, SERVICES } from "@/lib/arcaidia/config";
 import {
@@ -223,6 +224,7 @@ export function IntentProvider({ children }: { children: ReactNode }) {
 
       setSubmitting(true);
       try {
+        await ensureWalletChain(wallet, request.sourceChainId);
         const walletClient = await wallet.getWalletClient(request.sourceChainId);
 
         const allowance = await publicClient.readContract({
@@ -240,7 +242,7 @@ export function IntentProvider({ children }: { children: ReactNode }) {
             chain,
             account: owner,
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          await waitForReceiptResilient(publicClient, approveHash);
         }
 
         const deadline = BigInt(Math.floor(Date.now() / 1000) + request.deadlineSeconds);
@@ -266,7 +268,9 @@ export function IntentProvider({ children }: { children: ReactNode }) {
           account: owner,
         });
 
-        const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
+        const receipt = await waitForReceiptResilient(publicClient, createHash);
+        if (!receipt) throw new Error(`Sent as ${createHash}; the RPC did not confirm it in time — check your transfers list in a moment.`);
+        if (receipt.status === "reverted") throw new Error("The transfer transaction reverted.");
 
         // decodeEventLog does not check that a log's topic0 actually matches the
         // requested eventName — filter by the real topic hash first, or a log from
@@ -308,7 +312,7 @@ export function IntentProvider({ children }: { children: ReactNode }) {
           sourceTxHash: createHash,
         });
       } catch (error) {
-        setSubmitError(error instanceof Error ? error.message : "Transaction failed.");
+        setSubmitError(reportTxError(error, request.sourceChainId));
       } finally {
         setSubmitting(false);
       }

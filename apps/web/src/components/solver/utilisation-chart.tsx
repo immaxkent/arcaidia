@@ -10,6 +10,8 @@
  * flat guess at zero.
  */
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -18,6 +20,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatUsdc } from "@/lib/arcaidia/format";
 import { StateSection } from "@/components/data/state-views";
 import type { EcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
 import type { VaultAnalytics } from "@/hooks/arcaidia/use-vaults";
@@ -283,4 +286,78 @@ export function VaultFeeTierChart({ state }: { state: DataState<VaultAnalytics> 
       </StateSection>
     </section>
   );
+}
+
+/** Cumulative USDC series (6-dp bigints) as Recharts rows — `usdc` is whole USDC for the axis. */
+function usdcRows(rows: ReadonlyArray<{ at: number; value: bigint }>): Array<{ at: number; usdc: number; raw: string }> {
+  return rows.map((p) => ({ at: p.at, usdc: Number(p.value) / 1_000_000, raw: p.value.toString() }));
+}
+
+/** Axis ticks at the scale the series actually reaches — a 0.05 USDC fee total is not five zeros. */
+function formatUsdcAxis(usdc: number): string {
+  if (usdc >= 1000) return `${(usdc / 1000).toFixed(usdc >= 10_000 ? 0 : 1)}k`;
+  if (usdc >= 10) return usdc.toFixed(0);
+  if (usdc >= 1) return usdc.toFixed(1);
+  return usdc === 0 ? "0" : usdc.toFixed(3).replace(/0+$/, "");
+}
+
+/**
+ * One vault's cumulative history as a stepped area — the `/liquidity` vault detail's two
+ * history charts. Every point is a real event replayed from the vault's own indexed logs
+ * (`fetchVaultAnalyticsData`): volume steps on each `FastFilled`, fees on each
+ * `ReimbursementRecorded` (the amount settlement returned above what was advanced, gross
+ * of the protocol share). Never interpolated — a vault with no events draws nothing.
+ */
+function VaultUsdcHistoryChart({
+  title,
+  series,
+  label,
+  stroke,
+}: {
+  title: string;
+  series: ReadonlyArray<{ at: number; value: bigint }>;
+  label: string;
+  stroke: string;
+}) {
+  const rows = usdcRows(series);
+  const gradientId = `vault-history-${label.replace(/\W+/g, "-").toLowerCase()}`;
+  return (
+    <div className="instrument p-3">
+      <p className="font-mono text-[10px] uppercase tracking-widest text-text-dim">{title}</p>
+      <div className="mt-2 h-40 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={stroke} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis dataKey="at" tickFormatter={formatTime} stroke="var(--text-dim)" tick={{ fontSize: 10 }} minTickGap={40} />
+            <YAxis tickFormatter={formatUsdcAxis} stroke="var(--text-dim)" tick={{ fontSize: 10 }} width={44} />
+            <Tooltip
+              labelFormatter={(at: number) => formatTime(at)}
+              formatter={(_value: number, _name: string, item: { payload?: { raw?: string } }) => [
+                `${formatUsdc(BigInt(item.payload?.raw ?? "0"))} USDC`,
+                label,
+              ]}
+              contentStyle={{ background: "var(--void)", border: "1px solid var(--border)", fontSize: 11 }}
+            />
+            <Area type="stepAfter" dataKey="usdc" name={label} stroke={stroke} strokeWidth={2} fill={`url(#${gradientId})`} dot={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/** Cumulative fill volume (`outputAmount` advanced, per `FastFilled`). */
+export function VaultVolumeChart({ series }: { series: ReadonlyArray<{ at: number; value: bigint }> }) {
+  return <VaultUsdcHistoryChart title="Volume history — cumulative USDC advanced" series={series} label="Cumulative volume" stroke="var(--acid)" />;
+}
+
+/** Cumulative fees returned by canonical settlement (`amountReceived − exposureCleared`, per `ReimbursementRecorded`). */
+export function VaultFeeChart({ series }: { series: ReadonlyArray<{ at: number; value: bigint }> }) {
+  return <VaultUsdcHistoryChart title="Fee history — cumulative USDC earned" series={series} label="Cumulative fees" stroke="var(--gold-glow, var(--acid))" />;
 }

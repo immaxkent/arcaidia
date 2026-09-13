@@ -27,7 +27,7 @@ import { useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
 import { useMarketIntelligence } from "@/hooks/arcaidia/use-market-intelligence";
 import { VaultName } from "@/components/vaults/vault-identity";
 import { useEcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
-import { UtilisationChart } from "@/components/solver/utilisation-chart";
+import { UtilisationChart, VaultFeeChart, VaultVolumeChart } from "@/components/solver/utilisation-chart";
 
 /**
  * Every vault on every supported chain, merged into one list — deliberately
@@ -350,6 +350,23 @@ type MarketFields = {
   outstandingSettlementExposure: bigint | null;
 };
 
+/**
+ * The placeholder's one line says *why* a history chart is not drawn — the indexer state,
+ * or simply that this vault has no such events yet — never a generic "awaiting".
+ */
+function historyLabel(title: string, state: DataState<unknown>, whenEmpty: string): string {
+  switch (state.status) {
+    case "loading":
+      return `${title} — loading indexed events`;
+    case "unavailable":
+      return `${title} — indexer not connected`;
+    case "error":
+      return `${title} — indexed history unavailable`;
+    default:
+      return `${title} — ${whenEmpty}`;
+  }
+}
+
 function VaultDetail({
   vault,
   tab,
@@ -460,11 +477,15 @@ function VaultDetail({
             <UtilisationMeter bps={vault.utilisationBps} />
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {analytics.status === "ready" && analytics.data.volumeSeries.length > 0 ? null : (
-              <>
-                <EmptyChart label="Volume history — awaiting indexed events" />
-                <EmptyChart label="Fee history — awaiting indexed events" />
-              </>
+            {analytics.status === "ready" && analytics.data.volumeSeries.length > 0 ? (
+              <VaultVolumeChart series={analytics.data.volumeSeries} />
+            ) : (
+              <EmptyChart label={historyLabel("Volume history", analytics, "no fills yet")} />
+            )}
+            {analytics.status === "ready" && analytics.data.feeSeries.length > 0 ? (
+              <VaultFeeChart series={analytics.data.feeSeries} />
+            ) : (
+              <EmptyChart label={historyLabel("Fee history", analytics, "no settlements reimbursed yet")} />
             )}
           </div>
           <p className="measure mt-4 text-sm text-text-dim">

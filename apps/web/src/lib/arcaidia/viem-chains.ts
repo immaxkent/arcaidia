@@ -15,7 +15,9 @@ import { sepolia } from "viem/chains";
 import { CHAIN_CONFIG } from "./config";
 import { ARC_TESTNET, CHAINS, ETHEREUM_SEPOLIA } from "./types";
 
-const arcTestnetRpc = CHAIN_CONFIG[ARC_TESTNET]?.rpcUrl ?? "https://rpc.testnet.arc.io";
+// The *wallet's* RPC (Privy reads `rpcUrls.default.http[0]` off these chain objects), not the
+// app's read RPC — see ChainConfig.walletRpcUrl for why the two are kept apart.
+const arcTestnetRpc = CHAIN_CONFIG[ARC_TESTNET]?.walletRpcUrl ?? "https://arc-testnet.drpc.org";
 
 export const arcTestnetChain: Chain = defineChain({
   id: ARC_TESTNET,
@@ -30,10 +32,11 @@ export const arcTestnetChain: Chain = defineChain({
   },
 });
 
-/** `sepolia` from viem/chains, with our configured RPC URL when one is set. */
-export const ethereumSepoliaChain: Chain = CHAIN_CONFIG[ETHEREUM_SEPOLIA]?.rpcUrl
-  ? { ...sepolia, rpcUrls: { default: { http: [CHAIN_CONFIG[ETHEREUM_SEPOLIA]!.rpcUrl!] } } }
-  : sepolia;
+/** `sepolia` from viem/chains, carrying the wallet RPC (viem's own default is dRPC, which refuses Sepolia on its free plan). */
+export const ethereumSepoliaChain: Chain = {
+  ...sepolia,
+  rpcUrls: { default: { http: [CHAIN_CONFIG[ETHEREUM_SEPOLIA]?.walletRpcUrl ?? "https://ethereum-sepolia-rpc.publicnode.com"] } },
+};
 
 /** Both chains, in the fixed order every `supportedChains` list must carry. */
 export const SUPPORTED_VIEM_CHAINS: readonly [Chain, Chain] = [
