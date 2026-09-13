@@ -132,6 +132,8 @@ export {
   deploymentFor,
   registerChainOverride,
   chainOverrideFor,
+  RETIRED_SETTLEMENT_RECEIVERS,
+  allSettlementReceivers,
 } from './config/deployments.js';
 export type {
   ProtocolContractName,

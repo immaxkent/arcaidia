@@ -302,7 +302,7 @@ export function buildSolverDependencies(
             asset: chain.asset,
           })),
           settlementReceivers: new Map(
-            config.chains.flatMap((chain) => (chain.settlementReceiver ? [[chain.chainId, chain.settlementReceiver] as const] : [])),
+            config.chains.flatMap((chain) => (chain.settlementReceivers.length > 0 ? [[chain.chainId, chain.settlementReceivers] as const] : [])),
           ),
         });
 

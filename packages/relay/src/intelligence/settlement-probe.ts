@@ -17,7 +17,8 @@ export interface SettlementProbe {
 export interface ProbeChain {
   readonly chainId: number;
   readonly rpcUrl: string;
-  readonly settlementReceiver: `0x${string}`;
+  /** Live receiver first, then retired ones (D12) — settled on any of them is settled. */
+  readonly settlementReceivers: readonly `0x${string}`[];
 }
 
 const OUTCOME_ABI = [
@@ -49,14 +50,18 @@ export class ViemSettlementProbe implements SettlementProbe {
     const chain = this.chains.get(chainId);
     if (!chain || intentIds.length === 0) return result;
     const client = createPublicClient({ chain: chainFor(chainId, chain.rpcUrl), transport: http(chain.rpcUrl) });
-    for (let i = 0; i < intentIds.length; i += this.batchSize) {
-      const slice = intentIds.slice(i, i + this.batchSize);
+    const receivers = chain.settlementReceivers;
+    if (receivers.length === 0) return result;
+    const perCall = Math.max(1, Math.floor(this.batchSize / receivers.length));
+    for (let i = 0; i < intentIds.length; i += perCall) {
+      const slice = intentIds.slice(i, i + perCall);
       const answers = await client.multicall({
         allowFailure: true,
-        contracts: slice.map((id) => ({ address: chain.settlementReceiver, abi: OUTCOME_ABI, functionName: 'outcomeOf', args: [id] })),
+        contracts: slice.flatMap((id) => receivers.map((address) => ({ address, abi: OUTCOME_ABI, functionName: 'outcomeOf' as const, args: [id] as const }))),
       });
-      answers.forEach((a, j) => {
-        if (a.status === 'success') result.set(slice[j]!.toLowerCase(), Number(a.result));
+      slice.forEach((id, j) => {
+        const outcomes = receivers.map((_, k) => answers[j * receivers.length + k]).filter((a) => a?.status === 'success').map((a) => Number(a!.result));
+        if (outcomes.length === receivers.length) result.set(id.toLowerCase(), Math.max(...outcomes));
       });
     }
     return result;

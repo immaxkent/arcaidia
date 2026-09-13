@@ -10,7 +10,7 @@
  * what that config doesn't know: secrets, and this operator's own overrides.
  */
 
-import { CHAINS, deploymentFor, type ChainKey } from '@arcaidia/domain';
+import { CHAINS, allSettlementReceivers, deploymentFor, type ChainKey } from '@arcaidia/domain';
 
 export interface ChainEntrypointConfig {
   readonly chainId: number;
@@ -20,8 +20,11 @@ export interface ChainEntrypointConfig {
   readonly subgraphUrl: string;
   /** The settlement asset's address — `SqlNestObservationProvider` needs it explicitly (WP-22). */
   readonly asset: `0x${string}`;
-  /** The chain's `SettlementReceiver`, read to tell a truly open intent from a Nest-stale one. */
-  readonly settlementReceiver: `0x${string}` | null;
+  /**
+   * Every `SettlementReceiver` this chain has had (live first, then retired — D12), read to tell
+   * a truly open intent from a Nest-stale one. Empty when the deployment has none.
+   */
+  readonly settlementReceivers: readonly `0x${string}`[];
 }
 
 /**
@@ -155,7 +158,7 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
     // their own subgraph or indexer instead.
     subgraphUrl: env[`SUBGRAPH_URL_${prefix}`] || chain.subgraphUrl,
     asset: chain.settlementAsset.address,
-    settlementReceiver: contracts.settlementReceiver ?? null,
+    settlementReceivers: allSettlementReceivers(key),
   };
 }
 

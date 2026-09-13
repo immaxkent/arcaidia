@@ -73,7 +73,7 @@ export interface SqlNestObservationOptions {
    * settlement health and the pending list are both filtered by the chain; settled outcomes are
    * final and cached, so the steady-state cost is one read per genuinely open intent per poll.
    */
-  readonly settlementReceivers?: ReadonlyMap<number, `0x${string}`>;
+  readonly settlementReceivers?: ReadonlyMap<number, readonly `0x${string}`[]>;
 }
 
 const OUTCOME_ABI = [
@@ -140,7 +140,7 @@ export class SqlNestObservationProvider implements ObservationProvider {
   private readonly client: NestQueryClient;
   private readonly readClients: ReadonlyMap<number, EvmContractReadClient>;
   private readonly clock: () => UnixSeconds;
-  private readonly settlementReceivers: ReadonlyMap<number, `0x${string}`>;
+  private readonly settlementReceivers: ReadonlyMap<number, readonly `0x${string}`[]>;
   /** Intent ids the chain has reported settled — final, never re-read. */
   private readonly settledOnChain = new Set<string>();
   /** Intent id → when the chain last said it was still open. */
@@ -171,13 +171,21 @@ export class SqlNestObservationProvider implements ObservationProvider {
     for (let i = 0; i < toCheck.length; i += PROBE_CONCURRENCY) {
       await Promise.all(
         toCheck.slice(i, i + PROBE_CONCURRENCY).map(async (row) => {
-          const receiver = this.settlementReceivers.get(row.destinationChainId);
+          const receivers = this.settlementReceivers.get(row.destinationChainId);
           const client = this.readClients.get(row.destinationChainId);
-          if (!receiver || !client) return;
+          if (!receivers || receivers.length === 0 || !client) return;
           const id = row.id.toLowerCase();
           try {
-            const outcome = Number(await client.readContract({ address: receiver, abi: OUTCOME_ABI, functionName: 'outcomeOf', args: [id] }));
-            if (outcome !== 0) this.settledOnChain.add(id);
+            // Live receiver first, then the retired ones (D12): settled anywhere is settled.
+            let settled = false;
+            for (const receiver of receivers) {
+              const outcome = Number(await client.readContract({ address: receiver, abi: OUTCOME_ABI, functionName: 'outcomeOf', args: [id] }));
+              if (outcome !== 0) {
+                settled = true;
+                break;
+              }
+            }
+            if (settled) this.settledOnChain.add(id);
             else this.openCheckedAt.set(id, now);
           } catch {
             // Unreachable RPC or unknown receiver: keep the Nest's row this round.

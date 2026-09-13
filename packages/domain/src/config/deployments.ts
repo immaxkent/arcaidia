@@ -39,6 +39,22 @@
 import type { Address } from '../types/primitives.js';
 import type { ChainKey, ProtocolContracts, TokenConfig } from './chains.js';
 
+/**
+ * D12: receivers that were replaced but still hold the truth about the intents they settled. An
+ * intent settled on one of these reports `NONE` on the live receiver, so anything asking "is
+ * this intent still open?" must ask every receiver the deployment has ever had.
+ */
+export const RETIRED_SETTLEMENT_RECEIVERS: Readonly<Record<ChainKey, readonly `0x${string}`[]>> = {
+  'ethereum-sepolia': ['0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd'],
+  'arc-testnet': ['0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd'],
+};
+
+/** Every receiver an intent on `chain` may have been settled through: the live one first. */
+export function allSettlementReceivers(chain: ChainKey): readonly `0x${string}`[] {
+  const live = DEPLOYMENTS[chain].settlementReceiver;
+  return [...(live ? [live] : []), ...RETIRED_SETTLEMENT_RECEIVERS[chain]];
+}
+
 export const DEPLOYMENTS: Readonly<Record<ChainKey, ProtocolContracts>> = {
   'ethereum-sepolia': {
     intentRouter: '0x69946FFBBE5f250C7357b89E4072F9eAfc1c3ee6',

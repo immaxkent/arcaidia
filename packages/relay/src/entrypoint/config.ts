@@ -7,7 +7,7 @@
  * sane default; nothing is required to start.
  */
 
-import { CHAINS, deploymentFor, type ChainKey } from '@arcaidia/domain';
+import { CHAINS, allSettlementReceivers, type ChainKey } from '@arcaidia/domain';
 
 type Env = Record<string, string | undefined>;
 
@@ -38,7 +38,7 @@ export interface RelayEntrypointConfig {
   readonly intelligence: null | {
     readonly sources: readonly { chainId: number; endpoint: string }[];
     /** Per chain: where `outcomeOf` is read to drop Nest-"pending" intents already settled. */
-    readonly probes: readonly { chainId: number; rpcUrl: string; settlementReceiver: `0x${string}` }[];
+    readonly probes: readonly { chainId: number; rpcUrl: string; settlementReceivers: readonly `0x${string}`[] }[];
   };
 }
 
@@ -54,8 +54,8 @@ function loadIntelligence(env: Env): RelayEntrypointConfig['intelligence'] {
     endpoint: env[`SUBGRAPH_URL_${CHAIN_ENV_PREFIX[key]}`] || CHAINS[key].subgraphUrl,
   }));
   const probes = (Object.keys(CHAINS) as ChainKey[]).flatMap((key) => {
-    const receiver = deploymentFor(key).settlementReceiver;
-    return receiver ? [{ chainId: CHAINS[key].chainId, rpcUrl: CHAINS[key].rpcUrl, settlementReceiver: receiver }] : [];
+    const receivers = allSettlementReceivers(key);
+    return receivers.length > 0 ? [{ chainId: CHAINS[key].chainId, rpcUrl: CHAINS[key].rpcUrl, settlementReceivers: receivers }] : [];
   });
   return { sources, probes };
 }

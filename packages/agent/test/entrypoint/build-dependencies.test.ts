@@ -26,7 +26,7 @@ const SEPOLIA_CHAIN = {
   liquidityVault: '0x2222222222222222222222222222222222222222' as const,
   subgraphUrl: 'https://nest.example/arcaidia-sepolia',
   asset: '0x6666666666666666666666666666666666666666' as const,
-  settlementReceiver: null,
+  settlementReceivers: [],
 };
 
 const ARC_CHAIN = {
@@ -36,7 +36,7 @@ const ARC_CHAIN = {
   liquidityVault: '0x4444444444444444444444444444444444444444' as const,
   subgraphUrl: 'https://nest.example/arcaidia-arc',
   asset: '0x7777777777777777777777777777777777777777' as const,
-  settlementReceiver: null,
+  settlementReceivers: [],
 };
 
 function config(overrides: Partial<SolverEntrypointConfig> = {}): SolverEntrypointConfig {

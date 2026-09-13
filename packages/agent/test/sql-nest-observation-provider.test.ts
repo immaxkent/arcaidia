@@ -400,18 +400,23 @@ describe('SqlNestObservationProvider', () => {
 
 describe('settled-on-chain filter', () => {
   const RECEIVER = '0xa60c586E4d050233885cD6628B7C1A217574d9c6' as const;
+  const RETIRED = '0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd' as const;
   const OPEN = `0x${'a'.repeat(64)}`;
   const SETTLED = `0x${'b'.repeat(64)}`;
 
   class OutcomeReads extends FakeContractReads {
     outcomeCalls = 0;
-    constructor(private readonly outcomes: Record<string, number>) {
+    constructor(
+      private readonly outcomes: Record<string, number>,
+      private readonly retiredOutcomes: Record<string, number> = {},
+    ) {
       super();
     }
-    override async readContract(args: { functionName: string; args?: readonly unknown[] }): Promise<unknown> {
+    override async readContract(args: { address?: string; functionName: string; args?: readonly unknown[] }): Promise<unknown> {
       if (args.functionName === 'outcomeOf') {
         this.outcomeCalls += 1;
-        return BigInt(this.outcomes[String(args.args?.[0]).toLowerCase()] ?? 0);
+        const table = args.address === RETIRED ? this.retiredOutcomes : this.outcomes;
+        return BigInt(table[String(args.args?.[0]).toLowerCase()] ?? 0);
       }
       return super.readContract(args);
     }
@@ -429,9 +434,9 @@ describe('settled-on-chain filter', () => {
         [ARC, arc],
       ]),
       clock: () => NOW,
-      settlementReceivers: new Map([
-        [SEPOLIA, RECEIVER],
-        [ARC, RECEIVER],
+      settlementReceivers: new Map<number, readonly `0x${string}`[]>([
+        [SEPOLIA, [RECEIVER, RETIRED]],
+        [ARC, [RECEIVER, RETIRED]],
       ]),
     });
   }
@@ -446,7 +451,19 @@ describe('settled-on-chain filter', () => {
     const health = await chainChecked(nest, arc).settlementHealth();
     expect(health.pendingValue).toBe(USDC(3_000));
     expect(health.oldestUnsettledAgeSeconds).toBe(500);
-    expect(arc.outcomeCalls).toBe(2);
+    // SETTLED: one read (live receiver answered); OPEN: live then retired, both NONE.
+    expect(arc.outcomeCalls).toBe(3);
+  });
+
+  it('treats an intent settled on a retired receiver (D12) as settled', async () => {
+    const nest = new FakeNest();
+    nest.setRows(SEPOLIA_ENDPOINT, 'intents', [
+      { id: SETTLED, destination_chain_id: ARC, amount: '20000000', created_at_timestamp: NOW - 41_590 },
+    ]);
+    const arc = new OutcomeReads({}, { [SETTLED]: 1 });
+    const health = await chainChecked(nest, arc).settlementHealth();
+    expect(health.pendingValue).toBe(0n);
+    expect(health.oldestUnsettledAgeSeconds).toBeNull();
   });
 
   it('never offers an intent the receiver already settled, and remembers settled outcomes', async () => {
@@ -462,7 +479,7 @@ describe('settled-on-chain filter', () => {
     expect(offered.map((i) => i.intentId)).toEqual([OPEN]);
     // Settled is final and cached; the open one is trusted for a minute — no new reads either way.
     await provider.pendingIntents();
-    expect(arc.outcomeCalls).toBe(2);
+    expect(arc.outcomeCalls).toBe(3);
   });
 
   it('keeps the Nest row when the receiver read fails', async () => {
