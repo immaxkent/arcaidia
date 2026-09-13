@@ -46,6 +46,7 @@ services:
       SOLVER_QUOTE_PORT: '8787'
       # Inside the compose network the relay is reachable by service name, not by public URL.
       ARCAIDIA_TELEMETRY_URL: http://relay:8090
+      TELEMETRY_ENABLED: 'true'
       SOLVER_DECISION_LOG_PATH: /tmp/solver-decisions.jsonl
     expose: ['8787']
     depends_on: [relay]
@@ -69,6 +70,7 @@ services:
     environment:
       SOLVER_QUOTE_PORT: '8787'
       ARCAIDIA_TELEMETRY_URL: http://relay:8090
+      TELEMETRY_ENABLED: 'true'
       SOLVER_DECISION_LOG_PATH: /tmp/solver-decisions.jsonl
     depends_on: [relay]
 
@@ -82,6 +84,7 @@ services:
     environment:
       SOLVER_QUOTE_PORT: '8787'
       ARCAIDIA_TELEMETRY_URL: http://relay:8090
+      TELEMETRY_ENABLED: 'true'
       SOLVER_DECISION_LOG_PATH: /tmp/solver-decisions.jsonl
     depends_on: [relay]
 
