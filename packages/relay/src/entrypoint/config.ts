@@ -7,7 +7,7 @@
  * sane default; nothing is required to start.
  */
 
-import { CHAINS, type ChainKey } from '@arcaidia/domain';
+import { CHAINS, deploymentFor, type ChainKey } from '@arcaidia/domain';
 
 type Env = Record<string, string | undefined>;
 
@@ -35,7 +35,11 @@ export interface RelayEntrypointConfig {
    * defaults from `@arcaidia/domain` apply; `SUBGRAPH_URL_{PREFIX}` overrides one, exactly as for
    * the solver and the worker. `INTELLIGENCE_ENABLED=false` turns the routes off (they answer 503).
    */
-  readonly intelligence: null | { readonly sources: readonly { chainId: number; endpoint: string }[] };
+  readonly intelligence: null | {
+    readonly sources: readonly { chainId: number; endpoint: string }[];
+    /** Per chain: where `outcomeOf` is read to drop Nest-"pending" intents already settled. */
+    readonly probes: readonly { chainId: number; rpcUrl: string; settlementReceiver: `0x${string}` }[];
+  };
 }
 
 const CHAIN_ENV_PREFIX: Record<ChainKey, string> = {
@@ -49,7 +53,11 @@ function loadIntelligence(env: Env): RelayEntrypointConfig['intelligence'] {
     chainId: CHAINS[key].chainId,
     endpoint: env[`SUBGRAPH_URL_${CHAIN_ENV_PREFIX[key]}`] || CHAINS[key].subgraphUrl,
   }));
-  return { sources };
+  const probes = (Object.keys(CHAINS) as ChainKey[]).flatMap((key) => {
+    const receiver = deploymentFor(key).settlementReceiver;
+    return receiver ? [{ chainId: CHAINS[key].chainId, rpcUrl: CHAINS[key].rpcUrl, settlementReceiver: receiver }] : [];
+  });
+  return { sources, probes };
 }
 
 function optionalPositiveInt(env: Env, key: string, fallback: number): number {

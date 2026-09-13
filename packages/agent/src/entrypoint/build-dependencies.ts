@@ -301,6 +301,9 @@ export function buildSolverDependencies(
             vault: chain.liquidityVault,
             asset: chain.asset,
           })),
+          settlementReceivers: new Map(
+            config.chains.flatMap((chain) => (chain.settlementReceiver ? [[chain.chainId, chain.settlementReceiver] as const] : [])),
+          ),
         });
 
   const deps: SolverDependencies = {

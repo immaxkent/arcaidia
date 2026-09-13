@@ -189,7 +189,7 @@ function LiquidityPage() {
             </dd>
           </div>
           <div className="instrument p-3">
-            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Outstanding intents</dt>
+            <dt className="text-[11px] uppercase tracking-wide text-text-dim">Open intents (unfilled)</dt>
             <dd className="num mt-1 text-base text-text">
               <StateValue state={market} format={(m) => (m.outstandingIntentVolume === null ? NOT_AVAILABLE : formatUsdc(m.outstandingIntentVolume))} />
             </dd>

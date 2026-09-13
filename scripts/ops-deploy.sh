@@ -38,7 +38,8 @@ for f in .env .env.solver-b .env.solver-c .env.loadgen; do
 done
 
 # sudo drops the environment, so OPS_HOST rides along explicitly when compose needs root.
-ssh "$HOST" "cd $REMOTE_DIR && DC='env OPS_HOST=$OPS_HOST docker compose'; docker info >/dev/null 2>&1 || DC='sudo env OPS_HOST=$OPS_HOST docker compose'; \$DC -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && \$DC -f docker-compose.ops.yml ps"
+# Build one image at a time: seven parallel builds on a 2 GB box swap for an hour and starve sshd.
+ssh "$HOST" "cd $REMOTE_DIR && DC='env OPS_HOST=$OPS_HOST COMPOSE_BAKE=false COMPOSE_PARALLEL_LIMIT=1 docker compose'; docker info >/dev/null 2>&1 || DC='sudo env OPS_HOST=$OPS_HOST COMPOSE_BAKE=false COMPOSE_PARALLEL_LIMIT=1 docker compose'; \$DC -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && \$DC -f docker-compose.ops.yml ps"
 echo "== relay:  https://relay.$OPS_HOST/health"
 echo "== quote:  https://quote.$OPS_HOST/quote"
 echo "== intel:  https://intel.$OPS_HOST/v1/pricing  (WP-35 — 402 on /v1/intelligence/*)"

@@ -64,6 +64,31 @@ export interface SqlNestObservationOptions {
   /** Vault *config* — see `GraphObservationProvider`'s identical doc comment for why. */
   readonly readClients: ReadonlyMap<number, EvmContractReadClient>;
   readonly clock?: () => UnixSeconds;
+  /**
+   * Per destination chain, the `SettlementReceiver` whose `outcomeOf(intentId)` is the truth
+   * about "still unsettled". The Nest's `intents` rows lag it: a fill by a vault the Nest has
+   * no source for, or a settlement on a receiver it does not index, leaves an intent looking
+   * pending long after the recipient was paid — and the stale rows alone were enough to make
+   * every solver refuse every fill as `SETTLEMENT_BACKLOG` (2026-09-13). With receivers set,
+   * settlement health and the pending list are both filtered by the chain; settled outcomes are
+   * final and cached, so the steady-state cost is one read per genuinely open intent per poll.
+   */
+  readonly settlementReceivers?: ReadonlyMap<number, `0x${string}`>;
+}
+
+const OUTCOME_ABI = [
+  { type: 'function', name: 'outcomeOf', stateMutability: 'view', inputs: [{ name: 'intentId', type: 'bytes32' }], outputs: [{ type: 'uint8' }] },
+] as const;
+
+/** How long a "still open" verdict from the chain is trusted before it is re-read. */
+const OPEN_RECHECK_SECONDS = 60;
+const PROBE_CONCURRENCY = 6;
+
+interface RawOpenIntentRow {
+  id: string;
+  destination_chain_id: number | string;
+  amount: string;
+  created_at_timestamp: number | string;
 }
 
 interface RawPendingIntentRow {
@@ -115,12 +140,52 @@ export class SqlNestObservationProvider implements ObservationProvider {
   private readonly client: NestQueryClient;
   private readonly readClients: ReadonlyMap<number, EvmContractReadClient>;
   private readonly clock: () => UnixSeconds;
+  private readonly settlementReceivers: ReadonlyMap<number, `0x${string}`>;
+  /** Intent ids the chain has reported settled — final, never re-read. */
+  private readonly settledOnChain = new Set<string>();
+  /** Intent id → when the chain last said it was still open. */
+  private readonly openCheckedAt = new Map<string, number>();
 
   constructor(options: SqlNestObservationOptions) {
     this.sources = options.sources;
     this.client = options.client;
     this.readClients = options.readClients;
     this.clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
+    this.settlementReceivers = options.settlementReceivers ?? new Map();
+  }
+
+  /**
+   * Drops the rows whose destination receiver reports an outcome other than NONE. Rows on a
+   * chain with no receiver configured, or whose read fails, are kept — the Nest's answer stands
+   * when the chain cannot be asked.
+   */
+  private async dropSettledOnChain<T extends { readonly id: string; readonly destinationChainId: number }>(rows: readonly T[]): Promise<T[]> {
+    if (this.settlementReceivers.size === 0 || rows.length === 0) return [...rows];
+    const now = this.clock();
+    const toCheck = rows.filter((row) => {
+      const id = row.id.toLowerCase();
+      if (this.settledOnChain.has(id)) return false;
+      const checkedAt = this.openCheckedAt.get(id);
+      return checkedAt === undefined || now - checkedAt >= OPEN_RECHECK_SECONDS;
+    });
+    for (let i = 0; i < toCheck.length; i += PROBE_CONCURRENCY) {
+      await Promise.all(
+        toCheck.slice(i, i + PROBE_CONCURRENCY).map(async (row) => {
+          const receiver = this.settlementReceivers.get(row.destinationChainId);
+          const client = this.readClients.get(row.destinationChainId);
+          if (!receiver || !client) return;
+          const id = row.id.toLowerCase();
+          try {
+            const outcome = Number(await client.readContract({ address: receiver, abi: OUTCOME_ABI, functionName: 'outcomeOf', args: [id] }));
+            if (outcome !== 0) this.settledOnChain.add(id);
+            else this.openCheckedAt.set(id, now);
+          } catch {
+            // Unreachable RPC or unknown receiver: keep the Nest's row this round.
+          }
+        }),
+      );
+    }
+    return rows.filter((row) => !this.settledOnChain.has(row.id.toLowerCase()));
   }
 
   /**
@@ -155,7 +220,11 @@ export class SqlNestObservationProvider implements ObservationProvider {
     const candidates = allRows.map((row) => toIntent(row, nonces));
 
     const filled = await this.filledIntentIds(candidates.map((intent) => intent.intentId));
-    return candidates.filter((intent) => !filled.has(intent.intentId));
+    const unfilled = candidates.filter((intent) => !filled.has(intent.intentId));
+    // An intent the receiver already settled (fallback delivery, or a fill the Nest never saw)
+    // would only ever revert `IntentAlreadySettledCanonically` — not worth a signature.
+    const open = await this.dropSettledOnChain(unfilled.map((intent) => ({ id: intent.intentId, destinationChainId: intent.destinationChainId, intent })));
+    return open.map((row) => row.intent);
   }
 
   /**
@@ -266,6 +335,7 @@ export class SqlNestObservationProvider implements ObservationProvider {
   }
 
   async settlementHealth(): Promise<SettlementHealth> {
+    if (this.settlementReceivers.size > 0) return this.settlementHealthFromOpenIntents();
     const responses = await Promise.all(
       this.sources.map(async (source) => {
         const [result, ready] = await Promise.all([
@@ -297,6 +367,47 @@ export class SqlNestObservationProvider implements ObservationProvider {
       oldestUnsettledAgeSeconds:
         oldestTimestamps.length === 0 ? null : now - Math.min(...oldestTimestamps),
       pendingValue,
+      averageSettlementLatencySeconds: null,
+      latencySampleSize: 0,
+      observedAt: Math.min(...responses.map((response) => response.observedAt)),
+    };
+  }
+
+  /**
+   * Settlement health from the intents themselves, each checked against the destination
+   * receiver, rather than the Nest's `protocol_state` aggregate (which cannot know what the
+   * chain settled without it). Oldest = the oldest intent still NONE on chain; pending value =
+   * the sum of those.
+   */
+  private async settlementHealthFromOpenIntents(): Promise<SettlementHealth> {
+    const responses = await Promise.all(
+      this.sources.map(async (source) => {
+        const [result, ready] = await Promise.all([
+          this.client.query<RawOpenIntentRow>(
+            source.endpoint,
+            'SELECT id, destination_chain_id, amount, created_at_timestamp FROM intents ' +
+              "WHERE fast_status = 'PENDING' AND canonical_status = 'PENDING' ORDER BY created_at_timestamp ASC LIMIT 300",
+          ),
+          this.client.ready(source.endpoint),
+        ]);
+        return { rows: result.rows, observedAt: ready.lastPollUnixtime };
+      }),
+    );
+    const open = await this.dropSettledOnChain(
+      responses.flatMap((r) =>
+        r.rows.map((row) => ({
+          id: row.id,
+          destinationChainId: Number(row.destination_chain_id),
+          amount: BigInt(row.amount),
+          createdAt: Number(row.created_at_timestamp),
+        })),
+      ),
+    );
+    const now = this.clock();
+    return {
+      transport: 'HEALTHY',
+      oldestUnsettledAgeSeconds: open.length === 0 ? null : now - Math.min(...open.map((row) => row.createdAt)),
+      pendingValue: open.reduce((sum, row) => sum + row.amount, 0n),
       averageSettlementLatencySeconds: null,
       latencySampleSize: 0,
       observedAt: Math.min(...responses.map((response) => response.observedAt)),

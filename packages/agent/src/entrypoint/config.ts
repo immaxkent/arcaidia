@@ -20,6 +20,8 @@ export interface ChainEntrypointConfig {
   readonly subgraphUrl: string;
   /** The settlement asset's address — `SqlNestObservationProvider` needs it explicitly (WP-22). */
   readonly asset: `0x${string}`;
+  /** The chain's `SettlementReceiver`, read to tell a truly open intent from a Nest-stale one. */
+  readonly settlementReceiver: `0x${string}` | null;
 }
 
 /**
@@ -153,6 +155,7 @@ function chainConfig(key: ChainKey, env: Env): ChainEntrypointConfig {
     // their own subgraph or indexer instead.
     subgraphUrl: env[`SUBGRAPH_URL_${prefix}`] || chain.subgraphUrl,
     asset: chain.settlementAsset.address,
+    settlementReceiver: contracts.settlementReceiver ?? null,
   };
 }
 

@@ -11,6 +11,7 @@
  */
 import type { Address, ChainIntelligence, EcosystemIntelligence, QuoteContext, VaultIntelligence } from '@arcaidia/domain';
 import type { NestQueryClient } from '../nest-client.js';
+import type { SettlementProbe } from './settlement-probe.js';
 import {
   computeChain,
   computeEcosystem,
@@ -34,6 +35,12 @@ export interface IntelligenceServiceOptions {
   /** Trailing window for velocity and latency, seconds. */
   readonly windowSeconds?: number;
   readonly cacheSeconds?: number;
+  /**
+   * Checks Nest-"pending" intents against the destination chain's receiver and drops the ones
+   * already settled there. Absent = trust the Nest (tests, or a deployment whose Nest indexes
+   * every vault and receiver).
+   */
+  readonly settlementProbe?: SettlementProbe;
 }
 
 interface RawVault {
@@ -48,6 +55,7 @@ interface RawVault {
   updated_at_block: number | string | null;
 }
 interface RawPending {
+  id: string;
   source_chain_id: number | string;
   destination_chain_id: number | string;
   amount: string;
@@ -75,10 +83,12 @@ export class IntelligenceService {
   private readonly clock: () => number;
   private readonly windowSeconds: number;
   private readonly cacheSeconds: number;
+  private readonly settlementProbe: SettlementProbe | undefined;
   private cached: { at: number; inputs: IntelligenceInputs } | null = null;
   private inflight: Promise<IntelligenceInputs> | null = null;
 
   constructor(options: IntelligenceServiceOptions) {
+    this.settlementProbe = options.settlementProbe;
     this.sources = options.sources;
     this.client = options.client;
     this.clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
@@ -120,6 +130,26 @@ export class IntelligenceService {
     return this.inflight;
   }
 
+  /** Drops intents the destination receiver already reports settled; unchecked ones stay. */
+  private async stillOpen<T extends PendingIntentRow & { id: `0x${string}` }>(rows: readonly T[]): Promise<T[]> {
+    const probe = this.settlementProbe;
+    if (!probe || rows.length === 0) return [...rows];
+    const byDestination = new Map<number, T[]>();
+    for (const row of rows) byDestination.set(row.destinationChainId, [...(byDestination.get(row.destinationChainId) ?? []), row]);
+    const settled = new Set<string>();
+    await Promise.all(
+      [...byDestination.entries()].map(async ([chainId, group]) => {
+        try {
+          const outcomes = await probe.outcomes(chainId, group.map((r) => r.id));
+          for (const [id, outcome] of outcomes) if (outcome !== 0) settled.add(id);
+        } catch {
+          // Unreachable RPC: keep the Nest's answer for this chain rather than fail every view.
+        }
+      }),
+    );
+    return rows.filter((r) => !settled.has(r.id));
+  }
+
   private async fetchInputs(now: number): Promise<IntelligenceInputs> {
     const from = now - this.windowSeconds;
     const perChain = await Promise.all(
@@ -131,7 +161,7 @@ export class IntelligenceService {
           ),
           this.client.query<RawPending>(
             source.endpoint,
-            'SELECT source_chain_id, destination_chain_id, amount, created_at_timestamp FROM intents ' +
+            'SELECT id, source_chain_id, destination_chain_id, amount, created_at_timestamp FROM intents ' +
               "WHERE fast_status = 'PENDING' AND canonical_status = 'PENDING' ORDER BY created_at_timestamp DESC LIMIT 500",
           ),
           this.client.query<RawFill>(source.endpoint, `SELECT timestamp FROM fills WHERE timestamp >= ${from} LIMIT 5000`),
@@ -186,13 +216,16 @@ export class IntelligenceService {
         updatedAtBlock: v.updated_at_block === null ? 0n : BigInt(v.updated_at_block),
       })),
     );
-    const pendingIntents: PendingIntentRow[] = perChain.flatMap((c) =>
-      c.pending.map((i) => ({
-        sourceChainId: Number(i.source_chain_id),
-        destinationChainId: Number(i.destination_chain_id),
-        amount: BigInt(i.amount),
-        createdAt: Number(i.created_at_timestamp),
-      })),
+    const pendingIntents: PendingIntentRow[] = await this.stillOpen(
+      perChain.flatMap((c) =>
+        c.pending.map((i) => ({
+          id: i.id.toLowerCase() as `0x${string}`,
+          sourceChainId: Number(i.source_chain_id),
+          destinationChainId: Number(i.destination_chain_id),
+          amount: BigInt(i.amount),
+          createdAt: Number(i.created_at_timestamp),
+        })),
+      ),
     );
     const recentFills: FillRow[] = perChain.flatMap((c) => c.fills.map((f) => ({ chainId: c.source.chainId, timestamp: Number(f.timestamp) })));
     const sourceBlocks: Record<number, bigint> = {};

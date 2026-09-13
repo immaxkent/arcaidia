@@ -53,6 +53,7 @@ class FakeNest implements NestQueryClient {
     if (sql.includes('FROM fills')) return 'fills';
     if (sql.includes('FROM vault')) return 'vault';
     if (sql.includes('FROM protocol_state')) return 'protocol_state';
+    if (sql.includes('FROM intents WHERE fast_status')) return 'intents';
     throw new Error(`unexpected sql: ${sql.slice(0, 60)}`);
   }
 }
@@ -390,5 +391,88 @@ describe('SqlNestObservationProvider', () => {
     nest.setRows(SEPOLIA_ENDPOINT, 'pending_intents', [rawIntent({ id: "0xnothex'; DROP TABLE vault; --" })]);
 
     await expect(provider(nest).pendingIntents()).rejects.toThrow(/non-hex32/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settled-on-chain filter (2026-09-13): the Nest's "pending" rows lag the receiver
+// ---------------------------------------------------------------------------
+
+describe('settled-on-chain filter', () => {
+  const RECEIVER = '0xa60c586E4d050233885cD6628B7C1A217574d9c6' as const;
+  const OPEN = `0x${'a'.repeat(64)}`;
+  const SETTLED = `0x${'b'.repeat(64)}`;
+
+  class OutcomeReads extends FakeContractReads {
+    outcomeCalls = 0;
+    constructor(private readonly outcomes: Record<string, number>) {
+      super();
+    }
+    override async readContract(args: { functionName: string; args?: readonly unknown[] }): Promise<unknown> {
+      if (args.functionName === 'outcomeOf') {
+        this.outcomeCalls += 1;
+        return BigInt(this.outcomes[String(args.args?.[0]).toLowerCase()] ?? 0);
+      }
+      return super.readContract(args);
+    }
+  }
+
+  function chainChecked(nest: FakeNest, arc: OutcomeReads): SqlNestObservationProvider {
+    return new SqlNestObservationProvider({
+      sources: [
+        { chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT, vault: VAULT, asset: ASSET_SEPOLIA },
+        { chainId: ARC, endpoint: ARC_ENDPOINT, vault: VAULT, asset: ASSET_ARC },
+      ],
+      client: nest,
+      readClients: new Map([
+        [SEPOLIA, new FakeContractReads()],
+        [ARC, arc],
+      ]),
+      clock: () => NOW,
+      settlementReceivers: new Map([
+        [SEPOLIA, RECEIVER],
+        [ARC, RECEIVER],
+      ]),
+    });
+  }
+
+  it('settlement health counts only intents the destination receiver still reports NONE', async () => {
+    const nest = new FakeNest();
+    nest.setRows(SEPOLIA_ENDPOINT, 'intents', [
+      { id: SETTLED, destination_chain_id: ARC, amount: '20000000', created_at_timestamp: NOW - 41_590 },
+      { id: OPEN, destination_chain_id: ARC, amount: '3000000000', created_at_timestamp: NOW - 500 },
+    ]);
+    const arc = new OutcomeReads({ [SETTLED]: 2 });
+    const health = await chainChecked(nest, arc).settlementHealth();
+    expect(health.pendingValue).toBe(USDC(3_000));
+    expect(health.oldestUnsettledAgeSeconds).toBe(500);
+    expect(arc.outcomeCalls).toBe(2);
+  });
+
+  it('never offers an intent the receiver already settled, and remembers settled outcomes', async () => {
+    const nest = new FakeNest();
+    nest.setRows(SEPOLIA_ENDPOINT, 'pending_intents', [
+      rawIntent({ id: OPEN, source_chain_id: SEPOLIA, destination_chain_id: ARC }),
+      rawIntent({ id: SETTLED, source_chain_id: SEPOLIA, destination_chain_id: ARC }),
+    ]);
+    nest.setRows(SEPOLIA_ENDPOINT, 'intent_router__intent_created', [rawNonceRow(OPEN, '1'), rawNonceRow(SETTLED, '2')]);
+    const arc = new OutcomeReads({ [SETTLED]: 1 });
+    const provider = chainChecked(nest, arc);
+    const offered = await provider.pendingIntents();
+    expect(offered.map((i) => i.intentId)).toEqual([OPEN]);
+    // Settled is final and cached; the open one is trusted for a minute — no new reads either way.
+    await provider.pendingIntents();
+    expect(arc.outcomeCalls).toBe(2);
+  });
+
+  it('keeps the Nest row when the receiver read fails', async () => {
+    const nest = new FakeNest();
+    nest.setRows(SEPOLIA_ENDPOINT, 'intents', [{ id: OPEN, destination_chain_id: ARC, amount: '1000000', created_at_timestamp: NOW - 10 }]);
+    const failing = new OutcomeReads({});
+    failing.readContract = async () => {
+      throw new Error('rpc down');
+    };
+    const health = await chainChecked(nest, failing).settlementHealth();
+    expect(health.pendingValue).toBe(1_000_000n);
   });
 });

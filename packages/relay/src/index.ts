@@ -43,3 +43,4 @@ export {
   type PendingIntentRow,
   type FillRow,
 } from './intelligence/compute.js';
+export { ViemSettlementProbe, type SettlementProbe, type ProbeChain } from './intelligence/settlement-probe.js';

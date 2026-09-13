@@ -17,6 +17,7 @@ import {
   FetchNestQueryClient,
   FixtureVaultFlowSource,
   IntelligenceService,
+  ViemSettlementProbe,
   ParticipantRegistry,
   RelayStore,
   VaultFlowsService,
@@ -61,7 +62,11 @@ async function main(): Promise<void> {
   );
 
   const intelligence = config.intelligence
-    ? new IntelligenceService({ sources: config.intelligence.sources, client: new FetchNestQueryClient() })
+    ? new IntelligenceService({
+        sources: config.intelligence.sources,
+        client: new FetchNestQueryClient(),
+        settlementProbe: new ViemSettlementProbe(config.intelligence.probes),
+      })
     : undefined;
   console.log(
     intelligence

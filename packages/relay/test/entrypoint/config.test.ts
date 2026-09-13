@@ -29,6 +29,7 @@ describe('loadRelayConfig', () => {
           { chainId: 11_155_111, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia' },
           { chainId: 5_042_002, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc' },
         ],
+        probes: expect.any(Array),
       },
     });
   });
@@ -76,12 +77,14 @@ describe('loadRelayConfig', () => {
 
 describe('loadRelayConfig — intelligence (WP-33)', () => {
   it('is on by default, reading the committed Nest endpoints', () => {
-    expect(loadRelayConfig({}).intelligence).toEqual({
-      sources: [
-        { chainId: 11_155_111, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia' },
-        { chainId: 5_042_002, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc' },
-      ],
-    });
+    const intelligence = loadRelayConfig({}).intelligence;
+    expect(intelligence?.sources).toEqual([
+      { chainId: 11_155_111, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-sepolia' },
+      { chainId: 5_042_002, endpoint: 'https://hackathon.89.167.109.4.sslip.io/arcaidia-arc' },
+    ]);
+    // One probe per chain: the committed receiver and RPC, so "pending" is checked on chain.
+    expect(intelligence?.probes.map((p) => p.chainId)).toEqual([11_155_111, 5_042_002]);
+    expect(intelligence?.probes.every((p) => /^0x[0-9a-fA-F]{40}$/.test(p.settlementReceiver) && /^https?:/.test(p.rpcUrl))).toBe(true);
   });
 
   it('honours a per-chain SUBGRAPH_URL override and INTELLIGENCE_ENABLED=false', () => {

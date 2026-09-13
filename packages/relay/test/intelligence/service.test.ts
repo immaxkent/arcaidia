@@ -42,7 +42,7 @@ function seeded(): FakeNest {
   nest.set(ARCN, 'vaults', [vaultRow('0xb4ba190d5c78869366e7963f5cccf4c3167d855c', '120000000', 10), vaultRow(VAULT_B, '60000000', 15)]);
   nest.set(SEP, 'vaults', [{ ...vaultRow('0xb4ba190d5c78869366e7963f5cccf4c3167d855c', '120000000', 10), updated_at_block: '11690000' }]);
   nest.set(SEP, 'intents', [
-    { source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '3780000', created_at_timestamp: 1_789_237_116 },
+    { id: `0x${'aa'.repeat(32)}`, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '3780000', created_at_timestamp: 1_789_237_116 },
     // The row the latency join asks for by id:
     { id: INTENT, created_at_timestamp: 1_789_237_116 },
   ]);
@@ -152,5 +152,39 @@ describe('GET /v1/intelligence/*', () => {
     } finally {
       await bare.close();
     }
+  });
+});
+
+describe('IntelligenceService — settlement probe (Nest lag)', () => {
+  it('drops a Nest-"pending" intent the destination receiver already reports settled, keeps unchecked ones', async () => {
+    const nest = seeded();
+    nest.set(SEP, 'intents', [
+      { id: `0x${'aa'.repeat(32)}`, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '3780000', created_at_timestamp: 1_789_237_116 },
+      { id: `0x${'bb'.repeat(32)}`, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '20000000', created_at_timestamp: 1_789_237_200 },
+      { id: `0x${'cc'.repeat(32)}`, source_chain_id: SEPOLIA, destination_chain_id: ARC, amount: '5000000', created_at_timestamp: 1_789_237_300 },
+      { id: INTENT, created_at_timestamp: 1_789_237_116 },
+    ]);
+    const asked: Array<[number, number]> = [];
+    const probe = {
+      async outcomes(chainId: number, ids: readonly `0x${string}`[]) {
+        asked.push([chainId, ids.length]);
+        // aa: open; bb: recipient paid by fallback (2); cc: not answered (RPC miss) — stays counted.
+        return new Map<string, number>([[`0x${'aa'.repeat(32)}`, 0], [`0x${'bb'.repeat(32)}`, 2]]);
+      },
+    };
+    const service = new IntelligenceService({ sources, client: nest, clock: () => 1_789_240_000, settlementProbe: probe });
+    const view = await service.ecosystem();
+    expect(asked).toEqual([[ARC, 3]]);
+    expect(view.outstandingIntentVolume).toBe(3_780_000n + 5_000_000n);
+  });
+
+  it('keeps the Nest answer when the probe throws', async () => {
+    const service = new IntelligenceService({
+      sources,
+      client: seeded(),
+      clock: () => 1_789_240_000,
+      settlementProbe: { async outcomes() { throw new Error('rpc down'); } },
+    });
+    expect((await service.ecosystem()).outstandingIntentVolume).toBe(3_780_000n);
   });
 });
