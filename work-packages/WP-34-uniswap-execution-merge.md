@@ -16,10 +16,9 @@ pools per chain, the market bot, the price API). **Branch:** `v4-uniswap` off `m
 - [x] **34.1** Solver: `SWAP_ADAPTER_MODE=uniswap-v2` wires one adapter over both chains'
       deployed contracts; `canSatisfy` is asked about the **post-fee** amount (the vault swaps
       `outputAmount`), pinned by a test — the gross-amount gate was optimistic by the fee.
-- [ ] **34.2** Each vault owner: `setSwapAdapter(<chain's adapter>)`. Code shipped (console
-      owner button, Earn wires new vaults automatically, `script/SetSwapAdapter.s.sol` for the
-      House Vault); the six signatures are the owners' (House ×2 deployer keystore, B and C ×2
-      Privy). Until then every trade intent is delivered as USDC.
+- [x] **34.2** Each vault owner: `setSwapAdapter(<chain's adapter>)` — done 2026-09-13 on all
+      six vaults (House ×2 via `script/SetSwapAdapter.s.sol` with the deployer keystore, B and C
+      ×2 from the console's owner button with the Privy wallet). Earn wires new vaults automatically.
 - [x] **34.3** Frontend: `/trade` — token picker with live price and 24h change, candlestick
       chart of the destination chain with the origin chain's price and trend overlaid and the
       live spread, slippage control; `targetMinOut` = the destination adapter's on-chain quote
@@ -32,8 +31,19 @@ pools per chain, the market bot, the price API). **Branch:** `v4-uniswap` off `m
 - [x] **34.5** Ops: the market's price API (`prices.<host>`, 15 s sampling) and the market bot
       run on the box from the `arcaidia-market` image built from the sibling checkout
       (`scripts/ops-deploy.sh BUILD=local`); solvers run in `uniswap-v2` mode.
-- [ ] **34.6** Live proof both directions: satisfiable trade intent → `DeliveredViaSwap`
-      (recipient holds the token); unsatisfiable → `SwapFellBack` and USDC. Waits on 34.2.
+- [x] **34.6** Live proof both directions, 2026-09-13, four 2 USDC intents for mETH sent by the
+      box's load generator (`ONCE_TOKEN_OUT=mETH`), recipient `0xd2A1…937C`:
+      - Ethereum → Arc, satisfiable: intent `0xffc1f4bc…4f23` (create `0xe4ec673c…1099`) —
+        fast-filled by Vault B on Arc, `delivered_via: SWAP`, 0.000589694 mETH delivered
+        (fill `0x6eb7ccee…e2e6`); the recipient's mETH balance on Arc reads exactly that.
+      - Arc → Ethereum, satisfiable: intent `0xd61d5b87…9bf1` (create `0x06357f48…f6da`) —
+        fast-filled by Vault C on Sepolia, `delivered_via: SWAP`, 0.000607343 mETH delivered
+        (fill `0x62613119…7a2d`); balance on Sepolia reads exactly that.
+      - Both directions, floor 50% above market: intents `0x286274e5…9a56` and
+        `0x63ffe164…f015` — no vault filled (the post-fee gate declines them,
+        `TRADE_NOT_SUPPORTED`); canonical settlement delivers USDC to the recipient.
+        `SwapFellBack` is now the rare path (the price moving between gate and execution),
+        which is what the gate fix was for.
 
 ## Acceptance gate
 
