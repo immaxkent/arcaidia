@@ -27,7 +27,7 @@ export const ROADMAP_STAGES: Array<{
     ],
   },
   {
-    stage: "Intent Market",
+    stage: "V2 — Intent Market",
     status: "SHIPPED",
     capability: "A permissionless liquidity market: anyone deploys a vault, posts a fee policy, runs the open-source solver, and competes for the first valid fill. Live on both testnets since 12 September 2026.",
     items: [
@@ -40,7 +40,7 @@ export const ROADMAP_STAGES: Array<{
     ],
   },
   {
-    stage: "Agent Economy — Hedera x402",
+    stage: "V3 — Hedera Agent Economy",
     status: "SHIPPED",
     capability: "Ecosystem intelligence computed from the indexed market and sold per request over x402 on Hedera; the solver buys the view it decides with from its own account.",
     items: [
@@ -52,7 +52,7 @@ export const ROADMAP_STAGES: Array<{
     ],
   },
   {
-    stage: "V2 — Uniswap Integration",
+    stage: "V4 — Uniswap Integration",
     status: "BUILDING",
     capability: "Token-to-token intents: the vault delivers the requested token through a swap adapter on the destination chain, falling back to USDC if the swap cannot meet the floor.",
     items: [
@@ -63,36 +63,40 @@ export const ROADMAP_STAGES: Array<{
     ],
   },
   {
-    stage: "Pricing Evolution",
+    stage: "Mainnet Launch",
     status: "PLANNED",
-    capability: "More than one audited way to price risk and allocate capital, beyond the utilisation-tiered policy vaults post today.",
-    items: ["Multiple audited fee curves", "Risk premiums from settlement latency and exposure", "Capital allocation strategies across chains"],
-  },
-  {
-    stage: "Trust Minimisation",
-    status: "PLANNED",
-    capability: "Fewer privileged roles and a settlement path anyone can complete without an operator's help.",
+    capability: "The same five contracts on Ethereum and Arc mainnet, behind an audit, staged caps, and execution across every Uniswap generation a destination chain offers.",
     items: [
-      "Retire the allowlisted-reporter recovery path",
-      "Permissionless settlement completion from any relayer",
-      "Formalised solver and vault interfaces",
-      "Reduced owner powers on live vaults",
+      "Independent audit, invariant and fuzz testing",
+      "Retire the allowlisted-reporter recovery path; permissionless settlement completion",
+      "Staged fill and exposure caps, monitoring and alerting",
+      "Uniswap v2, v3 and v4 adapters behind one execution interface",
+      "Multiple audited fee curves and risk premiums from live settlement data",
     ],
   },
   {
-    stage: "Network Expansion",
+    stage: "Align with Circle and Arc",
     status: "PLANNED",
-    capability: "More supported chains and deeper crosschain routing, including settlement and liquidity beyond EVM.",
-    items: ["Additional supported EVM chains", "Hedera-side settlement and liquidity", "Cross-ecosystem intent routing"],
+    capability: "Speculative: shape the product around where Circle and Arc are going, so Arcaidia is the settlement layer their users already expect.",
+    items: [
+      "Regulatory posture for fast settlement of a regulated stablecoin, per jurisdiction",
+      "Fallback mechanisms when CCTP or an attestation service degrades",
+      "Native Arc primitives: gateway, paymaster and nanopayment rails as they ship",
+      "Circle Wallets as the default user and operator identity",
+    ],
   },
   {
-    stage: "Security",
+    stage: "Super Vaults",
     status: "PLANNED",
-    capability: "Independent review plus staged exposure limits before real capital.",
-    items: ["Independent audit", "Invariant and fuzz testing", "Monitoring and alerting", "Staged caps"],
+    capability: "Vaults that share liquidity: capital pooled across operators and chains to fulfil a settlement no single vault could take alone.",
+    items: [
+      "Shared liquidity commitments between vaults for one fill",
+      "Cross-vault settlement accounting and fee splits",
+      "Deeper crosschain liquidity routing and more supported chains",
+      "Hedera-side settlement and liquidity",
+    ],
   },
 ];
-
 
 /**
  * Timeline stage labels. `source` marks whether a stage is informational

@@ -8,7 +8,7 @@ export const Route = createFileRoute("/roadmap")({
       {
         name: "description",
         content:
-          "The Arcaidia sequence: house fast settlement and a permissionless intent market, both shipped; agent-paid intelligence over Hedera, shipped; token-to-token execution, building; then pricing evolution, trust minimisation, network expansion and security review.",
+          "The Arcaidia sequence: V1 house fast settlement, V2 intent market and V3 Hedera agent economy, all shipped; V4 Uniswap integration, building; then mainnet launch, alignment with Circle and Arc, and super vaults.",
       },
       { property: "og:title", content: "Protocol roadmap — Arcaidia" },
       {
