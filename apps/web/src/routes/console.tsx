@@ -107,6 +107,8 @@ function ConsolePage() {
   const connected = walletStatus === "CONNECTED";
   const [repointing, setRepointing] = useState(false);
   const [releasing, setReleasing] = useState<string | null>(null);
+  /** Vaults whose held reimbursements this session released — hides the panel before the indexer catches up. */
+  const [releasedVaults, setReleasedVaults] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
 
   const list = useMarketVaultDirectory();
@@ -140,25 +142,51 @@ function ConsolePage() {
       const hash = await walletClient.writeContract({ ...args, abi: args.abi as never, functionName: args.functionName as never, args: args.args as never, chain, account: address });
       await publicClient.waitForTransactionReceipt({ hash });
     };
+    // Only what the chain still holds right now — a second click after a release must not
+    // re-run the sequence against intents already repaid.
+    const stillHeld = (
+      await Promise.all(
+        held.data.map(async (intentId) => {
+          const holder = (await publicClient.readContract({ address: RETIRED_SETTLEMENT_RECEIVER, abi: ABIS.SettlementReceiver, functionName: "heldFor", args: [intentId] })) as Address;
+          return holder.toLowerCase() === vault.vaultAddress.toLowerCase() ? intentId : null;
+        }),
+      )
+    ).filter((id): id is `0x${string}` => id !== null);
+    if (stillHeld.length === 0) {
+      setReleasedVaults((prev) => new Set(prev).add(`${vault.chainId}:${vault.vaultAddress.toLowerCase()}`));
+      toast.success("Nothing left to release", { description: "Every reimbursement for this vault has already been repaid." });
+      await queryClient.invalidateQueries();
+      return;
+    }
+    let repointed = false;
     try {
       await wallet.switchChain(vault.chainId);
-      await write("Pointing the vault at the retired receiver (1 of " + (held.data.length + 2) + ")", {
+      await write("Pointing the vault at the retired receiver (1 of " + (stillHeld.length + 2) + ")", {
         address: vault.vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [RETIRED_SETTLEMENT_RECEIVER],
       });
-      for (const [i, intentId] of held.data.entries()) {
-        await write(`Releasing reimbursement ${i + 1} of ${held.data.length}`, {
+      repointed = true;
+      for (const [i, intentId] of stillHeld.entries()) {
+        await write(`Releasing reimbursement ${i + 1} of ${stillHeld.length}`, {
           address: RETIRED_SETTLEMENT_RECEIVER, abi: ABIS.SettlementReceiver, functionName: "retryHeld", args: [intentId],
         });
       }
-      await write("Pointing the vault at the current receiver (last)", {
-        address: vault.vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [current],
-      });
-      toast.success("Held reimbursements released", { description: `${held.data.length} intent(s) repaid to ${truncateAddress(vault.vaultAddress)}` });
-      await queryClient.invalidateQueries();
+      toast.success("Held reimbursements released", { description: `${stillHeld.length} intent(s) repaid to ${truncateAddress(vault.vaultAddress)}` });
+      setReleasedVaults((prev) => new Set(prev).add(`${vault.chainId}:${vault.vaultAddress.toLowerCase()}`));
     } catch (error) {
       toast.error("Release stopped", { description: error instanceof Error ? error.message : "Transaction failed." });
     } finally {
+      // Whatever happened above, never leave the vault pointed at the retired receiver.
+      if (repointed) {
+        try {
+          await write("Pointing the vault at the current receiver (last)", {
+            address: vault.vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [current],
+          });
+        } catch (error) {
+          toast.error("Vault still points at the retired receiver — use \"Update settlement receiver\"", { description: error instanceof Error ? error.message : "Transaction failed." });
+        }
+      }
       setReleasing(null);
+      await queryClient.invalidateQueries();
     }
   }
 
@@ -402,7 +430,7 @@ function ConsolePage() {
             <VaultFeeTierChart state={vaultUtilisation} />
           </div>
 
-          {held.status === "ready" && held.data.length > 0 ? (
+          {held.status === "ready" && held.data.length > 0 && !releasedVaults.has(`${vault.chainId}:${vault.vaultAddress.toLowerCase()}`) ? (
             <section className="panel mt-6 flex flex-wrap items-center gap-4 border-warning/50 p-5">
               <p className="measure text-sm text-text-dim">
                 <span className="font-semibold text-warning">{held.data.length} reimbursement{held.data.length === 1 ? "" : "s"} held for this vault.</span>{" "}
@@ -424,7 +452,7 @@ function ConsolePage() {
             </section>
           ) : null}
 
-          {vault.settlementReceiverCurrent === false && !(held.status === "ready" && held.data.length > 0) ? (
+          {vault.settlementReceiverCurrent === false && !(held.status === "ready" && held.data.length > 0 && !releasedVaults.has(`${vault.chainId}:${vault.vaultAddress.toLowerCase()}`)) ? (
             <section className="panel mt-6 flex flex-wrap items-center gap-4 border-warning/50 p-5">
               <p className="measure text-sm text-text-dim">
                 <span className="font-semibold text-warning">Settlement receiver out of date.</span> This vault still expects
