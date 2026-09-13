@@ -21,6 +21,18 @@ export function marketsOn(chainId: number): readonly DestinationMarket[] {
   return SWAP_INFRASTRUCTURE[key]?.markets ?? [];
 }
 
+/**
+ * A floor as text for the input: six significant digits, rounded *down* so the number the user
+ * sees (and that gets parsed back into the intent) is never above the suggested floor.
+ */
+export function floorInputText(amount: bigint, decimals: number): string {
+  if (amount <= 0n) return "0";
+  const digits = amount.toString();
+  const keep = 6;
+  const truncated = digits.length > keep ? digits.slice(0, keep) + "0".repeat(digits.length - keep) : digits;
+  return formatUnits(BigInt(truncated), decimals);
+}
+
 /** Token units → a readable amount; 6 significant digits like the price API's `display`. */
 export function formatTokenAmount(amount: bigint, decimals: number): string {
   const n = Number(formatUnits(amount, decimals));
@@ -102,7 +114,7 @@ export function TradeForm({
   }, [symbol, destination]);
   useEffect(() => {
     if (floorTouched || suggestedFloor === null || !market) return;
-    setFloorInput(formatUnits(suggestedFloor, market.tokenOut.decimals));
+    setFloorInput(floorInputText(suggestedFloor, market.tokenOut.decimals));
   }, [suggestedFloor, floorTouched, market]);
   const targetMinOut = useMemo<bigint | null>(() => {
     if (!market) return null;
@@ -285,7 +297,7 @@ export function TradeForm({
                     setFloorTouched(true);
                     setFloorInput(e.target.value);
                   }}
-                  placeholder={suggestedFloor !== null ? formatUnits(suggestedFloor, market.tokenOut.decimals) : "0.0"}
+                  placeholder={suggestedFloor !== null ? floorInputText(suggestedFloor, market.tokenOut.decimals) : "0.0"}
                   className="w-44 rounded-md border border-border bg-void px-2 py-1 text-right text-sm text-text outline-none focus:border-acid/60"
                 />
                 <span className="text-text-dim">{market.tokenOut.symbol}</span>
