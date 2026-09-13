@@ -36,7 +36,17 @@ export function isHederaAccountId(value: string): boolean {
   return /^0\.0\.[0-9]+$/.test(value.trim());
 }
 
+/** The Hedera SDK expects Node's `Buffer` global; give it the userland one once, before it loads. */
+async function ensureBuffer(): Promise<void> {
+  const g = globalThis as { Buffer?: unknown };
+  if (g.Buffer) return;
+  // Aliased in vite.config.ts to the npm package by absolute path (never Node's builtin).
+  const { Buffer } = await import("buffer");
+  g.Buffer = Buffer;
+}
+
 export async function payAndFetch(options: PayAndFetchOptions): Promise<PaidFetchResult> {
+  await ensureBuffer();
   const [{ x402Client }, { wrapFetchWithPayment }, { ExactHederaScheme }, { createClientHederaSigner, PrivateKey }, { decodePaymentResponseHeader }] =
     await Promise.all([
       import("@x402/core/client"),
