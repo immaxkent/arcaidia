@@ -25,6 +25,7 @@ import {
   type AgentDecision,
   type FillAuthorization,
   type Intent,
+  type EcosystemIntelligence,
   type IntelligenceProvider,
   type ObservationProvider,
   type RiskPolicy,
@@ -32,6 +33,7 @@ import {
   type SwapAdapter,
   type TxHash,
 } from '@arcaidia/domain';
+import { applyIntelligence, DEFAULT_INTELLIGENCE_SETTINGS, type IntelligenceSettings } from './intelligence-policy.js';
 import { isTradeIntent } from '@arcaidia/domain';
 import { NoopTelemetryClient, type TelemetryClient, type TelemetryStage } from '@arcaidia/telemetry';
 import { FillRevertedError } from '../adapters/viem-fill-submitter.js';
@@ -52,6 +54,11 @@ export interface SolverConfig {
    * authorization is worthless almost immediately.
    */
   readonly authorizationTtlSeconds: number;
+  /**
+   * D13 (WP-35): what the optional intelligence view may do. Absent = advisory,
+   * narrative only — the WP-33 baseline.
+   */
+  readonly intelligence?: IntelligenceSettings;
 }
 
 export interface SolverDependencies {
@@ -157,6 +164,12 @@ export async function processIntent(
 
   const now = clock();
 
+  // WP-35: a paid view costs a 402 round trip plus a Hedera transfer reaching consensus, so it
+  // is started here, alongside source verification, and only awaited once the deterministic
+  // verdict exists. It still cannot delay a fill by more than its own bounded timeout, and its
+  // failure (rejected here so it can never be an unhandled rejection) changes nothing.
+  const intelligenceView = deps.intelligence ? deps.intelligence.ecosystem(now).catch(() => null) : Promise.resolve(null);
+
   // --- Verify the source before anything else is considered ----------------
 
   report('VERIFYING_SOURCE');
@@ -189,7 +202,7 @@ export async function processIntent(
     alreadyFilled,
     tradeSatisfiable,
   });
-  const decision = await withIntelligenceNarrative(verdict, deps.intelligence, now);
+  const decision = await withIntelligence(verdict, deps.intelligence, await intelligenceView, config.intelligence ?? DEFAULT_INTELLIGENCE_SETTINGS);
 
   // Logged before acting, so a decision exists in the record even if submission
   // later fails. A log written only on success would hide exactly the runs
@@ -271,23 +284,19 @@ async function tradeSatisfiabilityOf(
 }
 
 /**
- * Attach an intelligence summary to the decision's narrative, if a provider is
- * configured and answers. The verdict, fee and amounts are already fixed by
- * the time this runs — nothing here can change them, by construction.
+ * Apply the intelligence view, if one arrived, under the operator's setting
+ * (D13). Advisory: narrative only — the verdict, fee and amounts are already
+ * fixed by the time this runs and nothing here can change them. Selective:
+ * may withhold an ACCEPT (`applyIntelligence`), never grant one. A provider
+ * that failed or timed out delivered `null`, which changes nothing in either mode.
  */
-async function withIntelligenceNarrative(
+async function withIntelligence(
   decision: AgentDecision,
   intelligence: IntelligenceProvider | undefined,
-  now: number,
+  view: EcosystemIntelligence | null,
+  settings: IntelligenceSettings,
 ): Promise<AgentDecision> {
-  if (!intelligence) return decision;
-  try {
-    const view = await intelligence.ecosystem(now);
-    const narrative =
-      `ecosystem: liquidity ${view.aggregateAvailableLiquidity.toString()}, ` +
-      `utilisation ${view.aggregateUtilisationBps} bps, scarcity ${view.scarcityScoreBps} bps`;
-    return { ...decision, narrative };
-  } catch {
-    return decision;
-  }
+  if (!intelligence || !view) return decision;
+  const receipt = intelligence.lastPayment?.() ?? null;
+  return applyIntelligence(decision, view, receipt, settings);
 }

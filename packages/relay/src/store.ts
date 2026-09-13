@@ -9,6 +9,7 @@
  * exactly as WP-17.4's kill-the-Relay test proves — only the console's live
  * view degrades.
  */
+import type { HeartbeatIntelligence } from '@arcaidia/telemetry';
 import { randomBytes } from 'node:crypto';
 import { buildChallengeMessage, verifyChallengeSignature } from './pairing.js';
 import {
@@ -117,9 +118,15 @@ export class RelayStore {
   }
 
   /** WP-18.2. Liveness only — never touches `stage`. */
-  recordHeartbeat(key: VaultKey, operatorAddress: `0x${string}`, at?: number): boolean {
+  recordHeartbeat(key: VaultKey, operatorAddress: `0x${string}`, at?: number, intelligence?: HeartbeatIntelligence): boolean {
     if (!this.isPairedTo(key, operatorAddress)) return false;
-    this.update(key, (state) => ({ ...state, online: true, lastHeartbeatAt: at ?? this.clock() }));
+    this.update(key, (state) => ({
+      ...state,
+      online: true,
+      lastHeartbeatAt: at ?? this.clock(),
+      // WP-35: a heartbeat that says nothing about intelligence means "none" — the pill clears.
+      intelligence: intelligence ?? null,
+    }));
     return true;
   }
 

@@ -16,6 +16,7 @@ import { appendFileSync } from 'node:fs';
 import { NoopTelemetryClient } from '@arcaidia/telemetry';
 import { JsonLinesDecisionLog, startSolverWorker, type SolverPassResult } from '../index.js';
 import { buildSolverDependencies, pairAllVaultsInBackground, startHeartbeats, startRepairing } from './build-dependencies.js';
+import { PaymentLedger } from '../adapters/x402-paying-fetch.js';
 import { ConfigError, loadSolverConfig } from './config.js';
 import { startQuoteServer } from './quote-server.js';
 
@@ -55,7 +56,9 @@ async function main(): Promise<void> {
   const decisionLogPath = process.env.SOLVER_DECISION_LOG_PATH ?? 'solver-decisions.jsonl';
   const log = new JsonLinesDecisionLog((line) => appendFileSync(decisionLogPath, `${line}\n`));
 
-  const { deps, signerAddress, submitterAddress } = buildSolverDependencies(config, { log });
+  // WP-35: one ledger shared by the paying fetch (writes receipts) and the heartbeat (reports them).
+  const ledger = new PaymentLedger();
+  const { deps, signerAddress, submitterAddress } = buildSolverDependencies(config, { log, ledger });
 
   console.log('[solver] starting');
   console.log(`[solver] signer    ${signerAddress} (${config.signerAuthority.mode})`);
@@ -70,12 +73,18 @@ async function main(): Promise<void> {
       ? `[solver] telemetry  -> ${config.telemetry.relayUrl}`
       : '[solver] telemetry  disabled',
   );
+  console.log(
+    config.intelligenceUrl
+      ? `[solver] intelligence ${config.intelligenceMode} <- ${config.intelligenceUrl}` +
+          (config.hedera ? ` (paying over Hedera x402 from ${config.hedera.accountId})` : ' (unpaid)')
+      : '[solver] intelligence disabled',
+  );
 
   // WP-18.1: fire-and-forget, never awaited — see this function's own doc
   // comment for why pairing must not be able to delay the solver starting.
   pairAllVaultsInBackground(config, deps.authority);
   // WP-18.2: "solver online" on its own clock — see startHeartbeats.
-  const stopHeartbeats = startHeartbeats(config, deps.authority, deps.telemetry ?? new NoopTelemetryClient());
+  const stopHeartbeats = startHeartbeats(config, deps.authority, deps.telemetry ?? new NoopTelemetryClient(), { ledger });
   const stopRepairing = startRepairing(config, deps.authority);
 
   const handle = startSolverWorker(deps, {

@@ -66,6 +66,15 @@ export const DecisionReason = {
    * signs it.
    */
   FEE_ABOVE_VAULT_POLICY: 'FEE_ABOVE_VAULT_POLICY',
+  /**
+   * D13 (WP-35): the deterministic policy accepted, but the operator runs
+   * `INTELLIGENCE_MODE=selective` and paid ecosystem intelligence showed both
+   * that the vault's posted fee sits below the market median by more than the
+   * configured margin and that liquidity is scarce ecosystem-wide — so the
+   * capital is held for a better-paid fill. Only ever downgrades an ACCEPT;
+   * never the other way. Canonical settlement still delivers.
+   */
+  INTELLIGENCE_HOLD: 'INTELLIGENCE_HOLD',
 } as const;
 export type DecisionReason = (typeof DecisionReason)[keyof typeof DecisionReason];
 

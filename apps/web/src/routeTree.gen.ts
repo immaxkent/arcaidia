@@ -14,6 +14,7 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as ConsoleRouteImport } from './routes/console'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as EarnRouteImport } from './routes/earn'
+import { Route as IntelligenceRouteImport } from './routes/intelligence'
 import { Route as LiquidityRouteImport } from './routes/liquidity'
 import { Route as RoadmapRouteImport } from './routes/roadmap'
 import { Route as SolverRouteImport } from './routes/solver'
@@ -44,6 +45,11 @@ const EarnRoute = EarnRouteImport.update({
   path: '/earn',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IntelligenceRoute = IntelligenceRouteImport.update({
+  id: '/intelligence',
+  path: '/intelligence',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LiquidityRoute = LiquidityRouteImport.update({
   id: '/liquidity',
   path: '/liquidity',
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/console': typeof ConsoleRoute
   '/docs': typeof DocsRoute
   '/earn': typeof EarnRoute
+  '/intelligence': typeof IntelligenceRoute
   '/liquidity': typeof LiquidityRoute
   '/roadmap': typeof RoadmapRoute
   '/solver': typeof SolverRoute
@@ -82,6 +89,7 @@ export interface FileRoutesByTo {
   '/console': typeof ConsoleRoute
   '/docs': typeof DocsRoute
   '/earn': typeof EarnRoute
+  '/intelligence': typeof IntelligenceRoute
   '/liquidity': typeof LiquidityRoute
   '/roadmap': typeof RoadmapRoute
   '/solver': typeof SolverRoute
@@ -94,6 +102,7 @@ export interface FileRoutesById {
   '/console': typeof ConsoleRoute
   '/docs': typeof DocsRoute
   '/earn': typeof EarnRoute
+  '/intelligence': typeof IntelligenceRoute
   '/liquidity': typeof LiquidityRoute
   '/roadmap': typeof RoadmapRoute
   '/solver': typeof SolverRoute
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/console'
     | '/docs'
     | '/earn'
+    | '/intelligence'
     | '/liquidity'
     | '/roadmap'
     | '/solver'
@@ -118,6 +128,7 @@ export interface FileRouteTypes {
     | '/console'
     | '/docs'
     | '/earn'
+    | '/intelligence'
     | '/liquidity'
     | '/roadmap'
     | '/solver'
@@ -129,6 +140,7 @@ export interface FileRouteTypes {
     | '/console'
     | '/docs'
     | '/earn'
+    | '/intelligence'
     | '/liquidity'
     | '/roadmap'
     | '/solver'
@@ -141,6 +153,7 @@ export interface RootRouteChildren {
   ConsoleRoute: typeof ConsoleRoute
   DocsRoute: typeof DocsRoute
   EarnRoute: typeof EarnRoute
+  IntelligenceRoute: typeof IntelligenceRoute
   LiquidityRoute: typeof LiquidityRoute
   RoadmapRoute: typeof RoadmapRoute
   SolverRoute: typeof SolverRoute
@@ -184,6 +197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EarnRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/intelligence': {
+      id: '/intelligence'
+      path: '/intelligence'
+      fullPath: '/intelligence'
+      preLoaderRoute: typeof IntelligenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/liquidity': {
       id: '/liquidity'
       path: '/liquidity'
@@ -221,6 +241,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConsoleRoute: ConsoleRoute,
   DocsRoute: DocsRoute,
   EarnRoute: EarnRoute,
+  IntelligenceRoute: IntelligenceRoute,
   LiquidityRoute: LiquidityRoute,
   RoadmapRoute: RoadmapRoute,
   SolverRoute: SolverRoute,

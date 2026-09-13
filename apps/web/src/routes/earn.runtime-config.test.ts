@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARC_TESTNET, ETHEREUM_SEPOLIA, type Address } from "@/lib/arcaidia/types";
-import { circleSolverEnvText, runtimeConfigText } from "./earn";
+import { circleSolverEnvText, runtimeConfigText, solverEnvText } from "./earn";
 
 const VAULT: Address = "0xc74E693938DfBf7c11b787bA27cddE4c0215AAF1";
 const ON_SEPOLIA = [{ chainId: ETHEREUM_SEPOLIA, vaultAddress: VAULT }];
@@ -64,5 +64,28 @@ describe("circleSolverEnvText (Circle Agent Wallet operators)", () => {
     expect(text).not.toContain("LOCAL_AGENT_PRIVATE_KEY=");
     expect(text).toContain(`ETHEREUM_SEPOLIA_LIQUIDITY_VAULT=${VAULT}`);
     expect(text).toContain(`ARC_TESTNET_LIQUIDITY_VAULT=${VAULT}`);
+  });
+});
+
+describe("paid intelligence lines (WP-35)", () => {
+  const intel = { gatewayUrl: "https://intel.example", hederaAccountId: "0.0.10511371", mode: "selective" as const };
+
+  it("are absent by default", () => {
+    expect(runtimeConfigText(ON_SEPOLIA, null)).not.toContain("INTELLIGENCE_URL");
+    expect(runtimeConfigText(ON_SEPOLIA, null)).not.toContain("HEDERA_");
+  });
+
+  it("write the gateway, mode and account, and leave the Hedera key blank", () => {
+    const text = runtimeConfigText(ON_SEPOLIA, null, intel);
+    expect(text).toContain("INTELLIGENCE_URL=https://intel.example");
+    expect(text).toContain("INTELLIGENCE_MODE=selective");
+    expect(text).toContain("HEDERA_ACCOUNT_ID=0.0.10511371");
+    expect(text).toMatch(/^HEDERA_PRIVATE_KEY=$/m);
+  });
+
+  it("travel through both env-file variants", () => {
+    const keys = { signerKey: `0x${"11".repeat(32)}` as const, submitterKey: `0x${"22".repeat(32)}` as const };
+    expect(solverEnvText(ON_ARC, keys, null, intel)).toContain("HEDERA_ACCOUNT_ID=0.0.10511371");
+    expect(circleSolverEnvText(ON_ARC, VAULT, keys.submitterKey, null, intel)).toContain("INTELLIGENCE_MODE=selective");
   });
 });

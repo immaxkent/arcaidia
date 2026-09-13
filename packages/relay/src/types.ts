@@ -1,4 +1,4 @@
-import type { TelemetryStage } from '@arcaidia/telemetry';
+import type { HeartbeatIntelligence, TelemetryStage } from '@arcaidia/telemetry';
 
 export type { TelemetryStage };
 export { TELEMETRY_STAGES } from '@arcaidia/telemetry';
@@ -36,6 +36,8 @@ export interface VaultTelemetryState extends VaultKey {
   readonly stage: TelemetryStage | null;
   readonly stageAt: number | null;
   readonly intentId: `0x${string}` | null;
+  /** WP-35: the solver's self-reported intelligence use, from its last heartbeat. */
+  readonly intelligence: HeartbeatIntelligence | null;
 }
 
 export function initialState(key: VaultKey): VaultTelemetryState {
@@ -49,6 +51,7 @@ export function initialState(key: VaultKey): VaultTelemetryState {
     stage: null,
     stageAt: null,
     intentId: null,
+    intelligence: null,
   };
 }
 

@@ -148,6 +148,8 @@ export const SERVICES = {
   /** POST /quote (WP-14) — one solver process, one endpoint, not per-chain: sourceChainId/destinationChainId are request fields. */
   solverQuoteUrl: str("VITE_SOLVER_QUOTE_URL"),
   marketIntelligenceUrl: str("VITE_MARKET_INTELLIGENCE_URL"),
+  /** WP-35: the Hedera x402 gateway in front of the intelligence endpoints (`/v1/pricing`, paid `/v1/intelligence/*`). */
+  x402GatewayUrl: str("VITE_X402_GATEWAY_URL"),
 };
 
 /**

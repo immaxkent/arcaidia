@@ -22,7 +22,7 @@ import { solverVaultAbi, vaultCapabilitiesFromAbi, type VaultCapability } from "
 import { useQueryClient } from "@tanstack/react-query";
 import { useIntentOutcome } from "@/hooks/arcaidia/use-intent-outcome";
 import { useSolverMetrics } from "@/hooks/arcaidia/use-solver-metrics";
-import { useSolverTelemetry } from "@/hooks/arcaidia/use-solver-telemetry";
+import { useSolverTelemetry, type SolverIntelligenceReport } from "@/hooks/arcaidia/use-solver-telemetry";
 import { useVaultActivity, useVaultFills } from "@/hooks/arcaidia/use-vault-fills";
 import { useVaultAnalytics, useVaults, type VaultDirectoryRow } from "@/hooks/arcaidia/use-vaults";
 import { deriveOnchainStage } from "@/lib/arcaidia/solver-stage";
@@ -312,6 +312,7 @@ function ConsolePage() {
               <ChainBadge chainId={vault.chainId} />
               <AuthChip authState={authState} />
               <RuntimeChip runtime={runtimeStatus} />
+              <IntelChip report={telemetry.status === "ready" ? telemetry.data.intelligence : null} />
               <span className="num ml-auto text-xs text-text-dim">
                 Vault <CopyValue value={vault.vaultAddress} label="vault address" />
               </span>
@@ -578,6 +579,29 @@ function AuthChip({ authState }: { authState: SolverAuthState | null }) {
     >
       {authorised ? "Solver authorised" : `Solver ${authState.toLowerCase()}`}
     </span>
+  );
+}
+
+/**
+ * WP-35 — the solver's self-reported intelligence use. Hidden when it reads none. "Paid" means
+ * it buys each answer over Hedera x402 (the tooltip carries the last transaction id); the mode
+ * is D13's: advisory decorates decisions, selective may withhold a fill.
+ */
+function IntelChip({ report }: { report: SolverIntelligenceReport | null }) {
+  if (!report) return null;
+  const title = report.paid
+    ? `Paid intelligence over Hedera x402 from ${report.payer ?? "?"} — ${report.payments} payment${report.payments === 1 ? "" : "s"}` +
+      (report.lastTransaction ? `, last tx ${report.lastTransaction}` : "")
+    : "Reads the relay's free intelligence endpoint";
+  return (
+    <Link
+      to="/intelligence"
+      title={title}
+      className="num rounded-sm border border-acid/60 bg-acid/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-acid hover:bg-acid/20"
+    >
+      Intel · {report.mode}
+      {report.paid ? ` · ${report.payments} paid` : ""}
+    </Link>
   );
 }
 

@@ -91,13 +91,33 @@ export interface SwapAdapter {
 }
 
 /**
+ * A receipt for one paid intelligence request (WP-35): the Hedera transaction the x402
+ * facilitator settled, as returned in the gateway's `PAYMENT-RESPONSE` header.
+ */
+export interface IntelligencePaymentReceipt {
+  /** x402 network id, e.g. `hedera:testnet`. */
+  readonly network: string;
+  /** Hedera transaction id (`0.0.x@seconds.nanos`). */
+  readonly transaction: string;
+  readonly payer: string | null;
+  /** Smallest units of the asset paid (tinybar for HBAR), when the facilitator reports it. */
+  readonly amount: string | null;
+  readonly paidAt: UnixSeconds;
+}
+
+/**
  * Optional ecosystem intelligence (WP-33; paid via Hedera x402 in WP-35).
  *
- * Strictly advisory. `processIntent` may consult it and record the answer in
- * a decision's `narrative`; it can never be the ACCEPT/REJECT gate (working
- * agreement rule 4), and a solver runs identically with it absent, failing or
- * lying. The protocol never depends on it.
+ * Advisory by default. `processIntent` consults it after the deterministic
+ * verdict and records the answer in a decision's `narrative`; it can never
+ * turn a REJECT into an ACCEPT (working agreement rule 4), and a solver runs
+ * identically with it absent, failing or lying. D13 adds one bounded
+ * exception an operator opts into (`INTELLIGENCE_MODE=selective`): the view
+ * may *withhold* an ACCEPT under two explicit thresholds. The protocol never
+ * depends on it either way.
  */
 export interface IntelligenceProvider {
   ecosystem(asOf: UnixSeconds): Promise<EcosystemIntelligence>;
+  /** The receipt for the most recent paid answer, if this provider pays for them. */
+  lastPayment?(): IntelligencePaymentReceipt | null;
 }

@@ -22,7 +22,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # box's IP through sslip.io, which needs no DNS at all.
 IP=$(ssh "$HOST" 'curl -s https://api.ipify.org')
 OPS_HOST=${OPS_HOST:-"$IP.sslip.io"}
-echo "== deploying to $HOST as https://relay.$OPS_HOST and https://quote.$OPS_HOST"
+echo "== deploying to $HOST as https://relay.$OPS_HOST, https://quote.$OPS_HOST and https://intel.$OPS_HOST"
 
 ssh "$HOST" 'command -v docker >/dev/null || (curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker "$USER")'
 # A 2 GB box builds the images only with some swap behind it; idempotent.
@@ -41,5 +41,6 @@ done
 ssh "$HOST" "cd $REMOTE_DIR && DC='env OPS_HOST=$OPS_HOST docker compose'; docker info >/dev/null 2>&1 || DC='sudo env OPS_HOST=$OPS_HOST docker compose'; \$DC -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && \$DC -f docker-compose.ops.yml ps"
 echo "== relay:  https://relay.$OPS_HOST/health"
 echo "== quote:  https://quote.$OPS_HOST/quote"
-echo "Set VITE_SOLVER_TELEMETRY_URL=https://relay.$OPS_HOST and VITE_SOLVER_QUOTE_URL=https://quote.$OPS_HOST for the web build,"
+echo "== intel:  https://intel.$OPS_HOST/v1/pricing  (WP-35 — 402 on /v1/intelligence/*)"
+echo "Set VITE_SOLVER_TELEMETRY_URL=https://relay.$OPS_HOST, VITE_SOLVER_QUOTE_URL=https://quote.$OPS_HOST and VITE_X402_GATEWAY_URL=https://intel.$OPS_HOST for the web build,"
 echo "and ARCAIDIA_TELEMETRY_URL=https://relay.$OPS_HOST in every operator's downloaded env."

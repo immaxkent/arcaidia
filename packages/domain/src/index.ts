@@ -111,6 +111,7 @@ export type {
   SettlementAdapter,
   SwapAdapter,
   IntelligenceProvider,
+  IntelligencePaymentReceipt,
 } from './ports.js';
 
 // Errors

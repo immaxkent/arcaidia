@@ -17,6 +17,7 @@ const ROUTES = [
   { to: "/liquidity", label: "Liquidity" },
   { to: "/earn", label: "Earn" },
   { to: "/console", label: "Console" },
+  { to: "/intelligence", label: "Intelligence" },
   { to: "/roadmap", label: "Roadmap" },
   { to: "/docs", label: "Docs" },
   { to: "/about", label: "How it works" },

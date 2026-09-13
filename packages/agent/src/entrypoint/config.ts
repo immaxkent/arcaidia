@@ -73,6 +73,18 @@ export interface SolverEntrypointConfig {
    * the baseline solver; set, it only ever decorates the decision narrative.
    */
   readonly intelligenceUrl: string | null;
+  /**
+   * WP-35 / D13: `advisory` (default) records the view as narrative only; `selective` lets it
+   * withhold an ACCEPT under `intelligenceHold`'s two thresholds. `selective` needs a URL.
+   */
+  readonly intelligenceMode: 'advisory' | 'selective';
+  readonly intelligenceHold: { readonly scarcityBps: number; readonly marginBps: number };
+  /**
+   * WP-35: the Hedera account that pays for intelligence over x402. Both or neither of
+   * `HEDERA_ACCOUNT_ID` / `HEDERA_PRIVATE_KEY`; the key is used to sign HBAR transfers and is
+   * never logged. Null = read the free relay endpoint, unpaid, exactly as WP-33.
+   */
+  readonly hedera: { readonly accountId: string; readonly privateKey: string } | null;
 }
 
 export class ConfigError extends Error {}
@@ -208,7 +220,50 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
     telemetry: loadTelemetryConfig(env),
     observationSource,
     intelligenceUrl: env.INTELLIGENCE_URL || null,
+    intelligenceMode: loadIntelligenceMode(env),
+    intelligenceHold: {
+      scarcityBps: bpsOr(env, 'INTELLIGENCE_HOLD_SCARCITY_BPS', 6_000),
+      marginBps: bpsOr(env, 'INTELLIGENCE_HOLD_MARGIN_BPS', 5),
+    },
+    hedera: loadHedera(env),
   };
+}
+
+function loadIntelligenceMode(env: Env): 'advisory' | 'selective' {
+  const raw = env.INTELLIGENCE_MODE ?? 'advisory';
+  if (raw !== 'advisory' && raw !== 'selective') {
+    throw new ConfigError(`INTELLIGENCE_MODE must be "advisory" or "selective", got "${raw}".`);
+  }
+  if (raw === 'selective' && !env.INTELLIGENCE_URL) {
+    throw new ConfigError('INTELLIGENCE_MODE=selective needs INTELLIGENCE_URL — there is no view to be selective with.');
+  }
+  return raw;
+}
+
+function bpsOr(env: Env, key: string, fallback: number): number {
+  const raw = env[key];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 10_000) {
+    throw new ConfigError(`${key} must be an integer between 0 and 10000 basis points.`);
+  }
+  return value;
+}
+
+function loadHedera(env: Env): { accountId: string; privateKey: string } | null {
+  const accountId = env.HEDERA_ACCOUNT_ID;
+  const privateKey = env.HEDERA_PRIVATE_KEY;
+  if (!accountId && !privateKey) return null;
+  if (!accountId || !privateKey) {
+    throw new ConfigError('HEDERA_ACCOUNT_ID and HEDERA_PRIVATE_KEY must be set together (or neither).');
+  }
+  if (!/^0\.0\.[0-9]+$/.test(accountId)) {
+    throw new ConfigError('HEDERA_ACCOUNT_ID must be a Hedera account id like 0.0.12345.');
+  }
+  if (!/^(0x)?[0-9a-fA-F]{64}$/.test(privateKey.trim()) && !/^(0x)?[0-9a-fA-F]{80,}$/.test(privateKey.trim())) {
+    throw new ConfigError('HEDERA_PRIVATE_KEY must be a hex-encoded ECDSA private key (raw 32 bytes or DER).');
+  }
+  return { accountId, privateKey };
 }
 
 function loadObservationSource(env: Env): 'nest' | 'graph' {

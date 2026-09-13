@@ -89,3 +89,76 @@ export function useMarketIntelligence(destinationChainId: number): DataState<Mar
   if (!query.data) return unavailableState("Loading market intelligence");
   return readyState(query.data);
 }
+
+/** WP-35 — the ecosystem-wide view, as the paid gateway and the free relay both serve it. */
+export interface EcosystemIntelligenceView {
+  aggregateLiquidity: bigint;
+  aggregateUtilisationBps: number;
+  feeMinBps: number | null;
+  feeMedianBps: number | null;
+  feeMaxBps: number | null;
+  vaultCount: number;
+  outstandingIntentVolume: bigint;
+  pendingCctpExposure: bigint;
+  recentFillVelocityPerHour: number | null;
+  p50LatencySeconds: number | null;
+  p95LatencySeconds: number | null;
+  latencySamples: number;
+  scarcityScoreBps: number;
+  estimatedOpportunitySize: bigint;
+  computedAt: number;
+}
+
+interface WireEcosystemIntelligence {
+  aggregateAvailableLiquidity: string;
+  aggregateUtilisationBps: number;
+  feeDistribution: { perVault: unknown[]; minBps: number | null; medianBps: number | null; maxBps: number | null };
+  outstandingIntentVolume: string;
+  pendingCctpExposure: string;
+  recentFillVelocityPerHour: number | null;
+  recentSettlementLatency: { p50Seconds: number | null; p95Seconds: number | null; sampleSize: number };
+  estimatedOpportunitySize: string;
+  scarcityScoreBps: number;
+  computedAt: number;
+}
+
+export function ecosystemFromWire(w: WireEcosystemIntelligence): EcosystemIntelligenceView {
+  return {
+    aggregateLiquidity: BigInt(w.aggregateAvailableLiquidity),
+    aggregateUtilisationBps: w.aggregateUtilisationBps,
+    feeMinBps: w.feeDistribution.minBps,
+    feeMedianBps: w.feeDistribution.medianBps,
+    feeMaxBps: w.feeDistribution.maxBps,
+    vaultCount: w.feeDistribution.perVault.length,
+    outstandingIntentVolume: BigInt(w.outstandingIntentVolume),
+    pendingCctpExposure: BigInt(w.pendingCctpExposure),
+    recentFillVelocityPerHour: w.recentFillVelocityPerHour,
+    p50LatencySeconds: w.recentSettlementLatency.p50Seconds,
+    p95LatencySeconds: w.recentSettlementLatency.p95Seconds,
+    latencySamples: w.recentSettlementLatency.sampleSize,
+    scarcityScoreBps: w.scarcityScoreBps,
+    estimatedOpportunitySize: BigInt(w.estimatedOpportunitySize),
+    computedAt: w.computedAt,
+  };
+}
+
+export function useEcosystemIntelligence(): DataState<EcosystemIntelligenceView> {
+  const base = intelligenceBaseUrl();
+  const query = useQuery({
+    queryKey: ["ecosystem-intelligence", base],
+    enabled: base !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const response = await fetch(`${base!.replace(/\/+$/, "")}/v1/intelligence/ecosystem`);
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Intelligence request failed: ${response.status}`);
+      }
+      return ecosystemFromWire((await response.json()) as WireEcosystemIntelligence);
+    },
+  });
+  if (base === null) return unavailableState("No intelligence endpoint configured (VITE_MARKET_INTELLIGENCE_URL or VITE_SOLVER_TELEMETRY_URL)");
+  if (query.isPending) return { status: "loading" };
+  if (query.isError) return errorState(query.error.message);
+  return readyState(query.data);
+}

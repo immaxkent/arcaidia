@@ -22,8 +22,8 @@ Sources: [Arc](https://ethglobal.com/events/ethonline2026/prizes/arc) ·
 | Arc/Circle | P1 — Best DeFi/Onchain Finance Application | $1,667 | Secondary; same deliverables, different emphasis. |
 | The Graph | P2 — Best AI Tooling or AI Use Case (From Scratch) | $5,000 (1st $2,500) | **Primary.** Agent uses The Graph as its live data source. |
 | The Graph | P1 — Best Use of Composable or Standardized Graph Products | $5,000 | **Does not currently qualify** — see gap below. |
-| Privy | P2 — Best Financial Flow | $2,500 | **Primary.** Bridging/transfer flow is exactly the listed use case. |
-| Privy | P1 — Best B2B Financial Product | $2,500 | Possible with an LP-treasury angle; scope decision. |
+| Hedera | AI & Agentic Payments | see prize page | **Primary (replaces Privy, 2026-09-13).** Autonomous solvers pay per request in HBAR over x402 for the intelligence they decide with (WP-35). |
+| ~~Privy~~ | ~~P2 / P1~~ | — | Dropped 2026-09-13: Privy stays as the user's wallet layer but is no longer a targeted prize. |
 
 Unavailable to us (Continuity track only): Arc P3, Arc P5, The Graph P3.
 
@@ -173,6 +173,21 @@ An LP deposit/withdraw console governed by Privy policies would satisfy this and
 reuses WP-02's vault. Judge it as scope creep unless WP-11 lands early.
 
 ---
+
+### Hedera — AI & Agentic Payments (WP-35)
+
+- [x] **An agent makes payments autonomously on Hedera** → each solver buys the relay's
+      ecosystem view per request: `402` → signed Hedera `TransferTransaction` → facilitator
+      settlement → answer + `PAYMENT-RESPONSE`. Code: `packages/x402-gateway`,
+      `packages/agent/src/adapters/x402-paying-fetch.ts`.
+- [x] **x402 with the Blocky402 testnet facilitator** → `DEFAULT_FACILITATOR_URL =
+      https://api.testnet.blocky402.com`; `feePayer` taken from its `/supported`.
+- [x] **The payment changes what the agent does** → D13 `selective` mode (bounded hold-back);
+      `advisory` records the paid view and transaction in every decision.
+- [x] **Visible** → `/intelligence` (price list, live 402 decode, paying solvers with HashScan
+      links), console INTEL chip, `/earn` switch, README payment-flow section.
+- [ ] **Live evidence** → House solver paying from the ops box; transaction ids captured in
+      `WP-35` 35.5 and the demo video.
 
 ## Open
 

@@ -12,6 +12,7 @@
  * telemetry, and the frontend console needs to read it with no login.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { HeartbeatIntelligence } from '@arcaidia/telemetry';
 import type { RelayStore } from './store.js';
 import type { VaultKey, VaultTelemetryState } from './types.js';
 import type { VaultFlowsService } from './vault-flows/service.js';
@@ -246,14 +247,32 @@ async function handleHeartbeat(req: IncomingMessage, res: ServerResponse, store:
   const key = vaultKeyFromBody(body);
   const operatorAddress = requireString(body, 'operatorAddress').toLowerCase() as `0x${string}`;
   const at = optionalNumber(body, 'at');
+  const intelligence = optionalIntelligence(body);
 
-  const accepted = store.recordHeartbeat(key, operatorAddress, at);
+  const accepted = store.recordHeartbeat(key, operatorAddress, at, intelligence);
   if (!accepted) {
     send(res, 401, { error: 'Not paired for this vault/operator.' });
     return;
   }
   res.writeHead(204, CORS_HEADERS);
   res.end();
+}
+
+/** WP-35: lenient on purpose — a malformed self-report is dropped, never a rejected heartbeat. */
+function optionalIntelligence(body: Record<string, unknown>): HeartbeatIntelligence | undefined {
+  const raw = body.intelligence;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const mode = r.mode === 'selective' ? 'selective' : r.mode === 'advisory' ? 'advisory' : null;
+  if (mode === null) return undefined;
+  return {
+    mode,
+    paid: r.paid === true,
+    payments: typeof r.payments === 'number' && Number.isFinite(r.payments) ? r.payments : 0,
+    totalTinybar: typeof r.totalTinybar === 'string' && /^[0-9]+$/.test(r.totalTinybar) ? r.totalTinybar : '0',
+    lastTransaction: typeof r.lastTransaction === 'string' ? r.lastTransaction : null,
+    payer: typeof r.payer === 'string' ? r.payer : null,
+  };
 }
 
 async function handleEvent(req: IncomingMessage, res: ServerResponse, store: RelayStore): Promise<void> {

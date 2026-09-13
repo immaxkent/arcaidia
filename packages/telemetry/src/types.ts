@@ -48,6 +48,26 @@ export interface TelemetryStageEvent {
   readonly at: number;
 }
 
+/**
+ * WP-35: how this solver uses ecosystem intelligence, self-reported with each heartbeat so the
+ * console can show an INTEL pill. An operator's own assertion, like `online` — never
+ * authoritative, and nothing on chain reads it.
+ */
+export interface HeartbeatIntelligence {
+  /** D13: `advisory` decorates decisions; `selective` may withhold an ACCEPT. */
+  readonly mode: 'advisory' | 'selective';
+  /** True when the solver can pay a 402 over Hedera x402 (credentials configured). */
+  readonly paid: boolean;
+  /** Receipts recorded since the process started. */
+  readonly payments: number;
+  /** Sum of reported amounts in tinybar, as a decimal string. */
+  readonly totalTinybar: string;
+  /** Hedera transaction id of the most recent paid answer. */
+  readonly lastTransaction: string | null;
+  /** The paying Hedera account (`0.0.x`), when configured. */
+  readonly payer: string | null;
+}
+
 export interface TelemetryHeartbeat {
   /** See `TelemetryStageEvent.chainId` — same reason, same requirement. */
   readonly chainId: number;
@@ -55,4 +75,6 @@ export interface TelemetryHeartbeat {
   readonly operatorAddress: `0x${string}`;
   /** Unix seconds. */
   readonly at: number;
+  /** WP-35, optional: absent when the solver reads no intelligence at all. */
+  readonly intelligence?: HeartbeatIntelligence;
 }

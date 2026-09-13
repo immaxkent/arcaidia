@@ -220,6 +220,20 @@ describe('RelayStore subscription — cross-vault isolation', () => {
       stage: null,
       stageAt: null,
       intentId: null,
+      intelligence: null,
     });
+  });
+});
+
+describe('heartbeat intelligence (WP-35)', () => {
+  it('keeps the latest self-report and clears it when a heartbeat omits it', async () => {
+    const store = new RelayStore({ clock: () => 100 });
+    const key = { chainId: 1, vaultAddress: `0x${'ab'.repeat(20)}` as `0x${string}` };
+    await pair(store, key);
+    const report = { mode: 'selective' as const, paid: true, payments: 3, totalTinybar: '3000000', lastTransaction: '0.0.1@1.2', payer: '0.0.1' };
+    expect(store.recordHeartbeat(key, operator.address, 100, report)).toBe(true);
+    expect(store.stateOf(key).intelligence).toEqual(report);
+    store.recordHeartbeat(key, operator.address, 101);
+    expect(store.stateOf(key).intelligence).toBeNull();
   });
 });

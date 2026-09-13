@@ -8,3 +8,8 @@ relay.{$OPS_HOST} {
 quote.{$OPS_HOST} {
 	reverse_proxy house-solver:8787
 }
+
+# WP-35 — the Hedera x402 paywall in front of the relay's intelligence endpoints.
+intel.{$OPS_HOST} {
+	reverse_proxy x402-gateway:8402
+}

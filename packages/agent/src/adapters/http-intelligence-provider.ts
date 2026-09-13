@@ -7,7 +7,8 @@
  * `withIntelligenceNarrative` in process-intent.ts) — it is fetched with a short timeout and a
  * failure is swallowed there, so a slow or dead endpoint can neither delay nor change a fill.
  */
-import type { EcosystemIntelligence, IntelligenceProvider, UnixSeconds } from '@arcaidia/domain';
+import type { EcosystemIntelligence, IntelligencePaymentReceipt, IntelligenceProvider, UnixSeconds } from '@arcaidia/domain';
+import type { PaymentLedger } from './x402-paying-fetch.js';
 
 /** The wire shape: bigints travel as decimal strings, `sourceBlocks` values too. */
 export interface WireEcosystemIntelligence {
@@ -59,17 +60,27 @@ export interface HttpIntelligenceProviderOptions {
   readonly fetchImpl?: typeof fetch;
   /** Hard cap on one request; the narrative step must never hold up a fill. */
   readonly timeoutMs?: number;
+  /** WP-35: when `fetchImpl` pays over x402, the ledger its receipts land in. */
+  readonly ledger?: PaymentLedger;
 }
 
 export class HttpIntelligenceProvider implements IntelligenceProvider {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly ledger: PaymentLedger | undefined;
 
   constructor(options: HttpIntelligenceProviderOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.timeoutMs = options.timeoutMs ?? 2_000;
+    // A paid request is a 402 round trip plus a Hedera transfer reaching consensus (~3-5s), so a
+    // paying provider gets a longer leash than the free relay read; still bounded, still swallowed.
+    this.timeoutMs = options.timeoutMs ?? (options.ledger ? 10_000 : 2_000);
+    this.ledger = options.ledger;
+  }
+
+  lastPayment(): IntelligencePaymentReceipt | null {
+    return this.ledger?.summary().last ?? null;
   }
 
   async ecosystem(_asOf: UnixSeconds): Promise<EcosystemIntelligence> {

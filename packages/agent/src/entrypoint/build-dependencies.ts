@@ -10,9 +10,10 @@
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AgentAuthority } from '@arcaidia/domain';
-import { HttpTelemetryClient, NoopTelemetryClient, pairWithRelay, type TelemetryClient } from '@arcaidia/telemetry';
+import { HttpTelemetryClient, NoopTelemetryClient, pairWithRelay, type HeartbeatIntelligence, type TelemetryClient } from '@arcaidia/telemetry';
 import { buildReceiptWaiters } from '../adapters/evm-clients.js';
 import { HttpIntelligenceProvider } from '../adapters/http-intelligence-provider.js';
+import { PaymentLedger, createHederaPayingFetch } from '../adapters/x402-paying-fetch.js';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
   buildCircleSigningClient,
@@ -207,18 +208,20 @@ export function startHeartbeats(
   config: SolverEntrypointConfig,
   authority: AgentAuthority,
   telemetry: TelemetryClient,
-  options: { readonly intervalMs?: number; readonly clock?: () => number } = {},
+  options: { readonly intervalMs?: number; readonly clock?: () => number; readonly ledger?: PaymentLedger } = {},
 ): () => void {
   if (!config.telemetry.enabled || !canSignMessages(authority)) return () => {};
   const clock = options.clock ?? (() => Math.floor(Date.now() / 1000));
   const beat = () => {
     const at = clock();
+    const intelligence = heartbeatIntelligence(config, options.ledger);
     for (const chain of config.chains) {
       telemetry.heartbeat({
         chainId: chain.chainId,
         vaultAddress: chain.liquidityVault,
         operatorAddress: authority.address,
         at,
+        ...(intelligence ? { intelligence } : {}),
       });
     }
   };
@@ -226,6 +229,36 @@ export function startHeartbeats(
   const timer = setInterval(beat, options.intervalMs ?? HEARTBEAT_INTERVAL_MS);
   timer.unref?.();
   return () => clearInterval(timer);
+}
+
+/**
+ * WP-35: the free relay endpoint and the paid gateway serve the same bytes; what differs is
+ * whether this solver can answer a 402. Without Hedera credentials a paid gateway simply fails
+ * (swallowed as narrative, never a fill blocker); with them the answer is bought per request.
+ */
+export function buildIntelligenceProvider(config: SolverEntrypointConfig, ledger: PaymentLedger = new PaymentLedger()): HttpIntelligenceProvider {
+  const baseUrl = config.intelligenceUrl ?? '';
+  if (!config.hedera) return new HttpIntelligenceProvider({ baseUrl });
+  const paying = createHederaPayingFetch({ accountId: config.hedera.accountId, privateKey: config.hedera.privateKey, ledger });
+  return new HttpIntelligenceProvider({ baseUrl, fetchImpl: paying.fetchImpl, ledger: paying.ledger });
+}
+
+/**
+ * WP-35: what the console's INTEL pill shows. Only present when this solver reads intelligence
+ * at all; `paid` says whether it can pay a 402 (Hedera credentials present), and the counters
+ * come from the ledger the paying fetch writes.
+ */
+export function heartbeatIntelligence(config: SolverEntrypointConfig, ledger: PaymentLedger | undefined): HeartbeatIntelligence | null {
+  if (!config.intelligenceUrl) return null;
+  const summary = ledger?.summary();
+  return {
+    mode: config.intelligenceMode,
+    paid: config.hedera !== null,
+    payments: summary?.payments ?? 0,
+    totalTinybar: (summary?.totalTinybar ?? 0n).toString(),
+    lastTransaction: summary?.last?.transaction ?? null,
+    payer: config.hedera?.accountId ?? null,
+  };
 }
 
 export interface BuiltSolverDependencies {
@@ -238,7 +271,7 @@ export interface BuiltSolverDependencies {
 
 export function buildSolverDependencies(
   config: SolverEntrypointConfig,
-  options: { readonly log: DecisionLog; readonly clock?: () => number },
+  options: { readonly log: DecisionLog; readonly clock?: () => number; readonly ledger?: PaymentLedger },
 ): BuiltSolverDependencies {
   const authority = buildAuthority(config.signerAuthority);
   const submitterAccount = privateKeyToAccount(config.submitterPrivateKey);
@@ -287,10 +320,16 @@ export function buildSolverDependencies(
     config: {
       policy: DEFAULT_RISK_POLICY,
       authorizationTtlSeconds: config.authorizationTtlSeconds,
+      intelligence: {
+        mode: config.intelligenceMode,
+        holdScarcityBps: config.intelligenceHold.scarcityBps,
+        holdMarginBps: config.intelligenceHold.marginBps,
+      },
     },
     telemetry: buildTelemetryClient(config.telemetry),
-    // WP-33: narrative-only; absent = the baseline solver, byte for byte.
-    ...(config.intelligenceUrl ? { intelligence: new HttpIntelligenceProvider({ baseUrl: config.intelligenceUrl }) } : {}),
+    // WP-33/35: absent = the baseline solver, byte for byte. With a URL, the provider reads it;
+    // with Hedera credentials too, it pays any 402 it meets over x402 and keeps the receipts.
+    ...(config.intelligenceUrl ? { intelligence: buildIntelligenceProvider(config, options.ledger) } : {}),
     // WP-17.1's per-instance vault, now applied where fills are *submitted* too (WP-29).
     vaults: new Map(config.chains.map((chain) => [chain.chainId, chain.liquidityVault])),
   };

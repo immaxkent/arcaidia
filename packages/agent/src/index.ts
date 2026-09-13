@@ -68,6 +68,26 @@ export type {
 export { ViemSourceChainReader, decodeIntentCreated } from './adapters/viem-source-reader.js';
 export { ViemFillSubmitter, FillRevertedError } from './adapters/viem-fill-submitter.js';
 export { HttpIntelligenceProvider, ecosystemFromWire, type WireEcosystemIntelligence } from './adapters/http-intelligence-provider.js';
+export {
+  PaymentLedger,
+  createHederaPayingFetch,
+  parseHederaPrivateKey,
+  HEDERA_TESTNET_NETWORK,
+  HBAR_ASSET,
+  DEFAULT_MAX_TINYBAR_PER_PAYMENT,
+  type HederaPayingFetch,
+  type HederaPayingFetchOptions,
+  type PaymentLedgerSummary,
+} from './adapters/x402-paying-fetch.js';
+export {
+  applyIntelligence,
+  shouldHold,
+  intelligenceNarrative,
+  DEFAULT_INTELLIGENCE_SETTINGS,
+  type IntelligenceMode,
+  type IntelligenceSettings,
+  type HoldCheck,
+} from './solver/intelligence-policy.js';
 export type {
   EvmReadClient,
   EvmWriteClient,

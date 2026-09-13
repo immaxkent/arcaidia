@@ -48,6 +48,17 @@ export interface SolverTelemetry {
   stage: SolverTelemetryStage | null;
   stageAt: number | null;
   intentId: string | null;
+  /** WP-35: the solver's self-reported intelligence use (INTEL pill); null when it reads none. */
+  intelligence: SolverIntelligenceReport | null;
+}
+
+export interface SolverIntelligenceReport {
+  mode: "advisory" | "selective";
+  paid: boolean;
+  payments: number;
+  totalTinybar: string;
+  lastTransaction: string | null;
+  payer: string | null;
 }
 
 /** The Relay's own `VaultTelemetryState` shape (`packages/relay/src/types.ts`), over the wire. */
@@ -61,6 +72,7 @@ interface RelayVaultTelemetryState {
   stage: string | null;
   stageAt: number | null;
   intentId: string | null;
+  intelligence?: SolverIntelligenceReport | null;
 }
 
 function isTelemetryStage(value: string | null): value is SolverTelemetryStage {
@@ -82,6 +94,7 @@ function toSolverTelemetry(raw: RelayVaultTelemetryState): SolverTelemetry {
     stage: isTelemetryStage(raw.stage) ? raw.stage : null,
     stageAt: raw.stageAt,
     intentId: raw.intentId,
+    intelligence: raw.intelligence && (raw.intelligence.mode === "advisory" || raw.intelligence.mode === "selective") ? raw.intelligence : null,
   };
 }
 

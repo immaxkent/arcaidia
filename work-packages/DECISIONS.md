@@ -225,3 +225,30 @@ chain until it does.
 **Cost of the alternative.** A full redeploy would have changed all five addresses, invalidated
 the vault labels, deposits and authorisations made through `/earn` today, and needed a third
 Nest re-seed — for a bug that lives in one contract.
+
+## D13 — Intelligence stays advisory by default; `selective` may only withhold a fill (2026-09-13)
+
+**Context.** WP-35 sells the relay's ecosystem view per request over Hedera x402. A paid
+signal nobody acts on is decoration, but working agreement rule 4 says intelligence is never
+the gate: the deterministic policy decides, and a provider that fails or lies changes nothing.
+
+**Decision.** Two operator-chosen modes, `INTELLIGENCE_MODE=advisory|selective`, default
+`advisory`:
+
+- `advisory` — exactly WP-33: the view (and the x402 receipt, when the answer was paid for)
+  is written into the decision's `narrative`. Verdict, fee and amounts are unchanged.
+- `selective` — the view may *downgrade* an ACCEPT to a REJECT with reason
+  `INTELLIGENCE_HOLD`, and only when both hold at once: the vault's posted fee is under the
+  ecosystem median by more than `INTELLIGENCE_HOLD_MARGIN_BPS` (default 5) **and**
+  `scarcityScoreBps` is at or above `INTELLIGENCE_HOLD_SCARCITY_BPS` (default 6000). The
+  original verdict is kept in the narrative. It can never turn a REJECT or PAUSE into a fill,
+  and a missing, slow or failing view leaves the decision untouched.
+
+**Why bounded this way.** Withholding is the one action that cannot hurt anyone but the
+operator: the user still receives canonical settlement, the vault keeps its capital for a
+better-paid fill, and the audit trail shows exactly what the policy said and what the setting
+did with it. Letting the view *grant* fills would make a paid, off-chain, non-authoritative
+number load-bearing for LP capital — the thing rule 4 forbids.
+
+**Cost.** A vault in `selective` mode forgoes some fills; that is the operator's trade, made
+explicit in its own env and visible as the console's INTEL chip.

@@ -48,6 +48,9 @@ function config(overrides: Partial<SolverEntrypointConfig> = {}): SolverEntrypoi
     telemetry: { enabled: false },
     observationSource: 'nest',
     intelligenceUrl: null,
+    intelligenceMode: 'advisory',
+    intelligenceHold: { scarcityBps: 6_000, marginBps: 5 },
+    hedera: null,
     ...overrides,
   };
 }

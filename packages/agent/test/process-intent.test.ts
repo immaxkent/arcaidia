@@ -524,10 +524,26 @@ describe('processIntent — optional swap adapter and intelligence', () => {
     const b = await processIntent(plain, withIt.deps);
     if (a.kind !== 'FILLED' || b.kind !== 'FILLED') throw new Error(`${a.kind} / ${b.kind}`);
 
-    expect(b.decision.narrative).toMatch(/^ecosystem: liquidity 250000000000, utilisation 4200 bps, scarcity 1500 bps$/);
+    expect(b.decision.narrative).toMatch(/^ecosystem: liquidity 250000000000, utilisation 4200 bps, scarcity 1500 bps, median fee /);
     expect(a.decision.narrative).toBeUndefined();
     const strip = (d: typeof a.decision) => ({ ...d, narrative: undefined });
     expect(strip(b.decision)).toEqual(strip(a.decision));
+  });
+
+  it('selective mode (D13) can withhold an accept, records why, and never fills', async () => {
+    const plain = intent();
+    const scarce = { ...view, scarcityScoreBps: 9_000, feeDistribution: { ...view.feeDistribution, medianBps: 500 } };
+    const { deps, submitter, log } = depsFor(plain, {
+      intelligence: { async ecosystem() { return scarce; } },
+      config: { policy: DEFAULT_RISK_POLICY, authorizationTtlSeconds: 45, intelligence: { mode: 'selective', holdScarcityBps: 6_000, holdMarginBps: 5 } },
+    });
+    const outcome = await processIntent(plain, deps);
+    expect(outcome.kind).toBe('DECLINED');
+    if (outcome.kind !== 'DECLINED') throw new Error(outcome.kind);
+    expect(outcome.decision.reason).toBe('INTELLIGENCE_HOLD');
+    expect(outcome.decision.narrative).toContain('HELD');
+    expect(submitter.submissions).toHaveLength(0);
+    expect(log.all().at(-1)?.reason).toBe('INTELLIGENCE_HOLD');
   });
 
   it('a failing intelligence provider changes nothing', async () => {

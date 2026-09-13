@@ -314,3 +314,39 @@ describe('INTELLIGENCE_URL (WP-33)', () => {
     expect(loadSolverConfig({ ...baseEnv(), INTELLIGENCE_URL: 'https://relay.example' }).intelligenceUrl).toBe('https://relay.example');
   });
 });
+
+describe('INTELLIGENCE_MODE and Hedera credentials (WP-35 / D13)', () => {
+  it('defaults to advisory with the default hold thresholds and no Hedera account', () => {
+    const config = loadSolverConfig(baseEnv());
+    expect(config.intelligenceMode).toBe('advisory');
+    expect(config.intelligenceHold).toEqual({ scarcityBps: 6_000, marginBps: 5 });
+    expect(config.hedera).toBeNull();
+  });
+
+  it('selective needs a URL to be selective with', () => {
+    expect(() => loadSolverConfig({ ...baseEnv(), INTELLIGENCE_MODE: 'selective' })).toThrow(ConfigError);
+    const config = loadSolverConfig({
+      ...baseEnv(),
+      INTELLIGENCE_MODE: 'selective',
+      INTELLIGENCE_URL: 'https://intel.example',
+      INTELLIGENCE_HOLD_SCARCITY_BPS: '7000',
+      INTELLIGENCE_HOLD_MARGIN_BPS: '10',
+    });
+    expect(config.intelligenceMode).toBe('selective');
+    expect(config.intelligenceHold).toEqual({ scarcityBps: 7_000, marginBps: 10 });
+    expect(() => loadSolverConfig({ ...baseEnv(), INTELLIGENCE_MODE: 'yolo' })).toThrow(ConfigError);
+    expect(() => loadSolverConfig({ ...baseEnv(), INTELLIGENCE_HOLD_MARGIN_BPS: '20000' })).toThrow(ConfigError);
+  });
+
+  it('takes both Hedera variables or neither, and validates their shape', () => {
+    const key = '0x' + 'ab'.repeat(32);
+    expect(loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: '0.0.10511371', HEDERA_PRIVATE_KEY: key }).hedera).toEqual({
+      accountId: '0.0.10511371',
+      privateKey: key,
+    });
+    expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: '0.0.1' })).toThrow(/together/);
+    expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_PRIVATE_KEY: key })).toThrow(/together/);
+    expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: 'alice', HEDERA_PRIVATE_KEY: key })).toThrow(/account id/);
+    expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: '0.0.1', HEDERA_PRIVATE_KEY: 'nope' })).toThrow(/hex-encoded/);
+  });
+});

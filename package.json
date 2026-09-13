@@ -17,7 +17,7 @@
     "test:sc-eth": "cd contracts && ARCAIDIA_SOURCE=ethereum forge test -vv",
     "test:sc-arc": "cd contracts && ARCAIDIA_SOURCE=arc forge test -vv",
     "test:sc": "pnpm test:sc-eth && pnpm test:sc-arc",
-    "test:global": "pnpm contracts:build && pnpm abi:check && pnpm subgraph:check && pnpm typecheck && pnpm test:shared-domain && pnpm test:scripts && pnpm test:telemetry && pnpm test:relay && pnpm test:agent && pnpm test:settlement && pnpm test:mcp && pnpm test:loadgen && pnpm test:web && pnpm test:sc-eth && pnpm test:sc-arc && pnpm test:e2e",
+    "test:global": "pnpm contracts:build && pnpm abi:check && pnpm subgraph:check && pnpm typecheck && pnpm test:shared-domain && pnpm test:scripts && pnpm test:telemetry && pnpm test:relay && pnpm test:x402-gateway && pnpm test:agent && pnpm test:settlement && pnpm test:mcp && pnpm test:loadgen && pnpm test:web && pnpm test:sc-eth && pnpm test:sc-arc && pnpm test:e2e",
     "test": "pnpm test:global",
     "fmt": "cd contracts && forge fmt",
     "test:agent": "pnpm --filter @arcaidia/agent test",
@@ -43,7 +43,9 @@
     "solver:start:b": "tsx --env-file=.env.solver-b packages/agent/src/entrypoint/main.ts",
     "solver:start:c": "tsx --env-file=.env.solver-c packages/agent/src/entrypoint/main.ts",
     "loadgen:start": "tsx --env-file=.env packages/loadgen/src/entrypoint/main.ts",
-    "test:loadgen": "pnpm --filter @arcaidia/loadgen test"
+    "test:loadgen": "pnpm --filter @arcaidia/loadgen test",
+    "test:x402-gateway": "pnpm --filter @arcaidia/x402-gateway test",
+    "gateway:start": "tsx --env-file=.env packages/x402-gateway/src/entrypoint/main.ts"
   },
   "devDependencies": {
     "@graphprotocol/graph-cli": "^0.98.1",

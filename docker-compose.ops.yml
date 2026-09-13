@@ -23,6 +23,7 @@ services:
     depends_on:
       - relay
       - house-solver
+      - x402-gateway
 
   relay:
     build:
@@ -36,6 +37,21 @@ services:
       RELAY_PORT: '8090'
     expose: ['8090']
 
+  x402-gateway:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.service
+      args:
+        SERVICE: packages/x402-gateway/src/entrypoint/main.ts
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      X402_GATEWAY_PORT: '8402'
+      # Paid requests are forwarded to the relay over the compose network.
+      INTELLIGENCE_UPSTREAM: http://relay:8090
+    expose: ['8402']
+    depends_on: [relay]
+
   house-solver:
     build:
       context: .
@@ -48,8 +64,12 @@ services:
       ARCAIDIA_TELEMETRY_URL: http://relay:8090
       TELEMETRY_ENABLED: 'true'
       SOLVER_DECISION_LOG_PATH: /tmp/solver-decisions.jsonl
+      # WP-35: the House solver buys its market view through the paywall (HEDERA_* from .env).
+      # Needs X402_PAY_TO in .env to be a different account from HEDERA_ACCOUNT_ID; until then set
+      # HOUSE_INTELLIGENCE_URL=http://relay:8090 in .env to read the same view free.
+      INTELLIGENCE_URL: ${HOUSE_INTELLIGENCE_URL:-http://x402-gateway:8402}
     expose: ['8787']
-    depends_on: [relay]
+    depends_on: [relay, x402-gateway]
 
   settlement:
     build:

@@ -48,9 +48,37 @@ live evidence that backs it; the mapping is kept current in
 | **Arc / Circle** | Best DeFi / Onchain Finance Application | A permissionless liquidity market: anyone deploys a vault through the factory, sets an immutable utilisation-tiered fee policy, and competes under first-valid-fill with the user's fee cap enforced on chain. |
 | **The Graph** | Best AI Tooling or AI Use Case (From Scratch) | The solver's whole world view comes from the Graph-hosted Nest indexer (SQL over HTTP): pending intents, vault state, settlement health. Disabling it halts discovery — asserted by test. Built from scratch during the hackathon. |
 | **The Graph** | Best Use of Composable or Standardized Graph Products | A generic, published **ERC-4626 vault-flows Substreams module** ([substreams.dev/packages/erc4626-vault-flows](https://substreams.dev/packages/erc4626-vault-flows/v0.1.1)), live-verified against vaults that are not ours — the prize text's own named example. |
-| **Privy** | Best Financial Flow | The whole user journey — embedded wallet, cross-chain transfer with a fee cap, live quote, fast fill, canonical settlement tracked separately — runs on Privy. |
+| **Hedera** | AI & Agentic Payments | Solvers are autonomous agents that **buy the market intelligence they decide with, per request, in HBAR over x402 on Hedera testnet** — the gateway answers `402`, the solver signs a Hedera transfer, Blocky402's facilitator settles it, and every decision carries the Hedera transaction it paid with. See [Paying for intelligence](#paying-for-intelligence-over-hedera-x402). |
 
 Licensed under the [MIT License](LICENSE). Begun 2026-09-04; every commit is in this repository.
+
+## Paying for intelligence over Hedera x402
+
+Solvers decide with a live view of the whole market — available liquidity, the fee band, a
+scarcity score, settlement latency — computed by the relay (WP-33). That view is sold per
+request through an x402 paywall on Hedera testnet (WP-35):
+
+```
+solver ──GET /v1/intelligence/ecosystem──▶ gateway (packages/x402-gateway)
+       ◀── 402 PAYMENT-REQUIRED: exact · hedera:testnet · 0.01 ℏ · payTo 0.0.10511371 ──
+       ──GET + PAYMENT-SIGNATURE (signed Hedera TransferTransaction)──▶ gateway
+                                             │ verify + settle ──▶ Blocky402 facilitator ──▶ Hedera
+       ◀── 200 + PAYMENT-RESPONSE {transaction: 0.0.x@…} + the relay's JSON ──┘
+```
+
+- **Agent side** (`packages/agent/src/adapters/x402-paying-fetch.ts`): `@x402/fetch` plus a
+  ledger of settled receipts. Set `INTELLIGENCE_URL` to the gateway and `HEDERA_ACCOUNT_ID` /
+  `HEDERA_PRIVATE_KEY`; the key signs those transfers and nothing else. Leave them unset and
+  the same solver reads the free relay endpoint — the protocol never depends on the payment.
+- **What the payment buys** (D13): `INTELLIGENCE_MODE=advisory` writes the view and the Hedera
+  transaction into every decision's narrative; `selective` may additionally *withhold* an
+  under-priced fill when capital is scarce. It can never grant one.
+- **See it**: `/intelligence` shows the price list, a live unpaid request decoded into the 402
+  terms, and each solver's payment count with its last transaction on HashScan; the console's
+  INTEL chip shows the same per vault. `/earn` writes the env lines for a new operator.
+- **Run it**: `pnpm gateway:start` locally, or the `x402-gateway` service in
+  `docker-compose.ops.yml` (public as `https://intel.<host>`). The gateway's `X402_PAY_TO`
+  must be a different Hedera account from any paying solver's `HEDERA_ACCOUNT_ID`.
 
 ## Non-negotiable design rules
 
@@ -77,7 +105,7 @@ Licensed under the [MIT License](LICENSE). Begun 2026-09-04; every commit is in 
 | --- | --- | --- |
 | **V1** | Ethereum ⇄ Arc USDC fast intent settlement: LP vaults, The Graph, autonomous agents, Circle Agent Wallets, CCTP | Must ship and stand alone. Bidirectional from day one. |
 | **V2** | Generalised crosschain swap intents via Uniswap (`desiredToken` + `minimumOutput`, `ExecutionAdapter`) | Only after V1 is frozen and passes end-to-end acceptance. |
-| **V3** | Hedera / x402 machine payments for solver & discovery services (`SolverCommerceAdapter`) | Stretch / post-hackathon. |
+| **V3** | Hedera / x402 machine payments for the intelligence service (WP-35) | Built on `v3-hedera`; optional by construction — every V1/V2 path runs unchanged with it absent. |
 
 ## Repository layout (target)
 
@@ -99,7 +127,8 @@ tests/e2e/              # golden local end-to-end harness
 
 ## Status
 
-Pre-M0. Nothing is built yet. Start at [WP-00](work-packages/WP-00-domain.md).
+v2 live on both testnets with a signed-off intent market (WP-31/32); WP-33 intelligence surface
+merged; WP-35 Hedera x402 gateway on `v3-hedera`. The plan and its history: [work-packages](work-packages/).
 
 ## Deployed addresses (v2, 2026-09-12 — WP-31)
 

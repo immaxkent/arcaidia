@@ -87,7 +87,33 @@ export interface VaultTarget {
  * config was designed to make unnecessary. Shown only as a commented-out
  * example for an operator who wants their own indexer instead.
  */
-export function runtimeConfigText(vaults: readonly VaultTarget[], telemetryUrl: string | null): string {
+/**
+ * WP-35: the operator opted into paid ecosystem intelligence. The gateway URL and the paying
+ * Hedera account are written; the Hedera private key line is left blank on purpose — like the
+ * Circle secrets, it is theirs to paste in and this page never sees it.
+ */
+export interface PaidIntelligenceOptions {
+  readonly gatewayUrl: string;
+  readonly hederaAccountId: string;
+  /** D13: `advisory` (narrative only) or `selective` (may hold an under-priced fill). */
+  readonly mode: "advisory" | "selective";
+}
+
+export function paidIntelligenceText(options: PaidIntelligenceOptions | null): string {
+  if (!options) return "";
+  return `
+# --- Paid ecosystem intelligence over Hedera x402 (optional, WP-35). The solver buys the
+# --- relay's market view per request in HBAR from the account below; the key signs those
+# --- transfers and nothing else. Paste your hex ECDSA key on the blank line. Remove all four
+# --- lines to run the same solver unpaid.
+INTELLIGENCE_URL=${options.gatewayUrl}
+INTELLIGENCE_MODE=${options.mode}
+HEDERA_ACCOUNT_ID=${options.hederaAccountId || "0.0.<your account>"}
+HEDERA_PRIVATE_KEY=
+`;
+}
+
+export function runtimeConfigText(vaults: readonly VaultTarget[], telemetryUrl: string | null, intelligence: PaidIntelligenceOptions | null = null): string {
   const perChain = vaults
     .map((v) => {
       const prefix = CHAIN_ENV_PREFIX[v.chainId] ?? "UNKNOWN_CHAIN";
@@ -117,7 +143,7 @@ export function runtimeConfigText(vaults: readonly VaultTarget[], telemetryUrl: 
 ${perChain}
 TELEMETRY_ENABLED=true
 ARCAIDIA_TELEMETRY_URL=${telemetryUrl ?? "# not configured for this deployment yet"}
-`;
+${paidIntelligenceText(intelligence)}`;
 }
 
 /**
@@ -137,8 +163,9 @@ export function circleSolverEnvText(
   walletAddress: Address,
   submitterKey: `0x${string}`,
   telemetryUrl: string | null,
+  intelligence: PaidIntelligenceOptions | null = null,
 ): string {
-  return `${runtimeConfigText(vaults, telemetryUrl)}
+  return `${runtimeConfigText(vaults, telemetryUrl, intelligence)}
 # --- Signer: your Circle Agent Wallet (developer-controlled). Fill these four from your Circle
 # --- developer console (https://console.circle.com): the API key, the entity secret you registered,
 # --- and the wallet's id. With all four set the solver signs fills through Circle; the address
@@ -157,8 +184,9 @@ export function solverEnvText(
   vaults: readonly VaultTarget[],
   keys: { signerKey: `0x${string}`; submitterKey: `0x${string}` },
   telemetryUrl: string | null,
+  intelligence: PaidIntelligenceOptions | null = null,
 ): string {
-  return `${runtimeConfigText(vaults, telemetryUrl)}
+  return `${runtimeConfigText(vaults, telemetryUrl, intelligence)}
 # --- Your solver's own identity — generated in your browser on /earn, kept only by you ---
 LOCAL_AGENT_PRIVATE_KEY=${keys.signerKey}
 LOCAL_SUBMITTER_PRIVATE_KEY=${keys.submitterKey}
@@ -303,6 +331,12 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
   const [maxExposureBps, setMaxExposureBps] = useState(9_000);
   const [solverOperator, setSolverOperator] = useState("");
   const [operatorMode, setOperatorMode] = useState<"GENERATE" | "CIRCLE" | "EXTERNAL">("GENERATE");
+  // WP-35: opt-in paid intelligence — only offered when this deployment has a gateway to point at.
+  const [paidIntel, setPaidIntel] = useState(false);
+  const [hederaAccountId, setHederaAccountId] = useState("");
+  const [intelMode, setIntelMode] = useState<"advisory" | "selective">("advisory");
+  const intelOptions: PaidIntelligenceOptions | null =
+    paidIntel && SERVICES.x402GatewayUrl ? { gatewayUrl: SERVICES.x402GatewayUrl, hederaAccountId: hederaAccountId.trim(), mode: intelMode } : null;
   /** "Circle Agent Wallet": the wallet's address, pasted from the operator's Circle console. */
   const [circleWallet, setCircleWallet] = useState("");
   /** "I already run a solver": the submitter address it printed, so it can be given gas here too. */
@@ -574,8 +608,8 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
     if (!identity || deployedTargets.length === 0) return;
     const text =
       operatorMode === "CIRCLE" && isAddressLike(circleWallet.trim())
-        ? circleSolverEnvText(deployedTargets, circleWallet.trim() as Address, identity.submitterKey, SERVICES.solverTelemetryUrl)
-        : solverEnvText(deployedTargets, identity, SERVICES.solverTelemetryUrl);
+        ? circleSolverEnvText(deployedTargets, circleWallet.trim() as Address, identity.submitterKey, SERVICES.solverTelemetryUrl, intelOptions)
+        : solverEnvText(deployedTargets, identity, SERVICES.solverTelemetryUrl, intelOptions);
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const a = document.createElement("a");
     a.href = url;
@@ -925,6 +959,37 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                 ))}
               </div>
 
+              {SERVICES.x402GatewayUrl ? (
+                <div className={`mt-4 rounded-lg border px-3 py-3 ${paidIntel ? "border-acid/60 bg-acid/5" : "border-border"}`}>
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <input type="checkbox" checked={paidIntel} onChange={(e) => setPaidIntel(e.target.checked)} className="mt-1 accent-[var(--color-acid)]" />
+                    <span>
+                      <span className="block text-sm font-semibold text-text">Use paid intelligence</span>
+                      <span className="mt-1 block text-xs text-text-dim">
+                        Your solver buys the relay's market view — liquidity, fee band, scarcity — per request in HBAR over{" "}
+                        <Link to="/intelligence" className="text-acid hover:underline">Hedera x402</Link>, and writes each decision with the receipt. Optional: unpaid solvers fill the same intents.
+                      </span>
+                    </span>
+                  </label>
+                  {paidIntel ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+                      <Field label="Hedera account that pays (testnet)" id="hedera-account">
+                        <input id="hedera-account" placeholder="0.0.12345" value={hederaAccountId} onChange={(e) => setHederaAccountId(e.target.value)} className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text" />
+                      </Field>
+                      <Field label="Mode (D13)" id="intel-mode">
+                        <select id="intel-mode" value={intelMode} onChange={(e) => setIntelMode(e.target.value as "advisory" | "selective")} className="num w-full rounded-md border border-border bg-void px-3 py-2 text-sm text-text">
+                          <option value="advisory">advisory — narrative only</option>
+                          <option value="selective">selective — may hold an under-priced fill</option>
+                        </select>
+                      </Field>
+                      <p className="num text-[11px] text-text-dim sm:col-span-2">
+                        {/^0\.0\.[0-9]+$/.test(hederaAccountId.trim()) ? "The private key line is left blank in the file — paste yours in there." : "A Hedera account id looks like 0.0.12345 — get a funded testnet one from portal.hedera.com."}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {operatorMode === "CIRCLE" ? (
                 <div className="mt-5 space-y-4">
                   <p className="text-xs text-text-dim">
@@ -1120,7 +1185,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                         <button
                           type="button"
                           onClick={() => {
-                            navigator.clipboard?.writeText(runtimeConfigText(deployedTargets, SERVICES.solverTelemetryUrl));
+                            navigator.clipboard?.writeText(runtimeConfigText(deployedTargets, SERVICES.solverTelemetryUrl, intelOptions));
                             toast.success("Copied", { description: "Runtime config" });
                           }}
                           className="text-[10px] font-semibold uppercase tracking-wide text-electric-glow hover:text-electric"
@@ -1131,7 +1196,7 @@ function EarnFlow({ onRestart }: { onRestart: () => void }) {
                     </div>
                     {allDeployed ? (
                       <pre className="num mt-2 overflow-x-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">
-                        {runtimeConfigText(deployedTargets, SERVICES.solverTelemetryUrl)}
+                        {runtimeConfigText(deployedTargets, SERVICES.solverTelemetryUrl, intelOptions)}
                       </pre>
                     ) : (
                       <AwaitingSource>Deploy on every chain first — the config names each vault address</AwaitingSource>

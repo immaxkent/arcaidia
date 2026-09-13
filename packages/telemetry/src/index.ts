@@ -1,6 +1,7 @@
 export { HttpTelemetryClient, NoopTelemetryClient, type TelemetryClient } from './client.js';
 export {
   TELEMETRY_STAGES,
+  type HeartbeatIntelligence,
   type TelemetryHeartbeat,
   type TelemetryStage,
   type TelemetryStageEvent,
