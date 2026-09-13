@@ -43,7 +43,7 @@ function IntelligencePage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6">
-      <div className="grid gap-6 lg:grid-cols-[1fr_520px]">
+      <div className="grid gap-6">
         <div>
           <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">Intelligence</h1>
           <p className="measure mt-2 text-sm text-text-dim">
@@ -54,7 +54,6 @@ function IntelligencePage() {
             solver with no Hedera account runs the same code, unpaid, and fills the same intents.
           </p>
         </div>
-        <PaywallProbe />
       </div>
 
       <section className="panel mt-6 p-5">
@@ -209,6 +208,11 @@ function PayPanel({ pricing }: { pricing: GatewayPricing | null }) {
           </select>
         </label>
       </div>
+      {!gateway ? (
+        <p className="mt-2 text-xs text-warning">No gateway configured for this build (VITE_X402_GATEWAY_URL).</p>
+      ) : !pricing ? (
+        <p className="mt-2 text-xs text-warning">Waiting for the gateway's price list at {gateway}/v1/pricing — the endpoint list and the button light up once it answers.</p>
+      ) : null}
       {selfPay ? <p className="mt-2 text-xs text-warning">That is the gateway's own pay-to account — a transfer to itself nets to zero and the facilitator rejects it. Pay from a different account.</p> : null}
       <button
         type="button"
@@ -218,6 +222,11 @@ function PayPanel({ pricing }: { pricing: GatewayPricing | null }) {
       >
         {pay.isPending ? "Signing, settling on Hedera…" : endpoint ? `Pay ${formatTinybar(endpoint.price.tinybar)} & fetch ${endpoint.id}` : "Pay & fetch"}
       </button>
+      {!ready && gateway && pricing && !selfPay ? (
+        <p className="num mt-2 text-[11px] text-text-dim">
+          {!isHederaAccountId(accountId) ? "Account id must look like 0.0.12345." : privateKey.trim().length < 64 ? "Paste the 64-hex-character ECDSA private key." : ""}
+        </p>
+      ) : null}
       {pay.isError ? <p className="mt-3 text-xs text-warning">{pay.error.message}</p> : null}
       {result ? (
         <div className="mt-4 space-y-3">
@@ -273,7 +282,7 @@ function Metric<T>({ label, state, format, tone }: { label: string; state: Param
 }
 
 /** A live unpaid request to a priced route: the gateway's real 402 and what it asks for. */
-function PaywallProbe() {
+export function PaywallProbe() {
   const gateway = gatewayBaseUrl();
   const challenge = useChallenge();
   const [path, setPath] = useState("/v1/intelligence/ecosystem");
