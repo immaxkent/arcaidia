@@ -10,7 +10,7 @@ import { nodePolyfills } from "vite-plugin-node-polyfills";
 export default defineConfig({
   // Deploy target. Unset = the wrapper's default (cloudflare-module) for local builds;
   // Vercel sets NITRO_PRESET=vercel (see deploy/VERCEL.md) and gets the Build Output API layout.
-  ...(process.env.NITRO_PRESET ? { nitro: { preset: process.env.NITRO_PRESET } } : {}),
+  ...(process.env["NITRO_PRESET"] ? { nitro: { preset: process.env["NITRO_PRESET"] } } : {}),
   vite: {
     // WP-35: the Hedera SDK (behind @x402/hedera) imports `node:buffer` and reads the `Buffer`
     // global when it signs a transfer in the browser. Polyfill exactly that, nothing else.
