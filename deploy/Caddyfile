@@ -13,3 +13,8 @@ quote.{$OPS_HOST} {
 intel.{$OPS_HOST} {
 	reverse_proxy x402-gateway:8402
 }
+
+# WP-34 — the market price API the Trade page reads (Line 1, read-only).
+prices.{$OPS_HOST} {
+	reverse_proxy price-api:8791
+}

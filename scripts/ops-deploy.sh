@@ -38,7 +38,7 @@ rsync -az --delete \
   --exclude 'subgraph/build*' --exclude '.claude' --exclude '*.jsonl' \
   "$ROOT/" "$HOST:$REMOTE_DIR/"
 
-for f in .env .env.solver-b .env.solver-c .env.loadgen; do
+for f in .env .env.solver-b .env.solver-c .env.loadgen .env.market; do
   [ -f "$ROOT/$f" ] && rsync -az "$ROOT/$f" "$HOST:$REMOTE_DIR/$f"
 done
 
@@ -49,6 +49,15 @@ if [ "$BUILD" = "local" ]; then
   docker build --platform linux/amd64 -f "$ROOT/deploy/Dockerfile.service" -t arcaidia-service:latest "$ROOT"
   echo "== shipping the image to $HOST"
   docker save arcaidia-service:latest | gzip | ssh "$HOST" 'docker info >/dev/null 2>&1 && docker load || sudo docker load'
+  # WP-34: the market environment (immaxkent/uniswap-v2) ships as its own image when its checkout is present.
+  MARKET_ROOT=${MARKET_ROOT:-$ROOT/../uniswap-v2}
+  if [ -f "$MARKET_ROOT/Dockerfile" ]; then
+    echo "== building arcaidia-market from $MARKET_ROOT"
+    docker build --platform linux/amd64 -t arcaidia-market:latest "$MARKET_ROOT"
+    docker save arcaidia-market:latest | gzip | ssh "$HOST" 'docker info >/dev/null 2>&1 && docker load || sudo docker load'
+  else
+    echo "== no market checkout at $MARKET_ROOT; price-api/market-bot keep their current image"
+  fi
   UP_FLAGS="--no-build"
 fi
 
@@ -58,5 +67,6 @@ ssh "$HOST" "cd $REMOTE_DIR && DC='env OPS_HOST=$OPS_HOST COMPOSE_BAKE=false COM
 echo "== relay:  https://relay.$OPS_HOST/health"
 echo "== quote:  https://quote.$OPS_HOST/quote"
 echo "== intel:  https://intel.$OPS_HOST/v1/pricing  (WP-35 — 402 on /v1/intelligence/*)"
-echo "Set VITE_SOLVER_TELEMETRY_URL=https://relay.$OPS_HOST, VITE_SOLVER_QUOTE_URL=https://quote.$OPS_HOST and VITE_X402_GATEWAY_URL=https://intel.$OPS_HOST for the web build,"
+echo "== prices: https://prices.$OPS_HOST/v1/markets  (WP-34 — the Trade page's price API)"
+echo "Set VITE_SOLVER_TELEMETRY_URL=https://relay.$OPS_HOST, VITE_SOLVER_QUOTE_URL=https://quote.$OPS_HOST and VITE_X402_GATEWAY_URL=https://intel.$OPS_HOST, VITE_MARKET_PRICE_URL=https://prices.$OPS_HOST for the web build,"
 echo "and ARCAIDIA_TELEMETRY_URL=https://relay.$OPS_HOST in every operator's downloaded env."

@@ -29,6 +29,7 @@ services:
       - relay
       - house-solver
       - x402-gateway
+      - price-api
 
   relay:
     image: arcaidia-service:latest
@@ -119,6 +120,34 @@ services:
       - ./loadgen.config.json:/app/loadgen.config.json:ro
     depends_on: [relay]
 
+  # WP-34 (Line 1): the destination market's own two processes, from the market repo's image
+  # (immaxkent/uniswap-v2, built and shipped by scripts/ops-deploy.sh BUILD=local). Config is
+  # .env.market: the market wallet key (never Arcaidia's), the RPC URLs, the seed.
+  price-api:
+    image: arcaidia-market:latest
+    restart: unless-stopped
+    env_file: [.env.market]
+    environment:
+      SERVICE: bots/src/entrypoint/prices.ts
+      PRICE_API_PORT: '8791'
+      # Sharper candles than the once-a-minute default; the chart buckets samples anyway.
+      PRICE_SAMPLE_SECONDS: '15'
+      PRICE_SNAPSHOT: /data/price-history.json
+    volumes:
+      - market-data:/data
+    expose: ['8791']
+
+  market-bot:
+    image: arcaidia-market:latest
+    restart: unless-stopped
+    env_file: [.env.market]
+    environment:
+      SERVICE: bots/src/entrypoint/market.ts
+      MARKET_STATE: /data/reference-prices.json
+    volumes:
+      - market-data:/data
+
 volumes:
   caddy-data:
   caddy-config:
+  market-data:

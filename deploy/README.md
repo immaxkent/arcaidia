@@ -8,6 +8,7 @@ outbound workers; two are what a visitor's browser talks to and need a public HT
 | `relay` | Telemetry relay: solvers pair and heartbeat here; the site reads "paired / online / stage" from it | yes — `https://relay.<host>` |
 | `house-solver` | The Arcaidia House Vault's solver (Circle Agent Wallet signer) and the `/quote` endpoint the Transfer page shows | yes — `https://quote.<host>` |
 | `x402-gateway` | WP-35: the Hedera x402 paywall in front of the relay's `/v1/intelligence/*`; solvers pay it per request | yes — `https://intel.<host>` |
+| `price-api`, `market-bot` | WP-34: the Line 1 market's price API (public, the Trade page reads it) and the bot that keeps the pools moving; image built from the sibling `uniswap-v2` checkout, config in `.env.market` | `https://prices.<host>` / no |
 | `settlement` | Completes canonical CCTP settlement with `settleWithProof` for every pending intent (reads the Nest) | no |
 | `solver-b`, `solver-c` | The two independent operators (`--profile operators`) | no |
 | `loadgen` | Real testnet traffic with organic scarcity (`--profile loadgen`) | no |
