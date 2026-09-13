@@ -27,6 +27,13 @@ export interface LogFilter {
 
 /** Below this width a refused range is a real error, not a provider's range cap. */
 const MIN_SPLIT_WIDTH = 2_000n;
+/**
+ * Public providers cap one `eth_getLogs` at about 10 000 blocks (dRPC's free plan says so
+ * outright). Ranges are cut to this up front and read a few at a time, instead of discovering
+ * the cap by halving a refused 100 000-block range call after call.
+ */
+const WINDOW = 9_000n;
+const WINDOW_CONCURRENCY = 4;
 
 async function readRange<TArgs>(
   client: PublicClient,
@@ -63,7 +70,14 @@ export async function readLogsSince<TArgs>(
   const head = await client.getBlockNumber();
   const from = BigInt(fromBlock);
   if (head < from) return [];
-  const logs = await readRange<TArgs>(client, filter, from, head);
+  const windows: Array<[bigint, bigint]> = [];
+  for (let start = from; start <= head; start += WINDOW) windows.push([start, start + WINDOW - 1n < head ? start + WINDOW - 1n : head]);
+  const logs: ChainLog<TArgs>[] = [];
+  for (let i = 0; i < windows.length; i += WINDOW_CONCURRENCY) {
+    const batch = windows.slice(i, i + WINDOW_CONCURRENCY);
+    const results = await Promise.all(batch.map(([a, b]) => readRange<TArgs>(client, filter, a, b)));
+    for (const r of results) logs.push(...r);
+  }
   return logs.sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1));
 }
 
