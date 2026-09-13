@@ -28,8 +28,8 @@ interface RawNestResponse<T> {
 
 /** A `fetch`-based client. Errors are surfaced, never swallowed — see the discovery provider. */
 const RETRYABLE_STATUS = new Set([429, 503]);
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 300;
+const MAX_ATTEMPTS = 6;
+const RETRY_DELAY_MS = 1_000;
 
 /** Same brief retry as the agent's client: the Nest's concurrency cap answers 503 under load. */
 async function fetchWithRetry(fetchImpl: typeof fetch, url: string): Promise<Response> {

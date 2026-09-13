@@ -43,8 +43,8 @@ const TIP_FRESH_SECONDS = 120;
 
 /** A `fetch`-based client. Errors are surfaced, never swallowed — see the provider. */
 const RETRYABLE_STATUS = new Set([429, 503]);
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 300;
+const MAX_ATTEMPTS = 6;
+const RETRY_DELAY_MS = 1_000;
 
 /**
  * The Nest enforces a small concurrency cap and answers `503 server busy` (or `429`) when a
