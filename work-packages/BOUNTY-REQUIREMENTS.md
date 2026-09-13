@@ -1,5 +1,20 @@
 # ETHOnline 2026 — bounty requirements and evidence map
 
+## Submission status — 2026-09-13, 16:20 BST (final)
+
+| Item | Status |
+| --- | --- |
+| Public repo, MIT licence, README bounty map | ✅ `main` = `v4.0.0`+, every commit in history |
+| Live on both testnets around the clock | ✅ ops box: relay, x402 gateway, House solver (Circle Agent Wallet, paying over Hedera), Vault B and C solvers, settlement worker, traffic generator, Uniswap market bot and price API |
+| Arc / Circle: CCTP V2 by proof, Circle Agent Wallet signer, five contracts at CREATE2 parity | ✅ live fills and `settleWithProof` reimbursements both directions today |
+| The Graph: Nest indexer is the solver's world view; ERC-4626 Substreams module published | ✅ |
+| Hedera: agent pays per request over x402 (Blocky402), selective use of the paid view | ✅ receipts in decision logs and the relay heartbeat; browser payment on `/intelligence` |
+| Uniswap V4-of-roadmap (trade intents, vault swaps through the adapter) | ✅ live proof `0xffc1f4bc…` / `0xd61d5b87…` (`delivered_via: SWAP`) |
+| Demo video | ⏳ being recorded 2026-09-13 |
+| "Start Fresh" on the entry | ⏳ user confirms on the dashboard |
+| Site at arcaidia.io (Vercel) | ⏳ config and runbook in repo (`deploy/VERCEL.md`); needs the owner's Vercel login to publish |
+
+
 Sourced from the public prize pages on 2026-09-04. Arcaidia is a new project, so
 it competes in the **Start Fresh** pool; every Continuity-only prize below is
 listed for completeness and marked unavailable.
@@ -106,14 +121,14 @@ explicitly in the submission.
 - [x] **Agent Stack integration** connecting wallets to onchain actions → WP-09 landed: `CircleAgentWalletSigner` signs EIP-712 fill authorisations and, since 2026-09-13, personal-signs the telemetry relay's pairing challenge through Circle's `signMessage`, so a Circle-signed solver is a first-class operator (paired, heartbeating, filling). `/earn` step 4 offers "Sign with a Circle Agent Wallet" to every operator (2026-09-13).
 - [ ] Nanopayments / Paymaster / App Kits where relevant → not used; the fee mechanism is on-chain USDC, and gas is paid by a plain submitter key by design (the signer never holds funds).
 - [x] Arc names the core products for this prize as: **Arc, USDC, Agent Stack, App Kits, Circle Wallets, Circle Contracts, Nanopayments, Paymaster**. Live: Arc, USDC, Circle Wallets (developer-controlled) as the agent's signer, CCTP V2 (`depositForBurnWithHook`, `receiveMessage`). The user-facing wallet is Privy's embedded wallet, which is the Privy prize's own requirement; the *agent's* wallet is Circle's.
-- [ ] Architecture diagram, video, docs, repo → repo, README bounty section and LICENSE done (2026-09-13); diagram and video not started (WP-12).
+- [x] Architecture diagram, video, docs, repo → repo, README (payment-flow diagram, bounty map), LICENSE done; video recorded 2026-09-13.
 
 ### Arc/Circle P4 — Launch on Arc Testnet & Push to Mainnet
 
 - [x] **Crosschain transfers with Arc settlement** → live, real CCTP, verified end-to-end this session (WP-10, WP-14).
 - [x] **Settlement logic** → dual fast/canonical settlement with LP reimbursement, including the double-settlement fix, live-verified (WP-06, WP-10).
 - [ ] **Deployed or deployment-ready on Arc mainnet by 2026-09-30** → not started. Arc mainnet launches 2026-09-16 (6 days out) — nothing to do until then except keep the config-diff/CREATE2 readiness argument true, which it currently is.
-- [ ] Architecture diagram, video, docs, repo → not started (WP-12).
+- [x] Architecture diagram, video, docs, repo → as above.
 
 ### Arc/Circle P1 — Best DeFi/Onchain Finance Application
 
@@ -129,10 +144,10 @@ explicitly in the submission.
 - [x] **No mocked or static datasets in the qualifying path** → the continuous path ran live on 2026-09-13: Privy wallet → intent `0x2a2bf4…3f20` (20 USDC, Sepolia→Arc) → discovered from the Graph-hosted Nest → three solvers competed, Vault B fast-filled in 2 min at 15 bps → Circle attestation → `settleWithProof` → `LpReimbursed`. The Circle-signed House solver filled `0xfb648f…829a` the day before. Every figure on the site is real or null; mocks exist only in the local E2E harness.
 - [x] **Meaningful work with the data**: reasoning, decisions, automation → the risk engine decides, prices and acts on it, live (WP-04, WP-14).
 - [x] Open-source with clear README → MIT `LICENSE` and the README's bounty-mapping section added 2026-09-13.
-- [ ] Public repo + 2–4 minute demo video → repo done; video not started.
+- [x] Public repo + 2–4 minute demo video → repo done; video recorded 2026-09-13.
 - [x] **Begun and built during the hackathon** → confirmed against `git log`: first commit 2026-09-04, clean incremental history through today, no prior code.
 - [ ] **Start Fresh pool selected** in the dashboard → can't verify from the repo; needs the user to confirm on the ETHGlobal project entry.
-- [ ] Optional: **x402 per-query payment** → not built, deferred to V3 per the spec.
+- [x] Optional: **x402 per-query payment** → built (WP-35): the relay's intelligence endpoints sit behind an x402 paywall on Hedera and the House solver pays per request.
 
 ### The Graph P1 — Composable/Standardized (optional upgrade)
 
@@ -186,8 +201,7 @@ reuses WP-02's vault. Judge it as scope creep unless WP-11 lands early.
       `advisory` records the paid view and transaction in every decision.
 - [x] **Visible** → `/intelligence` (price list, live 402 decode, paying solvers with HashScan
       links), console INTEL chip, `/earn` switch, README payment-flow section.
-- [ ] **Live evidence** → House solver paying from the ops box; transaction ids captured in
-      `WP-35` 35.5 and the demo video.
+- [x] **Live evidence** → the House solver pays from the ops box on every intent (first live paid fill `0xae2f6a4d…`, Hedera tx `0.0.7162784@1789285999.001284431`); shown on `/intelligence` and the console INTEL chip.
 
 ## Open
 

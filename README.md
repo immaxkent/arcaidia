@@ -130,8 +130,11 @@ tests/e2e/              # golden local end-to-end harness
 
 ## Status
 
-v2 live on both testnets with a signed-off intent market (WP-31/32); WP-33 intelligence surface
-merged; WP-35 Hedera x402 gateway on `v3-hedera`. The plan and its history: [work-packages](work-packages/).
+**Signed off as `v4.0.0` on 2026-09-13.** V1 house settlement, V2 intent market, V3 Hedera x402 agent
+economy and V4 Uniswap trade intents are live on Ethereum Sepolia and Arc Testnet from the ops box
+(three vaults, three solvers, the settlement worker, the traffic generator, the market bot, the
+price API and the x402 gateway). Run the site locally with `pnpm --filter @arcaidia/web dev`, or see
+`deploy/VERCEL.md` for arcaidia.io. The plan and its history: [work-packages](work-packages/).
 
 ## Deployed addresses (v2, 2026-09-12 — WP-31)
 
