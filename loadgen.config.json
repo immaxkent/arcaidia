@@ -26,8 +26,8 @@
         "max": 1200
       },
       "intentsPerMinuteRange": {
-        "min": 0.4,
-        "max": 0.6
+        "min": 0.13,
+        "max": 0.2
       },
       "amount": {
         "mu": 1.6,
@@ -71,8 +71,8 @@
         "max": 300
       },
       "intentsPerMinuteRange": {
-        "min": 0.8,
-        "max": 1.2
+        "min": 0.27,
+        "max": 0.4
       },
       "amount": {
         "mu": 1.9,
@@ -116,8 +116,8 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.3,
-        "max": 0.5
+        "min": 0.1,
+        "max": 0.17
       },
       "amount": {
         "mu": 3.0,
@@ -157,8 +157,8 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.5,
-        "max": 0.8
+        "min": 0.17,
+        "max": 0.27
       },
       "amount": {
         "mu": 1.7,
@@ -198,8 +198,8 @@
         "max": 900
       },
       "intentsPerMinuteRange": {
-        "min": 0.4,
-        "max": 0.6
+        "min": 0.13,
+        "max": 0.2
       },
       "amount": {
         "mu": 1.6,
@@ -256,5 +256,5 @@
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every two minutes across both directions \u2014 background at 0.4\u20130.6 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json."
+  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every six minutes across both directions \u2014 background at 0.13\u20130.2 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json."
 }
