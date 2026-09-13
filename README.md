@@ -72,7 +72,10 @@ solver ──GET /v1/intelligence/ecosystem──▶ gateway (packages/x402-gate
   the same solver reads the free relay endpoint — the protocol never depends on the payment.
 - **What the payment buys** (D13): `INTELLIGENCE_MODE=advisory` writes the view and the Hedera
   transaction into every decision's narrative; `selective` may additionally *withhold* an
-  under-priced fill when capital is scarce. It can never grant one.
+  under-priced fill when capital is scarce. It can never grant one. The reference solver ships
+  one bounded policy over the paid data; operators are expected to replace it — the rule is
+  thirty lines in `packages/agent/src/solver/intelligence-policy.ts`, its two thresholds are
+  environment variables, and the solver is the operator's own process.
 - **See it**: `/intelligence` shows the price list, a live unpaid request decoded into the 402
   terms, and each solver's payment count with its last transaction on HashScan; the console's
   INTEL chip shows the same per vault. `/earn` writes the env lines for a new operator.

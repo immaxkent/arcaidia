@@ -8,12 +8,12 @@ export const Route = createFileRoute("/roadmap")({
       {
         name: "description",
         content:
-          "The Arcaidia sequence: house fast settlement, then a permissionless intent market, richer pricing, trust minimisation, security review, network expansion and token-to-token execution.",
+          "The Arcaidia sequence: house fast settlement and a permissionless intent market, both shipped; agent-paid intelligence over Hedera, shipped; token-to-token execution, building; then pricing evolution, trust minimisation, network expansion and security review.",
       },
       { property: "og:title", content: "Protocol roadmap — Arcaidia" },
       {
         property: "og:description",
-        content: "Shipped, building and planned — the credible path from house liquidity to a permissionless vault market.",
+        content: "Shipped, building and planned — from house liquidity to a permissionless vault market and an agent economy around it.",
       },
     ],
   }),
@@ -49,9 +49,10 @@ function RoadmapPage() {
       <p className="num text-xs uppercase tracking-[0.3em] text-acid">Protocol evolution</p>
       <h1 className="font-display text-4xl uppercase text-newsprint sm:text-5xl">Roadmap</h1>
       <p className="measure mt-2 text-sm text-text-dim">
-        The order matters more than the dates. Arcaidia starts with a house vault and a first-party solver,
-        then opens the market to independent solver vaults, then reduces the trust it asks for. Nothing below
-        is described as trustless before the settlement path actually is.
+        The order matters more than the dates. Arcaidia started with a house vault and a first-party solver,
+        opened the market to independent solver vaults, and put a paid intelligence service in front of the
+        agents that run them. What comes next reduces the trust the settlement path asks for. Nothing below is
+        described as trustless before it actually is.
       </p>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -121,10 +122,11 @@ function RoadmapPage() {
       <section className="panel mt-8 p-5">
         <h2 className="font-display text-2xl uppercase text-newsprint">What we are not claiming</h2>
         <ul className="measure mt-2 space-y-2 text-sm text-text-dim">
-          <li>Reimbursement is not trustless yet — the CCTP-to-intent binding and permissionless settlement path are still being built.</li>
+          <li>Settlement is by proof, not trustless end to end: Circle's attestation is trusted, and an owner-allowlisted recovery path for stuck settlements still exists.</li>
           <li>Execution is first valid fill, not best price. No auction, no guaranteed best quote.</li>
           <li>The Graph is the discovery and indexing layer. It is not a bridge and not a source of crosschain proof.</li>
-          <li>No yield history exists yet, so no APY is shown anywhere in this app.</li>
+          <li>Paid intelligence is advisory data, never an authority: a solver runs identically with it absent, and the reference policy over it is one example.</li>
+          <li>Lifetime fees are shown per vault; there is not enough history for an APY, so none is shown.</li>
         </ul>
       </section>
     </div>
