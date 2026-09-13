@@ -45,7 +45,9 @@
     "loadgen:start": "tsx --env-file=.env packages/loadgen/src/entrypoint/main.ts",
     "test:loadgen": "pnpm --filter @arcaidia/loadgen test",
     "test:x402-gateway": "pnpm --filter @arcaidia/x402-gateway test",
-    "gateway:start": "tsx --env-file=.env packages/x402-gateway/src/entrypoint/main.ts"
+    "gateway:start": "tsx --env-file=.env packages/x402-gateway/src/entrypoint/main.ts",
+    "balances": "tsx scripts/balance-watch.ts",
+    "balances:fund": "scripts/fund-bots.sh"
   },
   "devDependencies": {
     "@graphprotocol/graph-cli": "^0.98.1",
