@@ -22,12 +22,12 @@
     {
       "kind": "background",
       "durationRange": {
-        "min": 1800,
-        "max": 3600
+        "min": 600,
+        "max": 1200
       },
       "intentsPerMinuteRange": {
-        "min": 0.02,
-        "max": 0.05
+        "min": 0.4,
+        "max": 0.6
       },
       "amount": {
         "mu": 1.6,
@@ -67,12 +67,12 @@
     {
       "kind": "burst",
       "durationRange": {
-        "min": 600,
-        "max": 900
+        "min": 180,
+        "max": 300
       },
       "intentsPerMinuteRange": {
-        "min": 0.08,
-        "max": 0.15
+        "min": 0.8,
+        "max": 1.2
       },
       "amount": {
         "mu": 1.9,
@@ -116,8 +116,8 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.03,
-        "max": 0.06
+        "min": 0.3,
+        "max": 0.5
       },
       "amount": {
         "mu": 3.0,
@@ -157,8 +157,8 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.05,
-        "max": 0.1
+        "min": 0.5,
+        "max": 0.8
       },
       "amount": {
         "mu": 1.7,
@@ -198,8 +198,8 @@
         "max": 900
       },
       "intentsPerMinuteRange": {
-        "min": 0.03,
-        "max": 0.06
+        "min": 0.4,
+        "max": 0.6
       },
       "amount": {
         "mu": 1.6,
@@ -256,5 +256,5 @@
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Calm default (WP-32): about two transfers an hour across both directions \u2014 background phases at 0.02\u20130.05 intents/minute dominate; bursts and clusters are rare and small; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json (the 2026-09-12 first-live-run profile: up to 5/minute in bursts)."
+  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every two minutes across both directions \u2014 background at 0.4\u20130.6 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json."
 }
