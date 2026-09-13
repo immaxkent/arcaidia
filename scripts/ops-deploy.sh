@@ -37,7 +37,8 @@ for f in .env .env.solver-b .env.solver-c .env.loadgen; do
   [ -f "$ROOT/$f" ] && rsync -az "$ROOT/$f" "$HOST:$REMOTE_DIR/$f"
 done
 
-ssh "$HOST" "cd $REMOTE_DIR && export OPS_HOST=$OPS_HOST; DC='docker compose'; docker info >/dev/null 2>&1 || DC='sudo docker compose'; OPS_HOST=$OPS_HOST \$DC -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && \$DC -f docker-compose.ops.yml ps"
+# sudo drops the environment, so OPS_HOST rides along explicitly when compose needs root.
+ssh "$HOST" "cd $REMOTE_DIR && DC='env OPS_HOST=$OPS_HOST docker compose'; docker info >/dev/null 2>&1 || DC='sudo env OPS_HOST=$OPS_HOST docker compose'; \$DC -f docker-compose.ops.yml $PROFILES up -d --build --remove-orphans && \$DC -f docker-compose.ops.yml ps"
 echo "== relay:  https://relay.$OPS_HOST/health"
 echo "== quote:  https://quote.$OPS_HOST/quote"
 echo "Set VITE_SOLVER_TELEMETRY_URL=https://relay.$OPS_HOST and VITE_SOLVER_QUOTE_URL=https://quote.$OPS_HOST for the web build,"
