@@ -59,7 +59,7 @@ dataSources:
     name: SettlementReceiver
     network: arc-testnet
     source:
-      address: "0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd"
+      address: "0xa60c586E4d050233885cD6628B7C1A217574d9c6"
       abi: SettlementReceiver
       startBlock: 61715957
     mapping:
