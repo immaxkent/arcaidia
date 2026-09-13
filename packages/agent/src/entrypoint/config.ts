@@ -90,6 +90,12 @@ export interface SolverEntrypointConfig {
    * never logged. Null = read the free relay endpoint, unpaid, exactly as WP-33.
    */
   readonly hedera: { readonly accountId: string; readonly privateKey: string } | null;
+  /**
+   * WP-34: `none` (default) declines every trade intent (`TRADE_NOT_SUPPORTED`, canonical USDC
+   * delivers); `uniswap-v2` asks each chain's deployed `UniswapV2SwapAdapter` (from
+   * `SWAP_INFRASTRUCTURE`) whether the swap can meet the user's floor before filling.
+   */
+  readonly swapAdapterMode: 'none' | 'uniswap-v2';
 }
 
 export class ConfigError extends Error {}
@@ -232,7 +238,16 @@ export function loadSolverConfig(env: Env): SolverEntrypointConfig {
       marginBps: bpsOr(env, 'INTELLIGENCE_HOLD_MARGIN_BPS', 5),
     },
     hedera: loadHedera(env),
+    swapAdapterMode: loadSwapAdapterMode(env),
   };
+}
+
+function loadSwapAdapterMode(env: Env): 'none' | 'uniswap-v2' {
+  const raw = env.SWAP_ADAPTER_MODE ?? 'none';
+  if (raw !== 'none' && raw !== 'uniswap-v2') {
+    throw new ConfigError(`SWAP_ADAPTER_MODE must be "none" or "uniswap-v2", got "${raw}".`);
+  }
+  return raw;
 }
 
 function loadIntelligenceMode(env: Env): 'advisory' | 'selective' {

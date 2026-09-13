@@ -354,3 +354,11 @@ describe('INTELLIGENCE_MODE and Hedera credentials (WP-35 / D13)', () => {
     expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: '0.0.1', HEDERA_PRIVATE_KEY: 'nope' })).toThrow(/hex-encoded/);
   });
 });
+
+describe('SWAP_ADAPTER_MODE (WP-34)', () => {
+  it('defaults to none and accepts uniswap-v2, nothing else', () => {
+    expect(loadSolverConfig(baseEnv()).swapAdapterMode).toBe('none');
+    expect(loadSolverConfig({ ...baseEnv(), SWAP_ADAPTER_MODE: 'uniswap-v2' }).swapAdapterMode).toBe('uniswap-v2');
+    expect(() => loadSolverConfig({ ...baseEnv(), SWAP_ADAPTER_MODE: 'uniswap-v3' })).toThrow(ConfigError);
+  });
+});

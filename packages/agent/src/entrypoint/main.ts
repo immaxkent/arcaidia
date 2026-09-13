@@ -74,6 +74,11 @@ async function main(): Promise<void> {
       : '[solver] telemetry  disabled',
   );
   console.log(
+    config.swapAdapterMode === 'uniswap-v2'
+      ? '[solver] swap adapter uniswap-v2 (trade intents gated by each chain\'s deployed adapter)'
+      : '[solver] swap adapter none (trade intents declined; canonical USDC delivers)',
+  );
+  console.log(
     config.intelligenceUrl
       ? `[solver] intelligence ${config.intelligenceMode} <- ${config.intelligenceUrl}` +
           (config.hedera ? ` (paying over Hedera x402 from ${config.hedera.accountId})` : ' (unpaid)')

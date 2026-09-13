@@ -14,6 +14,8 @@ import { HttpTelemetryClient, NoopTelemetryClient, pairWithRelay, type Heartbeat
 import { buildReceiptWaiters } from '../adapters/evm-clients.js';
 import { HttpIntelligenceProvider } from '../adapters/http-intelligence-provider.js';
 import { PaymentLedger, createHederaPayingFetch } from '../adapters/x402-paying-fetch.js';
+import { ViemUniswapV2SwapAdapter, type SwapAdapterDeployment } from '../adapters/viem-uniswap-v2-swap-adapter.js';
+import { SWAP_INFRASTRUCTURE, type ChainKey } from '@arcaidia/domain';
 import { arcTestnetChain, ethereumSepoliaChain } from './viem-chains.js';
 import {
   buildCircleSigningClient,
@@ -261,6 +263,21 @@ export function heartbeatIntelligence(config: SolverEntrypointConfig, ledger: Pa
   };
 }
 
+/**
+ * WP-34: one `ViemUniswapV2SwapAdapter` over every chain `SWAP_INFRASTRUCTURE` names, reading
+ * the deployed adapter contract through the same public clients the vault reads use. A chain
+ * with no market simply has no deployment, and `canSatisfy` answers false there.
+ */
+export function buildSwapAdapter(readClients: ReadonlyMap<number, EvmContractReadClient>): ViemUniswapV2SwapAdapter {
+  const deployments = new Map<number, SwapAdapterDeployment>();
+  for (const key of Object.keys(SWAP_INFRASTRUCTURE) as ChainKey[]) {
+    const infra = SWAP_INFRASTRUCTURE[key];
+    const client = infra ? readClients.get(infra.chainId) : undefined;
+    if (infra && client) deployments.set(infra.chainId, { address: infra.swapAdapter, client });
+  }
+  return new ViemUniswapV2SwapAdapter(deployments);
+}
+
 export interface BuiltSolverDependencies {
   readonly deps: SolverDependencies;
   /** The signer's own address — log it at startup so it's obvious which key is live. */
@@ -333,6 +350,8 @@ export function buildSolverDependencies(
     // WP-33/35: absent = the baseline solver, byte for byte. With a URL, the provider reads it;
     // with Hedera credentials too, it pays any 402 it meets over x402 and keeps the receipts.
     ...(config.intelligenceUrl ? { intelligence: buildIntelligenceProvider(config, options.ledger) } : {}),
+    // WP-34: the destination market's adapter, read-only; absent = every trade intent declined.
+    ...(config.swapAdapterMode === 'uniswap-v2' ? { swapAdapter: buildSwapAdapter(readClients) } : {}),
     // WP-17.1's per-instance vault, now applied where fills are *submitted* too (WP-29).
     vaults: new Map(config.chains.map((chain) => [chain.chainId, chain.liquidityVault])),
   };

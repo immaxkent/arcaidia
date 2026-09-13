@@ -39,6 +39,7 @@ import { NoopTelemetryClient, type TelemetryClient, type TelemetryStage } from '
 import { FillRevertedError } from '../adapters/viem-fill-submitter.js';
 
 import { evaluateIntent } from '../risk/evaluate-intent.js';
+import { feeAmountFor } from '../risk/fee.js';
 import { verifySourceTransaction } from '../verification/verify-source.js';
 import type { SourceChainReader } from '../verification/source-evidence.js';
 import type { DecisionLog } from '../logging/decision-log.js';
@@ -194,7 +195,7 @@ export async function processIntent(
     observation.settlementHealth(),
   ]);
 
-  const tradeSatisfiable = await tradeSatisfiabilityOf(intent, vaultState.asset, deps.swapAdapter);
+  const tradeSatisfiable = await tradeSatisfiabilityOf(intent, vaultState.asset, vaultState.currentFeeBps, deps.swapAdapter);
 
   const verdict = evaluateIntent(intent, vaultState, settlementHealth, config.policy, {
     now,
@@ -267,15 +268,22 @@ export async function processIntent(
 async function tradeSatisfiabilityOf(
   intent: Intent,
   asset: `0x${string}`,
+  feeBps: number,
   adapter: SwapAdapter | undefined,
 ): Promise<boolean | null> {
   if (!isTradeIntent(intent) || !adapter) return null;
+  // The vault swaps the *post-fee* amount (`_deliver` is handed `outputAmount`), so the gate
+  // must ask about that amount too — asking about the gross amount was optimistic by exactly
+  // the fee and sent near-floor trades into the USDC fallback. Same derivation as
+  // evaluate-intent.ts, so the two cannot drift.
+  const amountIn = intent.amount - feeAmountFor(intent.amount, feeBps);
+  if (amountIn <= 0n) return false;
   try {
     return await adapter.canSatisfy(
       intent.destinationChainId,
       asset,
       intent.tokenOut,
-      intent.amount,
+      amountIn,
       intent.targetMinOut,
     );
   } catch {

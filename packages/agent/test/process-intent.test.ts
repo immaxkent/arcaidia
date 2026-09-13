@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { feeAmountFor } from '../src/risk/fee.js';
 import { ErrorCode, Verdict, registerDeployment, resetDeployments } from '@arcaidia/domain';
 import {
   DEFAULT_RISK_POLICY,
@@ -473,8 +474,32 @@ describe('processIntent — optional swap adapter and intelligence', () => {
     });
     const outcome = await processIntent(tradeIntent, deps);
     expect(outcome.kind).toBe('FILLED');
-    expect(asked).toEqual([[ARC, ARC_USDC, tradeIntent.tokenOut, tradeIntent.amount, 5n]]);
+    // The vault swaps the post-fee amount, so that is what the gate asks about (CORE-FIX-TRADE-GATE).
+    const postFee = tradeIntent.amount - feeAmountFor(tradeIntent.amount, vault().currentFeeBps);
+    expect(postFee).toBeLessThan(tradeIntent.amount);
+    expect(asked).toEqual([[ARC, ARC_USDC, tradeIntent.tokenOut, postFee, 5n]]);
     expect(submitter.submissions[0]!.intent.tokenOut).toBe(tradeIntent.tokenOut);
+  });
+
+  it('declines a trade whose floor the gross amount meets but the post-fee amount does not', async () => {
+    // A quote of exactly 1 tokenOut-unit per USDC-unit: the floor equals the gross amount, so
+    // the old gate (asking about the gross amount) would have said yes, the vault would then
+    // have swapped less and fallen back to USDC. Now the gate asks about the post-fee amount.
+    const nearFloor = intent({ tokenOut: tradeIntent.tokenOut, targetMinOut: tradeIntent.amount });
+    const { deps, submitter } = depsFor(nearFloor, {
+      swapAdapter: {
+        async quote(_c, _i, _o, amountIn) {
+          return amountIn;
+        },
+        async canSatisfy(_c, _i, _o, amountIn, minOut) {
+          return amountIn >= minOut;
+        },
+      },
+    });
+    const outcome = await processIntent(nearFloor, deps);
+    expect(outcome.kind).toBe('DECLINED');
+    if (outcome.kind === 'DECLINED') expect(outcome.decision.reason).toBe('TRADE_NOT_SUPPORTED');
+    expect(submitter.submissions).toHaveLength(0);
   });
 
   it('declines when the adapter cannot meet the floor, and when it throws', async () => {

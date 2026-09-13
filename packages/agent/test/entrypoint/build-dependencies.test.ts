@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ViemUniswapV2SwapAdapter } from '../../src/adapters/viem-uniswap-v2-swap-adapter.js';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerDeployment, resetDeployments } from '@arcaidia/domain';
 import { HttpTelemetryClient, NoopTelemetryClient } from '@arcaidia/telemetry';
@@ -53,6 +54,7 @@ function config(overrides: Partial<SolverEntrypointConfig> = {}): SolverEntrypoi
     intelligenceMode: 'advisory',
     intelligenceHold: { scarcityBps: 6_000, marginBps: 5 },
     hedera: null,
+    swapAdapterMode: 'none',
     ...overrides,
   };
 }
@@ -393,5 +395,13 @@ describe('intelligence provider (WP-33)', () => {
     expect(buildSolverDependencies(config(), { log: new InMemoryDecisionLog() }).deps).not.toHaveProperty('intelligence');
     const withIt = buildSolverDependencies(config({ intelligenceUrl: 'https://relay.example' }), { log: new InMemoryDecisionLog() });
     expect(withIt.deps.intelligence).toBeDefined();
+  });
+});
+
+describe('swap adapter (WP-34)', () => {
+  it('is absent in none mode and a Uniswap adapter over the configured markets in uniswap-v2 mode', () => {
+    expect(buildSolverDependencies(config(), { log: new InMemoryDecisionLog() }).deps).not.toHaveProperty('swapAdapter');
+    const withIt = buildSolverDependencies(config({ swapAdapterMode: 'uniswap-v2' }), { log: new InMemoryDecisionLog() });
+    expect(withIt.deps.swapAdapter).toBeInstanceOf(ViemUniswapV2SwapAdapter);
   });
 });
