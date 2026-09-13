@@ -131,6 +131,13 @@ export const TRADE_INTENTS_ENABLED = str("VITE_TRADE_INTENTS_ENABLED") === "true
 
 export const SUPPORTED_CHAIN_IDS = [ETHEREUM_SEPOLIA, ARC_TESTNET] as const;
 
+/**
+ * D12: the v2.0 settlement receiver, retired 2026-09-12 (same address on both chains). Still
+ * holds reimbursements it parked as HELD_FOR_VAULT for vaults that had already moved to the
+ * current receiver; releasing them is an owner action the console offers.
+ */
+export const RETIRED_SETTLEMENT_RECEIVER: Address = "0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd";
+
 export function chainConfig(chainId: number): ChainConfig | null {
   return CHAIN_CONFIG[chainId] ?? null;
 }

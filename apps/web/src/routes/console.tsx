@@ -3,14 +3,16 @@ import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { publicClientFor } from "@/lib/arcaidia/viem-clients";
 import { viemChainFor } from "@/lib/arcaidia/viem-chains";
-import { chainConfig } from "@/lib/arcaidia/config";
+import { chainConfig, RETIRED_SETTLEMENT_RECEIVER } from "@/lib/arcaidia/config";
+import { ABIS } from "@arcaidia/domain";
+import { useHeldReimbursements } from "@/hooks/arcaidia/use-held-reimbursements";
 import { CopyValue } from "@/components/site/copy-value";
 import { TimeValue } from "@/components/site/time-value";
 import { SolverOrb } from "@/components/solver/solver-orb";
 import { VaultFeeTierChart, VaultUtilisationChart } from "@/components/solver/utilisation-chart";
 import { ChainBadge, FillsTable, UtilisationMeter } from "@/components/vaults/vault-bits";
 import { useWallet } from "@/components/wallet/wallet-context";
-import { CHAINS, type ActivityRow, type SolverAuthState, type SolverRuntimeStatus } from "@/lib/arcaidia/types";
+import { CHAINS, type ActivityRow, type Address, type SolverAuthState, type SolverRuntimeStatus } from "@/lib/arcaidia/types";
 import { formatBps, formatDuration, formatUsdc, truncateAddress } from "@/lib/arcaidia/format";
 import { explorerTxUrl, SUPPORTED_CHAIN_IDS } from "@/lib/arcaidia/config";
 import { NOT_AVAILABLE, errorState, readyState, unavailableState, type DataState } from "@/lib/arcaidia/data-state";
@@ -104,6 +106,7 @@ function ConsolePage() {
   const { status: walletStatus, address, connect } = wallet;
   const connected = walletStatus === "CONNECTED";
   const [repointing, setRepointing] = useState(false);
+  const [releasing, setReleasing] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const list = useMarketVaultDirectory();
@@ -118,6 +121,46 @@ function ConsolePage() {
     connected && address && vault?.ownerAddress && vault.ownerAddress.toLowerCase() === address.toLowerCase(),
   );
   const capabilities = vaultCapabilitiesFromAbi(solverVaultAbi as unknown as ReadonlyArray<{ type: string; name?: string }>);
+
+  /**
+   * D12: release reimbursements the retired receiver parked for this vault. It can only push
+   * funds into a vault that names it as settlement receiver, so: point the vault back at it,
+   * retryHeld each intent (anyone may call), point the vault at the current receiver again.
+   * 2 + n owner signatures; every step is a plain transaction the owner can see.
+   */
+  async function releaseHeld() {
+    if (!vault || !address || held.status !== "ready" || held.data.length === 0) return;
+    const current = chainConfig(vault.chainId)?.settlementReceiver ?? null;
+    const publicClient = publicClientFor(vault.chainId);
+    if (!current || !publicClient) return;
+    const chain = viemChainFor(vault.chainId);
+    const write = async (label: string, args: { address: Address; abi: readonly unknown[]; functionName: string; args: readonly unknown[] }) => {
+      setReleasing(label);
+      const walletClient = await wallet.getWalletClient(vault.chainId);
+      const hash = await walletClient.writeContract({ ...args, abi: args.abi as never, functionName: args.functionName as never, args: args.args as never, chain, account: address });
+      await publicClient.waitForTransactionReceipt({ hash });
+    };
+    try {
+      await wallet.switchChain(vault.chainId);
+      await write("Pointing the vault at the retired receiver (1 of " + (held.data.length + 2) + ")", {
+        address: vault.vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [RETIRED_SETTLEMENT_RECEIVER],
+      });
+      for (const [i, intentId] of held.data.entries()) {
+        await write(`Releasing reimbursement ${i + 1} of ${held.data.length}`, {
+          address: RETIRED_SETTLEMENT_RECEIVER, abi: ABIS.SettlementReceiver, functionName: "retryHeld", args: [intentId],
+        });
+      }
+      await write("Pointing the vault at the current receiver (last)", {
+        address: vault.vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [current],
+      });
+      toast.success("Held reimbursements released", { description: `${held.data.length} intent(s) repaid to ${truncateAddress(vault.vaultAddress)}` });
+      await queryClient.invalidateQueries();
+    } catch (error) {
+      toast.error("Release stopped", { description: error instanceof Error ? error.message : "Transaction failed." });
+    } finally {
+      setReleasing(null);
+    }
+  }
 
   /** D12: `setSettlementReceiver(<current>)` on this vault, signed by its owner. */
   async function repointSettlementReceiver() {
@@ -156,6 +199,7 @@ function ConsolePage() {
     telemetryOnline: telemetry.status === "ready" ? telemetry.data.online : null,
   });
   const fills = useVaultFills(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
+  const held = useHeldReimbursements(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
   const activity = useVaultActivity(vault?.chainId ?? 0, vault?.vaultAddress ?? null);
 
   // WP-19.3 — the onchain half of the orb's state machine: whatever intent
@@ -358,7 +402,29 @@ function ConsolePage() {
             <VaultFeeTierChart state={vaultUtilisation} />
           </div>
 
-          {vault.settlementReceiverCurrent === false ? (
+          {held.status === "ready" && held.data.length > 0 ? (
+            <section className="panel mt-6 flex flex-wrap items-center gap-4 border-warning/50 p-5">
+              <p className="measure text-sm text-text-dim">
+                <span className="font-semibold text-warning">{held.data.length} reimbursement{held.data.length === 1 ? "" : "s"} held for this vault.</span>{" "}
+                Canonical settlement for {held.data.length === 1 ? "one intent" : `${held.data.length} intents`} was completed through the retired receiver
+                after this vault moved to the current one, so the funds are parked there. Releasing them re-points the vault for a moment,
+                repays each one, and points it back — {held.data.length + 2} signatures from the owner.
+                {vault.settlementReceiverCurrent === false ? " This vault still names the retired receiver, so releasing also brings it up to date." : ""}
+              </p>
+              {isVaultOwner ? (
+                <button
+                  type="button"
+                  disabled={releasing !== null}
+                  onClick={() => void releaseHeld()}
+                  className="ml-auto rounded-lg border border-acid/60 bg-acid/15 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-acid disabled:opacity-50"
+                >
+                  {releasing ?? `Release ${held.data.length} held reimbursement${held.data.length === 1 ? "" : "s"}`}
+                </button>
+              ) : null}
+            </section>
+          ) : null}
+
+          {vault.settlementReceiverCurrent === false && !(held.status === "ready" && held.data.length > 0) ? (
             <section className="panel mt-6 flex flex-wrap items-center gap-4 border-warning/50 p-5">
               <p className="measure text-sm text-text-dim">
                 <span className="font-semibold text-warning">Settlement receiver out of date.</span> This vault still expects
