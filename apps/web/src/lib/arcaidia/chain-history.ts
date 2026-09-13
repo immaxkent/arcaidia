@@ -130,17 +130,41 @@ export async function factoryVaultsFromChain(chainId: number): Promise<Address[]
  * most recently granted first. The vault only exposes `isAuthorisedSigner(address)`, so this
  * is the one way to learn *which* address to ask about without being told.
  */
+interface SignerCache {
+  readonly scannedTo: string;
+  /** Signers currently granted, most recently granted last. */
+  readonly granted: Address[];
+}
+
 export async function authorisedSignersFromChain(chainId: number, vault: Address): Promise<Address[]> {
   const r = ready(chainId);
   if (!r) return [];
-  const logs = await readLogsSince<{ signer: Address; allowed: boolean }>(r.client, { address: vault, event: AUTHORISED_SIGNER_SET }, r.config.startBlock, chainId);
-  const granted = new Map<string, Address>();
-  for (const log of logs) {
-    const key = log.args.signer.toLowerCase();
-    granted.delete(key);
-    if (log.args.allowed) granted.set(key, log.args.signer);
+  // Incremental, like the labels: a vault's signer history is scanned once per browser and
+  // only new blocks after that — a full scan per vault per poll is what rate-limited the RPC.
+  const key = `arcaidia:vault-signers:v1:${chainId}:${vault.toLowerCase()}`;
+  let cached: SignerCache | null = null;
+  try {
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key);
+    cached = raw ? (JSON.parse(raw) as SignerCache) : null;
+  } catch {
+    cached = null;
   }
-  return [...granted.values()].reverse();
+  const head = await r.client.getBlockNumber();
+  const from = cached ? Number(cached.scannedTo) + 1 : r.config.startBlock;
+  const logs = await readLogsSince<{ signer: Address; allowed: boolean }>(r.client, { address: vault, event: AUTHORISED_SIGNER_SET }, from, chainId);
+  const granted = new Map<string, Address>((cached?.granted ?? []).map((a) => [a.toLowerCase(), a]));
+  for (const log of logs) {
+    const k = log.args.signer.toLowerCase();
+    granted.delete(k);
+    if (log.args.allowed) granted.set(k, log.args.signer);
+  }
+  const ordered = [...granted.values()];
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(key, JSON.stringify({ scannedTo: head.toString(), granted: ordered } satisfies SignerCache));
+  } catch {
+    // Storage blocked — the next load scans again.
+  }
+  return ordered.reverse();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -274,6 +298,35 @@ export async function fillsFromChain(
     blockNumber: log.blockNumber,
     timestamp: timestamps.get(log.blockNumber) ?? 0,
   }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Settlement outcomes — one multicall against the current receiver, no log scan
+// ---------------------------------------------------------------------------------------------
+
+const OUTCOME_BY_CODE: Record<number, CanonicalOutcome> = { 1: "LP_REIMBURSED", 2: "RECIPIENT_FALLBACK", 3: "HELD_FOR_VAULT" };
+
+/**
+ * `outcomeOf(intentId)` on this chain's current receiver for each id: the settled/not-settled
+ * fact plus the outcome, in one `eth_call` round trip. Cheap enough to run on every poll for
+ * everything the indexer shows unsettled; what it cannot give (settlement time and tx hash)
+ * stays null until the indexer catches up.
+ */
+export async function settlementOutcomesFromChain(chainId: number, intentIds: readonly Hex[]): Promise<Map<string, CanonicalOutcome>> {
+  const out = new Map<string, CanonicalOutcome>();
+  const r = ready(chainId);
+  if (!r || !r.config.settlementReceiver || intentIds.length === 0) return out;
+  const receiver = r.config.settlementReceiver;
+  const results = await r.client.multicall({
+    allowFailure: true,
+    contracts: intentIds.map((intentId) => ({ address: receiver, abi: ABIS.SettlementReceiver, functionName: "outcomeOf" as const, args: [intentId] as const })),
+  });
+  results.forEach((res, i) => {
+    if (res.status !== "success") return;
+    const outcome = OUTCOME_BY_CODE[Number(res.result)];
+    if (outcome) out.set(intentIds[i]!.toLowerCase(), outcome);
+  });
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------

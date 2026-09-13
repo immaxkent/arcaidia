@@ -214,24 +214,25 @@ interface DiscoveredVault {
  */
 async function discoverParticipantVaults(chainId: number): Promise<DiscoveredVault[]> {
   const config = chainConfig(chainId);
-  const [fromChain, chainLabels] = await Promise.all([
-    factoryVaultsFromChain(chainId),
-    vaultLabelsFromChain(chainId).catch(() => new Map<string, { label: string }>()),
-  ]);
-
+  const fromChain = await factoryVaultsFromChain(chainId);
   const labels = new Map<string, string>();
-  for (const [key, created] of chainLabels) if (created.label) labels.set(key, created.label);
-
-  const unlabelled = fromChain.filter((address) => !labels.has(address.toLowerCase()));
-  if (unlabelled.length > 0 && config?.subgraphUrl) {
+  // Labels: the Nest's `vaults` view first (one query, no log scan); the factory's own
+  // `VaultCreated` logs only for a vault the indexer has not labelled yet (created seconds ago).
+  if (config?.subgraphUrl) {
     try {
       const result = await queryNest<{ id: string; label: string | null }>(config.subgraphUrl, "SELECT id, label FROM vaults");
-      for (const row of result.rows) if (row.label && !labels.has(row.id.toLowerCase())) labels.set(row.id.toLowerCase(), row.label);
+      for (const row of result.rows) if (row.label) labels.set(row.id.toLowerCase(), row.label);
     } catch {
-      // Not re-seeded yet, or unreachable — the chain already supplied every label it can.
+      // Unreachable — the chain scan below supplies every label instead.
     }
   }
-
+  if (fromChain.some((address) => !labels.has(address.toLowerCase()))) {
+    try {
+      for (const [key, created] of await vaultLabelsFromChain(chainId)) if (created.label && !labels.has(key)) labels.set(key, created.label);
+    } catch {
+      // A vault without a label shows its address — never a made-up name.
+    }
+  }
   return fromChain.map((address) => ({ address, label: labels.get(address.toLowerCase()) ?? null }));
 }
 

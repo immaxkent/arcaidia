@@ -32,7 +32,7 @@ import {
   unavailableState,
   type DataState,
 } from "@/lib/arcaidia/data-state";
-import { fillsFromChain, intentsFromChain, settlementsFromChain } from "@/lib/arcaidia/chain-history";
+import { fillsFromChain, intentsFromChain, settlementOutcomesFromChain, settlementsFromChain } from "@/lib/arcaidia/chain-history";
 import { queryNest, sqlHex20Literal, sqlHex32InClause } from "@/lib/arcaidia/nest";
 import type { ActivityRow, Address, CanonicalStatus, FillRow, Hex } from "@/lib/arcaidia/types";
 
@@ -99,8 +99,8 @@ async function fetchVaultFillsFromNest(chainId: number, vaultAddress: Address): 
   const unsettled = ids.filter((id) => !settlementByIntentId.has(id.toLowerCase()));
   if (unsettled.length > 0) {
     try {
-      for (const s of await settlementsFromChain(chainId, unsettled)) {
-        settlementByIntentId.set(s.intentId.toLowerCase(), { intent_id: s.intentId, outcome: s.outcome, amount: s.amount.toString(), timestamp: s.timestamp, tx_hash: s.txHash });
+      for (const [id, outcome] of await settlementOutcomesFromChain(chainId, unsettled)) {
+        settlementByIntentId.set(id, { intent_id: id, outcome, amount: "0", timestamp: 0, tx_hash: "" });
       }
     } catch {
       // Chain read failed — the indexer's view stands.
@@ -123,7 +123,7 @@ async function fetchVaultFillsFromNest(chainId: number, vaultAddress: Address): 
       fastFillTimestamp: fill.timestamp,
       canonicalStatus,
       settlementLatencySeconds:
-        settlement && sourceIntent ? settlement.timestamp - sourceIntent.created_at_timestamp : null,
+        settlement && settlement.timestamp > 0 && sourceIntent ? settlement.timestamp - sourceIntent.created_at_timestamp : null,
       // Falls back to the destination tx only in the rare case the source-chain
       // intent hasn't indexed yet — momentary lag, not a fabricated value; the
       // type has no null to express "not yet known" here.

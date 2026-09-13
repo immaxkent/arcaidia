@@ -27,6 +27,7 @@ vi.mock("@/lib/arcaidia/chain-history", () => ({
   }),
   intentsFromChain: vi.fn(async () => []),
   settlementsFromChain: vi.fn(async () => []),
+  settlementOutcomesFromChain: vi.fn(async () => new Map()),
 }));
 
 function wrapper({ children }: { children: ReactNode }) {

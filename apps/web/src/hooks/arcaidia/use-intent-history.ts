@@ -25,7 +25,7 @@
  * Returns `empty` only when the indexer answers with zero rows. No example rows.
  */
 import { useQuery } from "@tanstack/react-query";
-import { fillsFromChain, intentsFromChain, settlementsFromChain } from "@/lib/arcaidia/chain-history";
+import { fillsFromChain, intentsFromChain, settlementOutcomesFromChain, settlementsFromChain } from "@/lib/arcaidia/chain-history";
 import { chainConfig } from "@/lib/arcaidia/config";
 import {
   emptyState,
@@ -167,8 +167,9 @@ async function fetchIntentRowsFromNest(
       const missing = ids.filter((id) => !settlementByIntentId.has(id) && !settlementByIntentId.has(id.toLowerCase()));
       if (missing.length === 0) return;
       try {
-        for (const s of await settlementsFromChain(destinationChainId, missing)) {
-          settlementByIntentId.set(s.intentId, { id: s.intentId, intent_id: s.intentId, outcome: s.outcome, amount: s.amount.toString(), timestamp: s.timestamp, tx_hash: s.txHash });
+        for (const [id, outcome] of await settlementOutcomesFromChain(destinationChainId, missing as Hex[])) {
+          // Settled for sure; when and in which tx the indexer will say later — null, not a guess.
+          settlementByIntentId.set(id, { id, intent_id: id, outcome, amount: "0", timestamp: 0, tx_hash: "" });
         }
       } catch {
         // Chain read failed — the indexer's view stands.
@@ -207,13 +208,13 @@ async function fetchIntentRowsFromNest(
         canonicalStatus: settlement ? "SETTLED" : "PENDING",
         ...(settlement ? { canonicalOutcome: settlement.outcome as CanonicalOutcome } : {}),
         ...(fill ? { fastFilledAt: fill.timestamp } : {}),
-        ...(settlement ? { settledAt: settlement.timestamp } : {}),
+        ...(settlement && settlement.timestamp > 0 ? { settledAt: settlement.timestamp } : {}),
       },
       winningVault: fill ? (houseVaultByChain.get(destinationChainId) ?? null) : null,
       feeCharged: fill ? intent.amount - BigInt(fill.output_amount) : null,
       destinationTxHash: fill?.tx_hash ?? null,
-      settlementTxHash: settlement?.tx_hash ?? null,
-      settlementLatencySeconds: settlement ? settlement.timestamp - createdAt : null,
+      settlementTxHash: settlement?.tx_hash ? settlement.tx_hash : null,
+      settlementLatencySeconds: settlement && settlement.timestamp > 0 ? settlement.timestamp - createdAt : null,
     };
   });
 }

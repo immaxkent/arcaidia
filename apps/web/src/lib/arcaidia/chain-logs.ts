@@ -36,6 +36,8 @@ const WINDOW_CONCURRENCY = 4;
 const MIN_WINDOW = 100n;
 /** The window each chain's provider has been seen to accept — learned by halving on refusal. */
 const learnedWindow = new Map<number, bigint>();
+const MAX_THROTTLE_WAITS = 5;
+const THROTTLE_WAIT_MS = 1_000;
 
 async function readWindow<TArgs>(
   client: PublicClient,
@@ -66,6 +68,7 @@ export async function readLogsSince<TArgs>(
   let window = learnedWindow.get(chainId) ?? WINDOW;
   const logs: ChainLog<TArgs>[] = [];
   let start = from;
+  let throttled = 0;
   while (start <= head) {
     // A batch of windows at the current size; a refusal halves the size and retries the batch.
     const batch: Array<[bigint, bigint]> = [];
@@ -78,10 +81,16 @@ export async function readLogsSince<TArgs>(
       const results = await Promise.all(batch.map(([a, b]) => readWindow<TArgs>(client, filter, a, b)));
       for (const r of results) logs.push(...r);
     } catch (error) {
+      start = batch[0]![0];
+      // A throttled provider is not a window problem: halving would only multiply the calls.
+      if (/rate limit|429|too many requests/i.test(String((error as { details?: string; message?: string }).details ?? (error as Error).message))) {
+        if (++throttled > MAX_THROTTLE_WAITS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, THROTTLE_WAIT_MS * throttled));
+        continue;
+      }
       if (window <= MIN_WINDOW) throw error;
       window = window / 2n < MIN_WINDOW ? MIN_WINDOW : window / 2n;
       learnedWindow.set(chainId, window);
-      start = batch[0]![0];
     }
   }
   return logs.sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1));
