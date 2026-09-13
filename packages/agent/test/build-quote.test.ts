@@ -121,3 +121,40 @@ describe('buildQuote', () => {
     ).rejects.toThrow(InvalidQuoteRequestError);
   });
 });
+
+describe('buildQuote — trade intents (WP-34)', () => {
+  const TOKEN = '0x69f7a2e446e4c884daa8beb182672fd806ac657e' as const;
+
+  it('quotes the swap for the post-fee amount and gates on the floor, with an adapter wired', async () => {
+    const asked: unknown[] = [];
+    const tradeDeps = {
+      ...deps(),
+      swapAdapter: {
+        async quote(chainId: number, tokenIn: string, tokenOut: string, amountIn: bigint) {
+          asked.push(['quote', chainId, tokenOut, amountIn]);
+          return amountIn * 3n;
+        },
+        async canSatisfy(_c: number, _i: string, _o: string, amountIn: bigint, minOut: bigint) {
+          return amountIn * 3n >= minOut;
+        },
+      },
+    };
+    const ok = await buildQuote({ ...REQUEST, tokenOut: TOKEN, targetMinOut: 1n }, tradeDeps);
+    expect(ok.verdict).toBe('ACCEPT');
+    expect(ok.swap?.tokenOut).toBe(TOKEN);
+    expect(ok.swap?.amountIn).toBe(ok.outputAmount);
+    expect(ok.swap?.amountOut).toBe(ok.outputAmount * 3n);
+    expect(asked[0]).toEqual(['quote', REQUEST.destinationChainId, TOKEN, ok.outputAmount]);
+
+    const floorTooHigh = await buildQuote({ ...REQUEST, tokenOut: TOKEN, targetMinOut: ok.outputAmount * 4n }, tradeDeps);
+    expect(floorTooHigh.verdict).toBe('REJECT');
+    expect(floorTooHigh.reason).toBe('TRADE_NOT_SUPPORTED');
+    expect(floorTooHigh.swap?.amountOut).toBe(ok.outputAmount * 3n);
+  });
+
+  it('without an adapter, a trade quote is honest: no swap figure, TRADE_NOT_SUPPORTED', async () => {
+    const q = await buildQuote({ ...REQUEST, tokenOut: TOKEN, targetMinOut: 1n }, deps());
+    expect(q.swap).toBeUndefined();
+    expect(q.reason).toBe('TRADE_NOT_SUPPORTED');
+  });
+});

@@ -68,6 +68,8 @@ export interface IntentRequest {
 /** WP-14's `estimatedUnderAssumption` marker, kept off the shared `AgentDecision` shape. */
 export interface IntentEstimate extends AgentDecision {
   readonly estimatedUnderAssumption: true;
+  /** WP-34: the destination adapter's quote for a trade intent, computed by the solver server-side. */
+  readonly swap?: { readonly tokenOut: Address; readonly amountIn: bigint; readonly amountOut: bigint };
 }
 
 const QUOTE_DEBOUNCE_MS = 400;
@@ -106,6 +108,15 @@ function parseQuote(raw: Record<string, unknown>): IntentEstimate {
       },
     },
     estimatedUnderAssumption: true,
+    ...(raw["swap"] && typeof raw["swap"] === "object"
+      ? {
+          swap: {
+            tokenOut: String((raw["swap"] as Record<string, unknown>)["tokenOut"]) as Address,
+            amountIn: BigInt(String((raw["swap"] as Record<string, unknown>)["amountIn"])),
+            amountOut: BigInt(String((raw["swap"] as Record<string, unknown>)["amountOut"])),
+          },
+        }
+      : {}),
   };
 }
 
@@ -145,7 +156,7 @@ function useDebouncedRequest(request: IntentRequest | null): IntentRequest | nul
 }
 
 /** Solver quote for a pending (unsubmitted) transfer. An estimate — see this file's docs. */
-export function useIntentQuote(request: IntentRequest | null): DataState<AgentDecision> {
+export function useIntentQuote(request: IntentRequest | null): DataState<IntentEstimate> {
   const debounced = useDebouncedRequest(request);
   const quoteUrl = SERVICES.solverQuoteUrl;
   const enabled = Boolean(debounced && quoteUrl && debounced.amount > 0n);

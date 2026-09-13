@@ -76,7 +76,31 @@ function parseQuoteRequest(raw: unknown): QuoteRequest {
     throw new InvalidQuoteRequestError('amount is not a valid integer.');
   }
 
-  return { amount: parsedAmount, maxFeeBps, sourceChainId, destinationChainId };
+  // WP-34: optional trade terms. tokenOut alone quotes the swap; targetMinOut also gates it.
+  const tokenOut = body.tokenOut;
+  if (tokenOut !== undefined && (typeof tokenOut !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(tokenOut))) {
+    throw new InvalidQuoteRequestError('tokenOut must be a 0x-prefixed 20-byte address.');
+  }
+  let targetMinOut: bigint | undefined;
+  if (body.targetMinOut !== undefined) {
+    if (typeof body.targetMinOut !== 'string' && typeof body.targetMinOut !== 'number') {
+      throw new InvalidQuoteRequestError('targetMinOut must be a string or number (token smallest unit).');
+    }
+    try {
+      targetMinOut = BigInt(body.targetMinOut);
+    } catch {
+      throw new InvalidQuoteRequestError('targetMinOut is not a valid integer.');
+    }
+  }
+
+  return {
+    amount: parsedAmount,
+    maxFeeBps,
+    sourceChainId,
+    destinationChainId,
+    ...(tokenOut ? { tokenOut: tokenOut as `0x${string}` } : {}),
+    ...(targetMinOut !== undefined ? { targetMinOut } : {}),
+  };
 }
 
 /**

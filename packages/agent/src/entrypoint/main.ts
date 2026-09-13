@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   // WP-14: the live quote endpoint, colocated — same observation provider,
   // same policy, no second copy of either.
   const quoteServer = await startQuoteServer(
-    { observation: deps.observation, policy: deps.config.policy, clock: deps.clock },
+    { observation: deps.observation, policy: deps.config.policy, clock: deps.clock, ...(deps.swapAdapter ? { swapAdapter: deps.swapAdapter } : {}) },
     { port: config.quotePort },
   );
   console.log(`[solver] quote endpoint -> http://0.0.0.0:${quoteServer.port}/quote`);

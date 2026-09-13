@@ -29,9 +29,11 @@ import {
   type ObservationProvider,
   type RiskPolicy,
   type UnixSeconds,
+  type SwapAdapter,
 } from '@arcaidia/domain';
 import { evaluateIntent } from './evaluate-intent.js';
 import { requiredConfirmations } from './confirmations.js';
+import { feeAmountFor } from './fee.js';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
 const ZERO_BYTES32 = `0x${'0'.repeat(64)}` as Bytes32;
@@ -54,12 +56,20 @@ export class InvalidQuoteRequestError extends Error {}
 export interface QuoteResult extends AgentDecision {
   /** Marks this as a forecast under the assumption above, never a recorded decision. */
   readonly estimatedUnderAssumption: true;
+  /**
+   * WP-34: for a trade-intent quote with an adapter wired, what the destination adapter would
+   * deliver right now for the USDC the vault would hand it (the output amount). Absent for a
+   * plain transfer, or when this solver has no adapter.
+   */
+  readonly swap?: { readonly tokenOut: Address; readonly amountIn: bigint; readonly amountOut: bigint };
 }
 
 export interface QuoteDependencies {
   readonly observation: ObservationProvider;
   readonly policy: RiskPolicy;
   readonly clock: () => UnixSeconds;
+  /** WP-34: the same read-side adapter the solver fills with; quotes trade intents for real. */
+  readonly swapAdapter?: SwapAdapter;
 }
 
 function validate(request: QuoteRequest): void {
@@ -101,14 +111,33 @@ export async function buildQuote(request: QuoteRequest, deps: QuoteDependencies)
     deps.observation.settlementHealth(),
   ]);
 
+  // WP-34: the same gate the live fill uses — the adapter asked about the post-fee amount — and
+  // the adapter's own quote for that amount, so the page shows what the vault would deliver.
+  const isTrade = intent.tokenOut !== USDC_TOKEN_OUT;
+  const amountIn = request.amount - feeAmountFor(request.amount, vaultState.currentFeeBps);
+  let tradeSatisfiable: boolean | null = null;
+  let swap: QuoteResult['swap'] | undefined;
+  if (isTrade && deps.swapAdapter && amountIn > 0n) {
+    try {
+      const [amountOut, ok] = await Promise.all([
+        deps.swapAdapter.quote(request.destinationChainId, vaultState.asset, intent.tokenOut, amountIn),
+        intent.targetMinOut > 0n
+          ? deps.swapAdapter.canSatisfy(request.destinationChainId, vaultState.asset, intent.tokenOut, amountIn, intent.targetMinOut)
+          : Promise.resolve(true),
+      ]);
+      swap = { tokenOut: intent.tokenOut, amountIn, amountOut };
+      tradeSatisfiable = ok;
+    } catch {
+      tradeSatisfiable = false;
+    }
+  }
+
   const decision = evaluateIntent(intent, vaultState, settlementHealth, deps.policy, {
     now,
     sourceConfirmations: requiredConfirmations(deps.policy, request.amount),
     alreadyFilled: false,
-    // A quote has no swap adapter to consult; a trade-intent quote therefore reports
-    // TRADE_NOT_SUPPORTED, which is honest until WP-34 wires the adapter into quotes too.
-    tradeSatisfiable: null,
+    tradeSatisfiable,
   });
 
-  return { ...decision, estimatedUnderAssumption: true };
+  return { ...decision, estimatedUnderAssumption: true, ...(swap ? { swap } : {}) };
 }
