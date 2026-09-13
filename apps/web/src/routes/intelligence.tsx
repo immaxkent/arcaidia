@@ -260,7 +260,20 @@ function PayPanel({ pricing }: { pricing: GatewayPricing | null }) {
               <Metric label="Largest fillable now" state={readyState(paidView)} format={(v) => `${formatUsdc(v.estimatedOpportunitySize)} USDC`} />
             </dl>
           ) : result.body !== undefined ? (
-            <pre className="num max-h-72 overflow-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">{JSON.stringify(result.body, null, 2)}</pre>
+            <>
+              {result.status !== 200 && result.body && typeof result.body === "object" && "error" in (result.body as object) ? (
+                <p className="text-xs text-warning">
+                  Payment not accepted: <span className="num">{String((result.body as { error: unknown }).error)}</span>
+                  {" — "}
+                  {String((result.body as { error: unknown }).error) === "invalid_signature" || String((result.body as { error: unknown }).error).includes("signature")
+                    ? "the key does not belong to that account id."
+                    : String((result.body as { error: unknown }).error).includes("insufficient")
+                      ? "the account cannot cover the price plus Hedera's fee."
+                      : "check the account id, its key, and its HBAR balance."}
+                </p>
+              ) : null}
+              <pre className="num max-h-72 overflow-auto rounded-md border border-border bg-void px-3 py-3 text-[11px] leading-relaxed text-text-dim">{JSON.stringify(result.body, null, 2)}</pre>
+            </>
           ) : null}
         </div>
       ) : null}
