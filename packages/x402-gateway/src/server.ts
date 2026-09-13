@@ -71,6 +71,21 @@ export function routesConfig(payTo: string): RoutesConfig {
         description: endpoint.description,
         mimeType: 'application/json',
         serviceName: 'Arcaidia intelligence',
+        // Say why a 402 happened, so a client (or a person at the Intelligence page) sees
+        // "insufficient_funds" or "invalid_signature" rather than an empty object.
+        unpaidResponseBody: () => ({
+          contentType: 'application/json',
+          body: { error: 'payment_required', endpoint: endpoint.id, priceTinybar: endpoint.tinybar.toString() },
+        }),
+        settlementFailedResponseBody: (_context, settleResult) => ({
+          contentType: 'application/json',
+          body: {
+            error: settleResult.errorReason ?? 'settlement_failed',
+            endpoint: endpoint.id,
+            ...(settleResult.payer ? { payer: settleResult.payer } : {}),
+            ...(settleResult.transaction ? { transaction: settleResult.transaction } : {}),
+          },
+        }),
       },
     ]),
   );
