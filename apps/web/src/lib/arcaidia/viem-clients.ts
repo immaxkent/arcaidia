@@ -12,8 +12,10 @@ import { viemChainFor } from "./viem-chains";
  * answering Cloudflare 1009 (a geo-block) on 2026-09-12; dRPC and thirdweb serve chain 5042002.
  */
 const FALLBACK_RPCS: Record<number, readonly string[]> = {
-  // thirdweb's endpoint answers RPC but sends no CORS headers, so it is useless from a browser.
-  [ARC_TESTNET]: ["https://arc-testnet.drpc.org"],
+  // Circle's own endpoint first (fast, wide log ranges, CORS on; it geo-blocks some networks —
+  // Cloudflare 1009 — which is what the fallback is for). dRPC's free plan serves getLogs only
+  // in very small windows, so it is a last resort. thirdweb sends no CORS headers: unusable here.
+  [ARC_TESTNET]: ["https://rpc.testnet.arc.network", "https://arc-testnet.drpc.org"],
   [ETHEREUM_SEPOLIA]: ["https://ethereum-sepolia-rpc.publicnode.com"],
 };
 

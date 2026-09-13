@@ -94,6 +94,7 @@ export async function vaultLabelsFromChain(chainId: number): Promise<Map<string,
     r.client,
     { address: r.config.vaultFactory, event: VAULT_CREATED },
     from,
+    chainId,
   );
   for (const log of logs) {
     out.set(log.args.vault.toLowerCase(), {
@@ -132,11 +133,7 @@ export async function factoryVaultsFromChain(chainId: number): Promise<Address[]
 export async function authorisedSignersFromChain(chainId: number, vault: Address): Promise<Address[]> {
   const r = ready(chainId);
   if (!r) return [];
-  const logs = await readLogsSince<{ signer: Address; allowed: boolean }>(
-    r.client,
-    { address: vault, event: AUTHORISED_SIGNER_SET },
-    r.config.startBlock,
-  );
+  const logs = await readLogsSince<{ signer: Address; allowed: boolean }>(r.client, { address: vault, event: AUTHORISED_SIGNER_SET }, r.config.startBlock, chainId);
   const granted = new Map<string, Address>();
   for (const log of logs) {
     const key = log.args.signer.toLowerCase();
@@ -300,9 +297,9 @@ export async function settlementsFromChain(chainId: number, intentIds: readonly 
   const receiver = r.config.settlementReceiver;
   const args = { intentId: [...intentIds] };
   const [reimbursed, fallback, held] = await Promise.all([
-    readLogsSince<{ intentId: Hex; amount: bigint }>(r.client, { address: receiver, event: LP_REIMBURSED, args }, r.config.startBlock),
-    readLogsSince<{ intentId: Hex; amount: bigint }>(r.client, { address: receiver, event: RECIPIENT_PAID_BY_FALLBACK, args }, r.config.startBlock),
-    readLogsSince<{ intentId: Hex; amount: bigint }>(r.client, { address: receiver, event: HELD_FOR_VAULT, args }, r.config.startBlock),
+    readLogsSince<{ intentId: Hex; amount: bigint }>(r.client, { address: receiver, event: LP_REIMBURSED, args }, r.config.startBlock, chainId),
+    readLogsSince<{ intentId: Hex; amount: bigint }>(r.client, { address: receiver, event: RECIPIENT_PAID_BY_FALLBACK, args }, r.config.startBlock, chainId),
+    readLogsSince<{ intentId: Hex; amount: bigint }>(r.client, { address: receiver, event: HELD_FOR_VAULT, args }, r.config.startBlock, chainId),
   ]);
   const tagged: Array<[CanonicalOutcome, ChainLog<{ intentId: Hex; amount: bigint }>]> = [
     ...reimbursed.map((l) => ["LP_REIMBURSED", l] as [CanonicalOutcome, typeof l]),

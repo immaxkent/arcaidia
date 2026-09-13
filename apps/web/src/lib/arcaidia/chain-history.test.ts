@@ -124,10 +124,10 @@ describe("vaultLabelsFromChain", () => {
 
 describe("readLogsSince (range splitting)", () => {
   it("splits a refused range in half until the provider accepts it, and still returns every log in order", async () => {
-    store.head = 10_000n;
+    store.head = 30_000n;
     store.refuseWiderThan = 3_000n;
     emit(FACTORY, ABIS.ArcaidiaVaultFactory, "VaultCreated", { vault: VAULT_B, owner: OWNER, label: "first", policy: POLICY, reserveFloorBps: 0, maxFillBps: 0, maxExposureBps: 0 }, 150n);
-    emit(FACTORY, ABIS.ArcaidiaVaultFactory, "VaultCreated", { vault: VAULT_C, owner: OWNER, label: "second", policy: POLICY, reserveFloorBps: 0, maxFillBps: 0, maxExposureBps: 0 }, 9_950n);
+    emit(FACTORY, ABIS.ArcaidiaVaultFactory, "VaultCreated", { vault: VAULT_C, owner: OWNER, label: "second", policy: POLICY, reserveFloorBps: 0, maxFillBps: 0, maxExposureBps: 0 }, 29_950n);
     const { vaultLabelsFromChain } = await import("./chain-history");
     const labels = await vaultLabelsFromChain(ETHEREUM_SEPOLIA);
     expect([...labels.values()].map((l) => l.label)).toEqual(["first", "second"]);

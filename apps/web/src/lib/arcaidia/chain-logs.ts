@@ -25,8 +25,6 @@ export interface LogFilter {
   readonly args?: Record<string, unknown>;
 }
 
-/** Below this width a refused range is a real error, not a provider's range cap. */
-const MIN_SPLIT_WIDTH = 2_000n;
 /**
  * Public providers cap one `eth_getLogs` at about 10 000 blocks (dRPC's free plan says so
  * outright). Ranges are cut to this up front and read a few at a time, instead of discovering
@@ -34,31 +32,25 @@ const MIN_SPLIT_WIDTH = 2_000n;
  */
 const WINDOW = 9_000n;
 const WINDOW_CONCURRENCY = 4;
+/** Some providers cap far lower than they say (dRPC's free plan: a few hundred blocks). */
+const MIN_WINDOW = 100n;
+/** The window each chain's provider has been seen to accept — learned by halving on refusal. */
+const learnedWindow = new Map<number, bigint>();
 
-async function readRange<TArgs>(
+async function readWindow<TArgs>(
   client: PublicClient,
   filter: LogFilter,
   fromBlock: bigint,
   toBlock: bigint,
 ): Promise<ChainLog<TArgs>[]> {
-  try {
-    const logs = await client.getLogs({
-      address: filter.address as Address | Address[],
-      event: filter.event,
-      ...(filter.args ? { args: filter.args } : {}),
-      fromBlock,
-      toBlock,
-    } as Parameters<PublicClient["getLogs"]>[0]);
-    return logs as unknown as ChainLog<TArgs>[];
-  } catch (error) {
-    if (toBlock - fromBlock < MIN_SPLIT_WIDTH) throw error;
-    const mid = fromBlock + (toBlock - fromBlock) / 2n;
-    const [head, tail] = await Promise.all([
-      readRange<TArgs>(client, filter, fromBlock, mid),
-      readRange<TArgs>(client, filter, mid + 1n, toBlock),
-    ]);
-    return [...head, ...tail];
-  }
+  const logs = await client.getLogs({
+    address: filter.address as Address | Address[],
+    event: filter.event,
+    ...(filter.args ? { args: filter.args } : {}),
+    fromBlock,
+    toBlock,
+  } as Parameters<PublicClient["getLogs"]>[0]);
+  return logs as unknown as ChainLog<TArgs>[];
 }
 
 /** Every matching log from `fromBlock` to the chain head, in chain order. */
@@ -66,17 +58,31 @@ export async function readLogsSince<TArgs>(
   client: PublicClient,
   filter: LogFilter,
   fromBlock: number,
+  chainId = client.chain?.id ?? 0,
 ): Promise<ChainLog<TArgs>[]> {
   const head = await client.getBlockNumber();
   const from = BigInt(fromBlock);
   if (head < from) return [];
-  const windows: Array<[bigint, bigint]> = [];
-  for (let start = from; start <= head; start += WINDOW) windows.push([start, start + WINDOW - 1n < head ? start + WINDOW - 1n : head]);
+  let window = learnedWindow.get(chainId) ?? WINDOW;
   const logs: ChainLog<TArgs>[] = [];
-  for (let i = 0; i < windows.length; i += WINDOW_CONCURRENCY) {
-    const batch = windows.slice(i, i + WINDOW_CONCURRENCY);
-    const results = await Promise.all(batch.map(([a, b]) => readRange<TArgs>(client, filter, a, b)));
-    for (const r of results) logs.push(...r);
+  let start = from;
+  while (start <= head) {
+    // A batch of windows at the current size; a refusal halves the size and retries the batch.
+    const batch: Array<[bigint, bigint]> = [];
+    for (let i = 0; i < WINDOW_CONCURRENCY && start <= head; i++) {
+      const end = start + window - 1n < head ? start + window - 1n : head;
+      batch.push([start, end]);
+      start = end + 1n;
+    }
+    try {
+      const results = await Promise.all(batch.map(([a, b]) => readWindow<TArgs>(client, filter, a, b)));
+      for (const r of results) logs.push(...r);
+    } catch (error) {
+      if (window <= MIN_WINDOW) throw error;
+      window = window / 2n < MIN_WINDOW ? MIN_WINDOW : window / 2n;
+      learnedWindow.set(chainId, window);
+      start = batch[0]![0];
+    }
   }
   return logs.sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1));
 }
@@ -104,7 +110,8 @@ export async function blockTimestamps(
   return cache;
 }
 
-/** Test seam — the cache is process-wide, so a test that fakes `getBlock` starts clean. */
+/** Test seam — the caches are process-wide, so a test that fakes the client starts clean. */
 export function resetBlockTimestampCache(): void {
   timestampCache.clear();
+  learnedWindow.clear();
 }
