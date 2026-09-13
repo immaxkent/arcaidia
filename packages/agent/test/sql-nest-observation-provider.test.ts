@@ -512,3 +512,43 @@ describe('Nest query size (16 KB cap)', () => {
     }
   });
 });
+
+describe('settlement probe — batched reads', () => {
+  const RECEIVER = '0xa60c586E4d050233885cD6628B7C1A217574d9c6' as const;
+  const RETIRED = '0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd' as const;
+  it('uses multicall in batches of 100 ids when the client offers it, and never single reads', async () => {
+    const nest = new FakeNest();
+    const ids = Array.from({ length: 250 }, (_, i) => `0x${(i + 1).toString(16).padStart(64, '0')}`);
+    nest.setRows(SEPOLIA_ENDPOINT, 'intents', ids.map((id) => ({ id, destination_chain_id: ARC, amount: '1000000', created_at_timestamp: NOW - 100 })));
+    let multicalls = 0;
+    let singles = 0;
+    const arc = {
+      async readContract() { singles += 1; return 0n; },
+      async multicall(args: { contracts: readonly { args?: readonly unknown[] }[] }) {
+        multicalls += 1;
+        expect(args.contracts.length).toBeLessThanOrEqual(200);
+        // every intent with an even index is settled (outcome 1) on the live receiver
+        return args.contracts.map((c, k) => {
+          const id = String(c.args?.[0]);
+          const index = ids.indexOf(id);
+          const onLive = k % 2 === 0;
+          return { status: 'success' as const, result: onLive && index % 2 === 0 ? 1n : 0n };
+        });
+      },
+    };
+    const provider = new SqlNestObservationProvider({
+      sources: [
+        { chainId: SEPOLIA, endpoint: SEPOLIA_ENDPOINT, vault: VAULT, asset: ASSET_SEPOLIA },
+        { chainId: ARC, endpoint: ARC_ENDPOINT, vault: VAULT, asset: ASSET_ARC },
+      ],
+      client: nest,
+      readClients: new Map([[SEPOLIA, new FakeContractReads()], [ARC, arc as never]]),
+      settlementReceivers: new Map<number, readonly `0x${string}`[]>([[ARC, [RECEIVER, RETIRED]]]),
+      clock: () => NOW,
+    });
+    const health = await provider.settlementHealth();
+    expect(multicalls).toBe(3);
+    expect(singles).toBe(0);
+    expect(health.pendingValue).toBe(125n * 1_000_000n);
+  });
+});

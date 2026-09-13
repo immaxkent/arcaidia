@@ -76,6 +76,9 @@ export interface SqlNestObservationOptions {
   readonly settlementReceivers?: ReadonlyMap<number, readonly `0x${string}`[]>;
 }
 
+/** Ids per multicall (× receivers per id): 100 ids × 2 receivers = 200 reads in one request. */
+const PROBE_BATCH = 100;
+
 const OUTCOME_ABI = [
   { type: 'function', name: 'outcomeOf', stateMutability: 'view', inputs: [{ name: 'intentId', type: 'bytes32' }], outputs: [{ type: 'uint8' }] },
 ] as const;
@@ -181,31 +184,60 @@ export class SqlNestObservationProvider implements ObservationProvider {
       const checkedAt = this.openCheckedAt.get(id);
       return checkedAt === undefined || now - checkedAt >= OPEN_RECHECK_SECONDS;
     });
-    for (let i = 0; i < toCheck.length; i += PROBE_CONCURRENCY) {
-      await Promise.all(
-        toCheck.slice(i, i + PROBE_CONCURRENCY).map(async (row) => {
-          const receivers = this.settlementReceivers.get(row.destinationChainId);
-          const client = this.readClients.get(row.destinationChainId);
-          if (!receivers || receivers.length === 0 || !client) return;
-          const id = row.id.toLowerCase();
-          try {
-            // Live receiver first, then the retired ones (D12): settled anywhere is settled.
-            let settled = false;
-            for (const receiver of receivers) {
-              const outcome = Number(await client.readContract({ address: receiver, abi: OUTCOME_ABI, functionName: 'outcomeOf', args: [id] }));
-              if (outcome !== 0) {
-                settled = true;
-                break;
-              }
+    const byChain = new Map<number, string[]>();
+    for (const row of toCheck) byChain.set(row.destinationChainId, [...(byChain.get(row.destinationChainId) ?? []), row.id.toLowerCase()]);
+
+    await Promise.all(
+      [...byChain.entries()].map(async ([chainId, ids]) => {
+        const receivers = this.settlementReceivers.get(chainId);
+        const client = this.readClients.get(chainId);
+        if (!receivers || receivers.length === 0 || !client) return;
+        // One multicall per PROBE_BATCH ids (× receivers) when the chain offers Multicall3; a
+        // hundred stale rows must not become a hundred RPC calls a pass — that is what the
+        // rate limiter answers, and an unanswered probe leaves the row counted as open.
+        if (client.multicall) {
+          for (let i = 0; i < ids.length; i += PROBE_BATCH) {
+            const slice = ids.slice(i, i + PROBE_BATCH);
+            try {
+              const answers = await client.multicall({
+                allowFailure: true,
+                contracts: slice.flatMap((id) => receivers.map((address) => ({ address, abi: OUTCOME_ABI, functionName: 'outcomeOf', args: [id] }))),
+              });
+              slice.forEach((id, j) => {
+                const outcomes = receivers.map((_, k) => answers[j * receivers.length + k]);
+                if (outcomes.some((a) => a?.status !== 'success')) return; // unknown: keep the Nest's row this round
+                if (outcomes.some((a) => Number(a!.result) !== 0)) this.settledOnChain.add(id);
+                else this.openCheckedAt.set(id, now);
+              });
+            } catch {
+              // Unreachable RPC: keep the Nest's rows this round.
             }
-            if (settled) this.settledOnChain.add(id);
-            else this.openCheckedAt.set(id, now);
-          } catch {
-            // Unreachable RPC or unknown receiver: keep the Nest's row this round.
           }
-        }),
-      );
-    }
+          return;
+        }
+        for (let i = 0; i < ids.length; i += PROBE_CONCURRENCY) {
+          await Promise.all(
+            ids.slice(i, i + PROBE_CONCURRENCY).map(async (id) => {
+              try {
+                // Live receiver first, then the retired ones (D12): settled anywhere is settled.
+                let settled = false;
+                for (const receiver of receivers) {
+                  const outcome = Number(await client.readContract({ address: receiver, abi: OUTCOME_ABI, functionName: 'outcomeOf', args: [id] }));
+                  if (outcome !== 0) {
+                    settled = true;
+                    break;
+                  }
+                }
+                if (settled) this.settledOnChain.add(id);
+                else this.openCheckedAt.set(id, now);
+              } catch {
+                // Unreachable RPC or unknown receiver: keep the Nest's row this round.
+              }
+            }),
+          );
+        }
+      }),
+    );
     return rows.filter((row) => !this.settledOnChain.has(row.id.toLowerCase()));
   }
 

@@ -57,6 +57,14 @@ export interface EvmContractReadClient {
     functionName: string;
     args?: readonly unknown[];
   }): Promise<unknown>;
+  /**
+   * Optional batched reads (viem's `multicall`, present when the chain declares Multicall3).
+   * Probes over hundreds of intents use it when available and fall back to single reads.
+   */
+  // Parameters left open on purpose: viem's own signature is generic over the contracts tuple
+  // and would not structurally match a hand-written one; callers pass `{ allowFailure: true, contracts }`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  multicall?: (...args: any[]) => Promise<readonly { status: 'success' | 'failure'; result?: unknown }[]>;
 }
 
 /** Waits for a submitted transaction to be mined — viem's PublicClient, structurally. */
