@@ -13,9 +13,11 @@
  */
 
 import { appendFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { NoopTelemetryClient } from '@arcaidia/telemetry';
 import { JsonLinesDecisionLog, startSolverWorker, type SolverPassResult } from '../index.js';
-import { buildSolverDependencies, pairAllVaultsInBackground, startHeartbeats, startRepairing } from './build-dependencies.js';
+import { buildSolverDependencies, pairAllVaultsInBackground, startHeartbeats, startRepairing, watchAuthorisedDestinations } from './build-dependencies.js';
 import { PaymentLedger } from '../adapters/x402-paying-fetch.js';
 import { ConfigError, loadSolverConfig } from './config.js';
 import { startQuoteServer } from './quote-server.js';
@@ -40,6 +42,22 @@ function logPass(result: SolverPassResult): void {
   }
 }
 
+/**
+ * The decision log must never take the solver down. Inside the container the working directory
+ * belongs to root and the process runs unprivileged, so a relative default is not writable; fall
+ * back to the OS temp directory and say so, rather than logging EACCES on every intent.
+ */
+function writableDecisionLogPath(preferred: string): string {
+  try {
+    appendFileSync(preferred, '');
+    return preferred;
+  } catch {
+    const fallback = join(tmpdir(), 'solver-decisions.jsonl');
+    console.warn(`[solver] ${preferred} is not writable here; decisions go to ${fallback} (set SOLVER_DECISION_LOG_PATH to choose)`);
+    return fallback;
+  }
+}
+
 async function main(): Promise<void> {
   let config;
   try {
@@ -53,12 +71,19 @@ async function main(): Promise<void> {
     throw error;
   }
 
-  const decisionLogPath = process.env.SOLVER_DECISION_LOG_PATH ?? 'solver-decisions.jsonl';
+  const decisionLogPath = writableDecisionLogPath(process.env.SOLVER_DECISION_LOG_PATH ?? 'solver-decisions.jsonl');
   const log = new JsonLinesDecisionLog((line) => appendFileSync(decisionLogPath, `${line}\n`));
 
   // WP-35: one ledger shared by the paying fetch (writes receipts) and the heartbeat (reports them).
   const ledger = new PaymentLedger();
-  const { deps, signerAddress, submitterAddress } = buildSolverDependencies(config, { log, ledger });
+  const { deps: built, signerAddress, submitterAddress } = buildSolverDependencies(config, { log, ledger });
+  // An operator who deployed on one chain only still gets the other chain's committed default
+  // vault in config; this signer is not authorised there, so fills would only revert. Ask each
+  // vault, and skip the chains that say no (re-asked every five minutes).
+  const authorised = watchAuthorisedDestinations(config, signerAddress, (chainId, ok) =>
+    console.log(`[solver] chain ${chainId}: signer ${ok ? 'authorised' : 'NOT authorised'} on ${config.chains.find((c) => c.chainId === chainId)?.liquidityVault}${ok ? '' : ' — skipping fills there'}`),
+  );
+  const deps = { ...built, acceptsDestination: authorised.accepts };
 
   console.log('[solver] starting');
   console.log(`[solver] signer    ${signerAddress} (${config.signerAuthority.mode})`);

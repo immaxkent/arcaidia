@@ -571,6 +571,14 @@ describe('processIntent — optional swap adapter and intelligence', () => {
     expect(log.all().at(-1)?.reason).toBe('INTELLIGENCE_HOLD');
   });
 
+  it('skips an intent whose destination vault has not authorised this signer, before any observation', async () => {
+    const plain = intent();
+    const { deps, submitter } = depsFor(plain, { acceptsDestination: (chainId) => chainId !== plain.destinationChainId });
+    const outcome = await processIntent(plain, deps);
+    expect(outcome).toEqual({ kind: 'SKIPPED', reason: 'NOT_AUTHORISED_ON_DESTINATION' });
+    expect(submitter.submissions).toHaveLength(0);
+  });
+
   it('a failing intelligence provider changes nothing', async () => {
     const plain = intent();
     const { deps } = depsFor(plain, {

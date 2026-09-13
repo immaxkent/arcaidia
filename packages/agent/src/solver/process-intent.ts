@@ -99,6 +99,12 @@ export interface SolverDependencies {
    * Absent = the committed deployment's vault for that chain (the House solver).
    */
   readonly vaults?: ReadonlyMap<number, `0x${string}`>;
+  /**
+   * Whether this solver should attempt fills on a destination chain at all. Absent = every
+   * configured chain. Set from the vaults' own `isAuthorisedSigner` so a one-chain operator's
+   * solver does not sign for a vault that will only revert its fills.
+   */
+  readonly acceptsDestination?: (chainId: number) => boolean;
 }
 
 export type ProcessOutcome =
@@ -109,7 +115,7 @@ export type ProcessOutcome =
   /** The source evidence did not support the intent. Nothing was signed. */
   | { readonly kind: 'UNVERIFIED'; readonly code: ErrorCode; readonly detail: string }
   /** Already handled: onchain, or by this process. */
-  | { readonly kind: 'SKIPPED'; readonly reason: 'ALREADY_FILLED' | 'ALREADY_ATTEMPTED' }
+  | { readonly kind: 'SKIPPED'; readonly reason: 'ALREADY_FILLED' | 'ALREADY_ATTEMPTED' | 'NOT_AUTHORISED_ON_DESTINATION' }
   /** Signed and accepted, but the transaction did not land. Safe to retry. */
   | { readonly kind: 'SUBMISSION_FAILED'; readonly decision: AgentDecision; readonly signed: SignedFillAuthorization; readonly error: Error }
   /** The fill was mined and reverted: another vault filled first. No capital moved; gas was spent. */
@@ -154,6 +160,9 @@ export async function processIntent(
 
   if (journal.has(intent.intentId)) {
     return { kind: 'SKIPPED', reason: 'ALREADY_ATTEMPTED' };
+  }
+  if (deps.acceptsDestination && !deps.acceptsDestination(intent.destinationChainId)) {
+    return { kind: 'SKIPPED', reason: 'NOT_AUTHORISED_ON_DESTINATION' };
   }
 
   const alreadyFilled = await observation.isFilled(intent.intentId);

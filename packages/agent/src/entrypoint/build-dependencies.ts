@@ -9,7 +9,7 @@
 
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { AgentAuthority } from '@arcaidia/domain';
+import { ABIS, type AgentAuthority } from '@arcaidia/domain';
 import { HttpTelemetryClient, NoopTelemetryClient, pairWithRelay, type HeartbeatIntelligence, type TelemetryClient } from '@arcaidia/telemetry';
 import { buildReceiptWaiters } from '../adapters/evm-clients.js';
 import { HttpIntelligenceProvider } from '../adapters/http-intelligence-provider.js';
@@ -276,6 +276,41 @@ export function buildSwapAdapter(readClients: ReadonlyMap<number, EvmContractRea
     if (infra && client) deployments.set(infra.chainId, { address: infra.swapAdapter, client });
   }
   return new ViemUniswapV2SwapAdapter(deployments);
+}
+
+/**
+ * Reads `isAuthorisedSigner(signer)` on every configured vault now and every `intervalMs`, and
+ * answers whether this solver should attempt fills on a destination chain. Unknown (a read that
+ * failed) counts as yes: a flaky RPC must not silence a legitimate solver, and an unauthorised
+ * attempt only reverts.
+ */
+export function watchAuthorisedDestinations(
+  config: SolverEntrypointConfig,
+  signer: `0x${string}`,
+  onChange: (chainId: number, authorised: boolean) => void,
+  options: { readonly intervalMs?: number; readonly readClients?: ReadonlyMap<number, EvmContractReadClient> } = {},
+): { accepts: (chainId: number) => boolean; stop: () => void } {
+  const clients = options.readClients ?? buildContractReadClients(config.chains);
+  const known = new Map<number, boolean>();
+  const refresh = async () => {
+    for (const chain of config.chains) {
+      const client = clients.get(chain.chainId);
+      if (!client) continue;
+      try {
+        const ok = Boolean(
+          await client.readContract({ address: chain.liquidityVault, abi: ABIS.ArcaidiaLiquidityVault, functionName: 'isAuthorisedSigner', args: [signer] }),
+        );
+        if (known.get(chain.chainId) !== ok) onChange(chain.chainId, ok);
+        known.set(chain.chainId, ok);
+      } catch {
+        // keep the previous answer (or "unknown", which counts as authorised)
+      }
+    }
+  };
+  void refresh();
+  const timer = setInterval(() => void refresh(), options.intervalMs ?? 5 * 60_000);
+  timer.unref?.();
+  return { accepts: (chainId) => known.get(chainId) ?? true, stop: () => clearInterval(timer) };
 }
 
 export interface BuiltSolverDependencies {

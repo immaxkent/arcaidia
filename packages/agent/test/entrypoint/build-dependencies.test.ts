@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ViemUniswapV2SwapAdapter } from '../../src/adapters/viem-uniswap-v2-swap-adapter.js';
+import { watchAuthorisedDestinations } from '../../src/entrypoint/build-dependencies.js';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerDeployment, resetDeployments } from '@arcaidia/domain';
 import { HttpTelemetryClient, NoopTelemetryClient } from '@arcaidia/telemetry';
@@ -403,5 +404,25 @@ describe('swap adapter (WP-34)', () => {
     expect(buildSolverDependencies(config(), { log: new InMemoryDecisionLog() }).deps).not.toHaveProperty('swapAdapter');
     const withIt = buildSolverDependencies(config({ swapAdapterMode: 'uniswap-v2' }), { log: new InMemoryDecisionLog() });
     expect(withIt.deps.swapAdapter).toBeInstanceOf(ViemUniswapV2SwapAdapter);
+  });
+});
+
+describe('watchAuthorisedDestinations', () => {
+  it('asks each vault whether the signer is authorised, skips the ones that say no, and treats a failed read as yes', async () => {
+    const answers = new Map<string, boolean>([['0x2222222222222222222222222222222222222222', true]]);
+    const readClients = new Map<number, { readContract(args: { address: string; functionName: string }): Promise<unknown> }>([
+      [11155111, { async readContract(a) { if (a.functionName !== 'isAuthorisedSigner') throw new Error('unexpected'); return answers.get(a.address.toLowerCase()) ?? false; } }],
+      [5042002, { async readContract() { throw new Error('rpc down'); } }],
+    ]);
+    const changes: Array<[number, boolean]> = [];
+    const watch = watchAuthorisedDestinations(config(), '0x1234567890123456789012345678901234567890', (c, ok) => changes.push([c, ok]), {
+      intervalMs: 60_000,
+      readClients: readClients as never,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(watch.accepts(11155111)).toBe(true);
+    expect(watch.accepts(5042002)).toBe(true); // unknown counts as authorised
+    expect(changes).toEqual([[11155111, true]]);
+    watch.stop();
   });
 });

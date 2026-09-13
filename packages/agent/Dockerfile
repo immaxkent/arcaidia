@@ -47,6 +47,8 @@ COPY packages/telemetry packages/telemetry
 # Runs as an unprivileged user — this process only ever makes outbound calls
 # (RPC, The Graph, the Relay); nothing here needs root.
 RUN useradd --create-home --shell /bin/false solver
+# The working directory is root's; the unprivileged process writes its decision log to /tmp.
+ENV SOLVER_DECISION_LOG_PATH=/tmp/solver-decisions.jsonl
 USER solver
 
 ENTRYPOINT ["pnpm", "exec", "tsx", "packages/agent/src/entrypoint/main.ts"]
