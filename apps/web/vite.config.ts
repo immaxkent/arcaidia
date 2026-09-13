@@ -11,7 +11,10 @@ export default defineConfig({
   vite: {
     // WP-35: the Hedera SDK (behind @x402/hedera) imports `node:buffer` and reads the `Buffer`
     // global when it signs a transfer in the browser. Polyfill exactly that, nothing else.
-    plugins: [nodePolyfills({ include: ["buffer"], globals: { Buffer: true, global: false, process: false } })],
+    // Only the import mapping — no global injection, which would reach every workspace package
+    // (including the SSR pass) where the shim cannot be resolved. The global itself is set at
+    // runtime by ensureBuffer() in src/lib/arcaidia/x402-pay.ts before the SDK loads.
+    plugins: [nodePolyfills({ include: ["buffer"], globals: { Buffer: false, global: false, process: false } })],
   },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
