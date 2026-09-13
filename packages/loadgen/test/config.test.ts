@@ -41,5 +41,7 @@ describe('the committed default profile is the demo cadence', () => {
     expect(weighted).toBeLessThan(15);
     expect(config.scarcity.weightMultiplierBounds.max).toBeLessThanOrEqual(1.5);
     expect(config.phases.find((p) => p.kind === 'background')!.intentsPerMinuteRange.max).toBeLessThanOrEqual(0.2);
+    // WP-34: about two in nine intents name a token out.
+    expect(config.tradeIntentShare).toBeCloseTo(0.22, 2);
   });
 });

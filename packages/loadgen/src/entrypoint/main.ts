@@ -12,7 +12,7 @@
  *   {PREFIX}_RPC_URL    optional RPC overrides, as for the solver
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { CHAINS, deploymentFor, type ChainKey } from '@arcaidia/domain';
+import { SWAP_INFRASTRUCTURE, CHAINS, deploymentFor, type ChainKey } from '@arcaidia/domain';
 import { FetchNestQueryClient } from '@arcaidia/agent';
 import { defineChain } from 'viem';
 import { sepolia } from 'viem/chains';
@@ -42,6 +42,7 @@ export function endpoints(): Map<number, ChainEndpoint> {
       rpcUrl: process.env[`${PREFIX[key]}_RPC_URL`] || chain.rpcUrl,
       router: contracts.intentRouter,
       usdc: chain.settlementAsset.address,
+      swapAdapter: SWAP_INFRASTRUCTURE[key]?.swapAdapter ?? null,
     });
   }
   return map;

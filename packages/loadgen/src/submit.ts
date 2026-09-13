@@ -29,6 +29,35 @@ export interface ChainEndpoint {
   readonly rpcUrl: string;
   readonly router: Address;
   readonly usdc: Address;
+  /** WP-34: the chain's deployed `UniswapV2SwapAdapter`, quoted before a trade intent is sent; null = no market. */
+  readonly swapAdapter: Address | null;
+}
+
+const ADAPTER_ABI = [
+  { type: 'function', name: 'quote', stateMutability: 'view', inputs: [{ name: 'tokenIn', type: 'address' }, { name: 'tokenOut', type: 'address' }, { name: 'amountIn', type: 'uint256' }], outputs: [{ name: 'amountOut', type: 'uint256' }] },
+] as const;
+
+/** The widest fee tier a vault posts today; the floor is quoted on the amount the vault would actually swap. */
+const ASSUMED_FEE_BPS = 15n;
+/** Satisfiable: 3% under the quote (the bot moves prices a little between plan and fill). Unsatisfiable: 50% over it. */
+const SATISFIABLE_FLOOR_BPS = 9_700n;
+const UNSATISFIABLE_FLOOR_BPS = 15_000n;
+
+/**
+ * The floor a planned trade intent carries: the destination adapter's quote for the post-fee
+ * amount, scaled down for a fill that should succeed or up for one that should fall back to USDC.
+ */
+export async function quoteTargetMinOut(
+  destination: ChainEndpoint,
+  tokenOut: Address,
+  amount: bigint,
+  unsatisfiable: boolean,
+  readContract: (args: { address: Address; abi: typeof ADAPTER_ABI; functionName: 'quote'; args: readonly [Address, Address, bigint] }) => Promise<bigint>,
+): Promise<bigint> {
+  if (!destination.swapAdapter) throw new Error(`No swap adapter on chain ${destination.chainId}.`);
+  const amountIn = amount - (amount * ASSUMED_FEE_BPS) / 10_000n;
+  const quoted = await readContract({ address: destination.swapAdapter, abi: ADAPTER_ABI, functionName: 'quote', args: [destination.usdc, tokenOut, amountIn] });
+  return (quoted * (unsatisfiable ? UNSATISFIABLE_FLOOR_BPS : SATISFIABLE_FLOOR_BPS)) / 10_000n;
 }
 
 const ROUTER_ABI = ABIS.ArcaidiaIntentRouter;
@@ -70,13 +99,26 @@ export class ViemIntentSubmitter implements IntentSubmitter {
       this.approved.add(approvalKey);
     }
 
+    // WP-34: a trade intent names the token and a floor quoted by the destination adapter right now.
+    let tokenOut: Address = USDC_TOKEN_OUT;
+    let targetMinOut = 0n;
+    if (intent.trade) {
+      const destination = this.endpoints.get(intent.destinationChainId);
+      if (!destination) throw new Error(`No endpoint configured for chain ${intent.destinationChainId}.`);
+      const destinationClient = createPublicClient({ chain: destination.chain, transport: http(destination.rpcUrl) });
+      tokenOut = intent.trade.tokenOut;
+      targetMinOut = await quoteTargetMinOut(destination, tokenOut, intent.amount, intent.trade.unsatisfiable, (args) =>
+        destinationClient.readContract(args) as Promise<bigint>,
+      );
+    }
+
     const nonce = this.nonceCounter++;
     const deadline = BigInt(this.clock() + intent.deadlineSeconds);
     const txHash = await wallet.writeContract({
       address: endpoint.router,
       abi: ROUTER_ABI,
       functionName: 'createIntent',
-      args: [account.address, intent.amount, BigInt(intent.destinationChainId), intent.maxFeeBps, deadline, nonce, USDC_TOKEN_OUT, 0n],
+      args: [account.address, intent.amount, BigInt(intent.destinationChainId), intent.maxFeeBps, deadline, nonce, tokenOut, targetMinOut],
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
     if (receipt.status !== 'success') throw new Error(`createIntent ${txHash} reverted.`);

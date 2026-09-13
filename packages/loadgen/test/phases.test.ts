@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { marketsOn } from '../src/phases.js';
+import { parseLoadgenConfig } from '../src/config.js';
 import { mulberry32, planPhase, planSchedule, usdc } from '../src/index.js';
 import { defaultConfig } from './fixtures.js';
 
@@ -69,5 +73,38 @@ describe('planSchedule', () => {
     for (let i = 1; i < phases.length; i++) expect(phases[i]!.startsAt).toBe(phases[i - 1]!.endsAt);
     expect(phases[phases.length - 1]!.endsAt).toBeGreaterThanOrEqual(2 * 3600);
     expect(new Set(phases.map((p) => p.kind)).size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('trade intents (WP-34)', () => {
+  it('names a token out on about tradeIntentShare of non-whale intents, only where the destination has a market', () => {
+    const raw = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'loadgen.stress.config.json'), 'utf8'));
+    const config = parseLoadgenConfig({ ...raw, tradeIntentShare: 0.22 });
+    const rng = mulberry32(7);
+    const background = config.phases.find((p) => p.kind === 'background')!;
+    let trades = 0;
+    let plain = 0;
+    for (let i = 0; i < 40; i++) {
+      for (const intent of planPhase(config, background, 1_000 + i * 10_000, rng).intents) {
+        if (intent.tag === 'whale') continue;
+        if (intent.trade) {
+          trades += 1;
+          expect(marketsOn(intent.destinationChainId).some((m) => m.tokenOut.address === intent.trade!.tokenOut)).toBe(true);
+          // Trades are sized for 40 USDC pools.
+          expect(intent.amount).toBeLessThanOrEqual(8_000_000n);
+          expect(intent.amount).toBeGreaterThanOrEqual(1_000_000n);
+        } else plain += 1;
+      }
+    }
+    const share = trades / (trades + plain);
+    expect(trades).toBeGreaterThan(20);
+    expect(share).toBeGreaterThan(0.15);
+    expect(share).toBeLessThan(0.3);
+  });
+
+  it('never names a token out when the share is zero', () => {
+    const config = parseLoadgenConfig(JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'loadgen.stress.config.json'), 'utf8')));
+    const rng = mulberry32(7);
+    for (const intent of planPhase(config, config.phases[0]!, 1_000, rng).intents) expect(intent.trade).toBeUndefined();
   });
 });

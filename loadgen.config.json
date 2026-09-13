@@ -1,7 +1,7 @@
 {
   "seed": 20260912,
   "ethereumToArcShare": 0.5,
-  "tradeIntentShare": 0,
+  "tradeIntentShare": 0.22,
   "chains": [
     {
       "chainId": 11155111,
@@ -256,5 +256,5 @@
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every six minutes across both directions \u2014 background at 0.13\u20130.2 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json."
+  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every six minutes across both directions, about two in nine naming a token out (WP-34) \u2014 background at 0.13\u20130.2 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json."
 }
