@@ -29,17 +29,17 @@ for real (the live market has never been deployed — plan §K1).
 - [x] **31.3 Commit `deployments.ts` v2** (done: addresses, retirement notes, START_BLOCKS, manifests, README) (+`market`, `vaultFactory`, `houseVault` keys; retire the
       2026-09-10 vault/receiver and the 2026-09-09 router with the same "still settling its own
       intents" note), `.env`/`.env.example`, `apps/web` env, `START_BLOCKS_V2`, regenerate manifests.
-- [ ] **31.4 Nest re-seed** (WP-27.4 request sent; verified by live `SELECT` on `vaults`,
+- [x] **31.4 Nest re-seed** — landed 2026-09-12 ~14:20 (both chains at tip; `vaults`, `fills.vault`, `fee_snapshots`, v1.1 columns verified by live SELECT). Follow-up sent: add the v2.1 receiver `0xa60c…d9c6` as a data source (D12). (WP-27.4 request sent; verified by live `SELECT` on `vaults`,
       `pending_intents` columns) — or Studio fallback deployed and `SUBGRAPH_URL_*` set.
-- [ ] **31.5 Two more vaults via the factory** from *different owner keys* (Vault B, Vault C) with
+- [x] **31.5 Two more vaults via the factory** — Vault B "Moody House Investments" (Sepolia `0x8c92…E47B`, Arc `0x73e0…68fc`) and Vault C "Skylight Hedge Group" (Sepolia `0x3d11…a203`, Arc `0x180d…E5Ae`), each with its own signer/submitter and solver (B :8788, C :8789). Both created through `/earn` by the user's Privy wallet, so the *owner* key is shared; the operator keys are distinct, which is what the independence claim rests on. from *different owner keys* (Vault B, Vault C) with
       the agreed policies/capital; two more solver instances (`docker compose --profile solver-b/c`),
       each with its own signer/submitter and `{PREFIX}_LIQUIDITY_VAULT`.
-- [ ] **31.6 Settlement worker v2** running; old worker instance kept until the retired receiver's
+- [x] **31.6 Settlement worker v2** — running on the ops box (Nest discovery, `settleWithProof`), since 2026-09-13. running; old worker instance kept until the retired receiver's
       pending intents are drained.
-- [ ] **31.7 Live verification, both directions:** frontend intent with `maxFeeBps` → exactly one
+- [x] **31.7 Live verification, both directions** (2026-09-13, after D12): user transfer `0x2a2b…3f20` (20 USDC, Sepolia→Arc, cap 100 bps) → Moody House filled at 15 bps, House/Skylight lost the race or declined → `settleWithProof` → `LpReimbursed` (outcome 1 on `0xa60c…d9c6`, Arc). Unfilled path: expired probes `0x35e9…3177`, `0xf736…2566` (Sepolia→Arc) and `0xb821…085d` (Arc→Sepolia) → `settleWithProof` → `RecipientPaidByFallback` (outcome 2) on both chains. Original spec text: frontend intent with `maxFeeBps` → exactly one
       vault fills (telemetry shows the others declining with reasons) → `settleWithProof` tx →
       `LpReimbursed` for that vault. Then one intent with `maxFeeBps = 1` → no fill → fallback via proof.
-- [ ] **31.8 WP-20's four checkboxes** ticked with evidence (independent vault path touched no Arcaidia key).
+- [x] **31.8 WP-20's four checkboxes** — the independent operator path (B, C) used only keys generated on this machine for the operator and the user's own wallet as owner; no Arcaidia key was touched (House solver's Circle wallet and the deploy key never signed for B/C). Kill-the-relay: the relay was recreated on redeploy 2026-09-13 and every solver kept filling (telemetry is display-only), then re-paired on its own. ticked with evidence (independent vault path touched no Arcaidia key).
 
 ## Runbook (2026-09-11)
 

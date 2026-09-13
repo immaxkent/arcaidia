@@ -33,7 +33,7 @@ scheduled "off" window.
 - [x] Config schema + phase sampler pure-function tests (22 tests: determinism, caps, burst vs background rate, whale/cluster/tight-fee shapes, direction share, contiguous schedule, controller bounds, dry run, wallet round-robin, failure tolerance) (deterministic under seed); scarcity
       controller stays within bounds; a dry-run mode that emits the intent plan without sending.
 
-## Acceptance gate — pending the live run (needs funded user-bot wallets + an indexer that sees v2)
+## Acceptance gate — live run started 2026-09-13 on the ops box (calm profile, ~2/h; the 2026-09-12 first run at the stress profile produced 15 intents / 12 fills and exposed D12)
 
 Running for ≥ 2 h against WP-31's deployment yields visible tier changes on every vault, at least
 one exhaustion → fallback → reimbursement → recovery cycle per vault, and a constrained fraction
