@@ -92,6 +92,20 @@ function resolutionFor(row: IntentHistoryRow): Resolution {
   return { kind: "PENDING" };
 }
 
+/** WP-34: a trade intent's own terms, exactly as written on chain and indexed: the token and the floor. */
+function TradeTerms({ row }: { row: IntentHistoryRow }) {
+  const tokenOut = row.intent.tokenOut;
+  if (!tokenOut || /^0x0{40}$/i.test(tokenOut)) return null;
+  const token = marketToken(row.intent.destinationChainId, tokenOut);
+  const symbol = token?.tokenOut.symbol ?? truncateAddress(tokenOut);
+  const floor = token ? formatTokenAmount(row.intent.targetMinOut, token.tokenOut.decimals) : row.intent.targetMinOut.toString();
+  return (
+    <span className="block text-[11px] text-text-dim" title="tokenOut and targetMinOut, from the intent itself">
+      → ≥ {floor} {symbol}
+    </span>
+  );
+}
+
 function FillChip({ resolution, row }: { resolution: Resolution; row?: IntentHistoryRow }) {
   // WP-34: a fast fill of a trade intent either delivered the token (SWAP) or fell back to USDC.
   if (resolution.kind === "FAST" && row?.deliveredVia === "SWAP") {
@@ -243,7 +257,10 @@ function IntentHistoryTable({
                           <ChainBadge chainId={row.intent.destinationChainId} />
                         </span>
                       </td>
-                      <td className="num py-2.5 text-text">{formatUsdc(row.intent.amount)} USDC</td>
+                      <td className="num py-2.5 text-text">
+                        {formatUsdc(row.intent.amount)} USDC
+                        <TradeTerms row={row} />
+                      </td>
                       <td className="num py-2.5 text-text-dim">
                         {row.feeCharged === null ? "—" : `${formatUsdc(row.feeCharged)} USDC`}
                       </td>

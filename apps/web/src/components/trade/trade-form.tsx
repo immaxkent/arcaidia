@@ -80,9 +80,15 @@ export function TradeForm({
   }, [amount, recipientValid, source, destination, recipient, maxFeeBps, deadline]);
   const quote = useIntentQuote(usdcRequest);
   const quotedUsdcOut = quote.status === "ready" && quote.data.verdict === "ACCEPT" ? quote.data.outputAmount : null;
+  // What the vault would hand the adapter: the solver's accepted output when there is one, else the
+  // amount less the vault's posted tier (or the widest tier today, 15 bps) — so the token quote and
+  // the floor exist even while the solver declines this size or has not answered yet.
+  const assumedFeeBps = quote.status === "ready" ? quote.data.inputsUsed.vaultFeeBps : 15;
+  const swapAmountIn = quotedUsdcOut ?? (amount && amount > 0n ? amount - (amount * BigInt(assumedFeeBps) + 9_999n) / 10_000n : null);
+  const quoteIsEstimate = quotedUsdcOut === null;
 
   // The adapter's quote for that USDC → tokenOut, on the destination chain.
-  const swap = useSwapQuote(destination, (market?.tokenOut.address as Address | undefined) ?? null, quotedUsdcOut);
+  const swap = useSwapQuote(destination, (market?.tokenOut.address as Address | undefined) ?? null, swapAmountIn);
   const targetMinOut = swap.status === "ready" ? targetMinOutFrom(swap.data.amountOut, slippageBps) : null;
 
   const request = useMemo<IntentRequest | null>(() => {
@@ -104,9 +110,9 @@ export function TradeForm({
 
   const marketOnDestination = markets?.markets.find((m) => m.symbol === symbol)?.chains.find((c) => c.chainId === destination) ?? null;
   const marketPriceOut =
-    marketOnDestination?.price && quotedUsdcOut !== null && market
+    marketOnDestination?.price && swapAmountIn !== null && market
       ? // chart price is 1e18-scaled USDC per token; tokens = usdc / price, expressed in token units (18 dp)
-        (quotedUsdcOut * 10n ** 18n * 10n ** BigInt(market.tokenOut.decimals)) / (BigInt(marketOnDestination.price.e18) * 10n ** 6n)
+        (swapAmountIn * 10n ** 18n * 10n ** BigInt(market.tokenOut.decimals)) / (BigInt(marketOnDestination.price.e18) * 10n ** 6n)
       : null;
 
   const disabled = status === "CONNECTED" && (!request || !!amountError || submitting || !routerConfigured);
@@ -216,10 +222,13 @@ export function TradeForm({
           <p className="text-sm text-danger">{amountError}</p>
         ) : !market ? (
           <p className="text-sm text-text-dim">Pick the token to receive.</p>
-        ) : quote.status === "ready" && quote.data.verdict !== "ACCEPT" ? (
-          <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning">{humaniseQuoteReason(quote.data.reason)}</div>
         ) : (
           <dl className="space-y-1.5 text-sm">
+            {quote.status === "ready" && quote.data.verdict !== "ACCEPT" ? (
+              <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning">
+                Solver would decline this right now: {humaniseQuoteReason(quote.data.reason)}. You can still send it — a vault that can take it fills, otherwise USDC arrives by canonical settlement.
+              </div>
+            ) : null}
             <div className="flex justify-between">
               <dt className="text-text-dim">Fast-fill fee</dt>
               <dd className="num text-text"><StateValue state={quote} format={(q) => `${formatUsdc(q.feeAmount)} USDC · ${formatBps(q.feeBps)}`} /></dd>
@@ -229,7 +238,7 @@ export function TradeForm({
               <dd className="num text-text"><StateValue state={quote} format={(q) => `${formatUsdc(q.outputAmount)} USDC`} /></dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text">You receive (quoted)</dt>
+              <dt className="text-text">You receive ({quoteIsEstimate ? "estimated" : "quoted"})</dt>
               <dd className="num text-acid" data-testid="quoted-out">
                 <StateValue state={swap} format={(s) => `≈ ${formatTokenAmount(s.amountOut, market.tokenOut.decimals)} ${market.tokenOut.symbol}`} />
               </dd>
@@ -245,11 +254,11 @@ export function TradeForm({
               </div>
             ) : null}
             <p className="num pt-1 text-right text-[10px] uppercase tracking-wide text-text-dim/70">
-              Quoted by the destination adapter for this exact size · not the chart price
+              {quoteIsEstimate ? `Adapter quote for ${formatUsdc(swapAmountIn ?? 0n)} USDC after an assumed ${formatBps(assumedFeeBps)} fee` : "Quoted by the destination adapter for this exact size"} · not the chart price
             </p>
           </dl>
         )}
-        {swap.status === "error" && market && quotedUsdcOut !== null ? (
+        {swap.status === "error" && market && swapAmountIn !== null ? (
           <p className="num mt-2 text-[11px] uppercase tracking-wide text-danger/80">Adapter quote failed — no floor can be set</p>
         ) : null}
       </div>
