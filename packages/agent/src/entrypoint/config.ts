@@ -254,8 +254,9 @@ function bpsOr(env: Env, key: string, fallback: number): number {
 }
 
 function loadHedera(env: Env): { accountId: string; privateKey: string } | null {
-  const accountId = env.HEDERA_ACCOUNT_ID;
-  const privateKey = env.HEDERA_PRIVATE_KEY;
+  // Trimmed: a trailing space pasted into .env must not take the whole solver down.
+  const accountId = env.HEDERA_ACCOUNT_ID?.trim();
+  const privateKey = env.HEDERA_PRIVATE_KEY?.trim();
   if (!accountId && !privateKey) return null;
   if (!accountId || !privateKey) {
     throw new ConfigError('HEDERA_ACCOUNT_ID and HEDERA_PRIVATE_KEY must be set together (or neither).');

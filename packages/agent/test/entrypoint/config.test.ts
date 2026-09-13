@@ -344,6 +344,10 @@ describe('INTELLIGENCE_MODE and Hedera credentials (WP-35 / D13)', () => {
       accountId: '0.0.10511371',
       privateKey: key,
     });
+    expect(loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: '0.0.10511371 ', HEDERA_PRIVATE_KEY: `${key} ` }).hedera).toEqual({
+      accountId: '0.0.10511371',
+      privateKey: key,
+    });
     expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: '0.0.1' })).toThrow(/together/);
     expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_PRIVATE_KEY: key })).toThrow(/together/);
     expect(() => loadSolverConfig({ ...baseEnv(), HEDERA_ACCOUNT_ID: 'alice', HEDERA_PRIVATE_KEY: key })).toThrow(/account id/);

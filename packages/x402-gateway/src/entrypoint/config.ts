@@ -17,7 +17,7 @@ const HEDERA_ACCOUNT = /^0\.0\.[0-9]+$/;
 export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
   // X402_PAY_TO first: on a box where the House solver also pays (HEDERA_ACCOUNT_ID), the
   // gateway needs a *different* account — a self-transfer nets to zero and fails verification.
-  const payTo = env.X402_PAY_TO ?? env.HEDERA_ACCOUNT_ID ?? '';
+  const payTo = (env.X402_PAY_TO ?? env.HEDERA_ACCOUNT_ID ?? '').trim();
   if (!HEDERA_ACCOUNT.test(payTo)) {
     throw new ConfigError('X402_PAY_TO (or HEDERA_ACCOUNT_ID) must be a Hedera account id like 0.0.12345.');
   }
