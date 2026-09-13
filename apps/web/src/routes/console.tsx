@@ -147,31 +147,54 @@ function ConsolePage() {
     // re-run the sequence against intents already repaid.
     const stillHeld = (
       await Promise.all(
-        held.data.map(async (intentId) => {
-          const holder = (await publicClient.readContract({ address: RETIRED_SETTLEMENT_RECEIVER, abi: ABIS.SettlementReceiver, functionName: "heldFor", args: [intentId] })) as Address;
-          return holder.toLowerCase() === vault.vaultAddress.toLowerCase() ? intentId : null;
+        held.data.map(async (item) => {
+          const holder = (await publicClient.readContract({ address: item.receiver, abi: ABIS.SettlementReceiver, functionName: "heldFor", args: [item.intentId] })) as Address;
+          return holder.toLowerCase() === vault.vaultAddress.toLowerCase() ? item : null;
         }),
       )
-    ).filter((id): id is `0x${string}` => id !== null);
+    ).filter((item): item is NonNullable<typeof item> => item !== null);
     if (stillHeld.length === 0) {
       setReleasedVaults((prev) => new Set(prev).add(`${vault.chainId}:${vault.vaultAddress.toLowerCase()}`));
       toast.success("Nothing left to release", { description: "Every reimbursement for this vault has already been repaid." });
       await queryClient.invalidateQueries();
       return;
     }
+    // Holds on the *current* receiver release with plain retryHeld calls — no re-pointing.
+    const onCurrent = stillHeld.filter((item) => !item.retired);
+    const onRetired = stillHeld.filter((item) => item.retired);
+    try {
+      await wallet.switchChain(vault.chainId);
+      for (const [i, item] of onCurrent.entries()) {
+        await write(`Releasing reimbursement ${i + 1} of ${onCurrent.length}`, {
+          address: item.receiver, abi: ABIS.SettlementReceiver, functionName: "retryHeld", args: [item.intentId],
+        });
+      }
+    } catch (error) {
+      toast.error("Release failed", { description: error instanceof Error ? error.message : "Transaction failed." });
+      setReleasing(null);
+      await queryClient.invalidateQueries();
+      return;
+    }
+    if (onRetired.length === 0) {
+      toast.success("Held reimbursements released", { description: `${onCurrent.length} intent(s) repaid to ${truncateAddress(vault.vaultAddress)}` });
+      setReleasedVaults((prev) => new Set(prev).add(`${vault.chainId}:${vault.vaultAddress.toLowerCase()}`));
+      setReleasing(null);
+      await queryClient.invalidateQueries();
+      return;
+    }
     let repointed = false;
     try {
       await wallet.switchChain(vault.chainId);
-      await write("Pointing the vault at the retired receiver (1 of " + (stillHeld.length + 2) + ")", {
+      await write("Pointing the vault at the retired receiver (1 of " + (onRetired.length + 2) + ")", {
         address: vault.vaultAddress, abi: solverVaultAbi, functionName: "setSettlementReceiver", args: [RETIRED_SETTLEMENT_RECEIVER],
       });
       repointed = true;
-      for (const [i, intentId] of stillHeld.entries()) {
-        await write(`Releasing reimbursement ${i + 1} of ${stillHeld.length}`, {
-          address: RETIRED_SETTLEMENT_RECEIVER, abi: ABIS.SettlementReceiver, functionName: "retryHeld", args: [intentId],
+      for (const [i, item] of onRetired.entries()) {
+        await write(`Releasing reimbursement ${i + 1} of ${onRetired.length}`, {
+          address: item.receiver, abi: ABIS.SettlementReceiver, functionName: "retryHeld", args: [item.intentId],
         });
       }
-      toast.success("Held reimbursements released", { description: `${stillHeld.length} intent(s) repaid to ${truncateAddress(vault.vaultAddress)}` });
+      toast.success("Held reimbursements released", { description: `${onRetired.length + onCurrent.length} intent(s) repaid to ${truncateAddress(vault.vaultAddress)}` });
       setReleasedVaults((prev) => new Set(prev).add(`${vault.chainId}:${vault.vaultAddress.toLowerCase()}`));
     } catch (error) {
       toast.error("Release stopped", { description: error instanceof Error ? error.message : "Transaction failed." });
