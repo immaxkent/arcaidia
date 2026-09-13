@@ -71,14 +71,19 @@ function max0(x: bigint): bigint {
 
 export function availableOf(v: VaultRow): bigint {
   const total = v.liquidBalance + v.outstandingExposure;
-  return max0(v.liquidBalance - (total * BigInt(v.reserveFloorBps)) / BPS);
+  // `reserveFloor()` rounds up on chain; mirror it so "available" never overstates the vault.
+  const floor = (total * BigInt(v.reserveFloorBps) + BPS - 1n) / BPS;
+  return max0(v.liquidBalance - floor);
 }
 
 export function fillCapacityOf(v: VaultRow): bigint {
   if (v.paused) return 0n;
   const available = availableOf(v);
   const total = v.liquidBalance + v.outstandingExposure;
-  const perFillCap = (available * BigInt(v.maxFillBps)) / BPS;
+  // `maxFillAmount()` on chain is maxFillBps of *total assets*, not of what is available. Basing
+  // it on available understated every vault's cap by the floor and its share of exposure, and
+  // read a fill the House Vault then made as impossible (scarcity 100% for one 34 USDC intent).
+  const perFillCap = (total * BigInt(v.maxFillBps)) / BPS;
   const exposureHeadroom = max0((total * BigInt(v.maxExposureBps)) / BPS - v.outstandingExposure);
   return [available, perFillCap, exposureHeadroom].reduce((a, b) => (a < b ? a : b));
 }

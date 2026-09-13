@@ -59,10 +59,12 @@ describe('vault arithmetic', () => {
   });
 
   it('fill capacity is the tightest of: available, per-fill cap, exposure headroom; zero when paused', () => {
-    // 100 liquid: available 90, per-fill 45 (50% of available), headroom 90 → 45.
-    expect(fillCapacityOf(vault({ vault: B.vault }))).toBe(USDC(45));
-    // Nearly at the exposure cap: 20 liquid + 85 exposure (total 105, cap 94.5) → headroom 9.5, available 9.5, per-fill 4.75.
-    expect(fillCapacityOf(vault({ vault: B.vault, liquidBalance: USDC(20), outstandingExposure: USDC(85) }))).toBe(USDC(4.75));
+    // 100 liquid: available 90, per-fill 50 (maxFillBps of total assets, as maxFillAmount() is), headroom 90 → 50.
+    expect(fillCapacityOf(vault({ vault: B.vault }))).toBe(USDC(50));
+    // Nearly at the exposure cap: 20 liquid + 85 exposure (total 105, cap 94.5) → headroom 9.5, available 9.5, per-fill 52.5 → 9.5.
+    expect(fillCapacityOf(vault({ vault: B.vault, liquidBalance: USDC(20), outstandingExposure: USDC(85) }))).toBe(USDC(9.5));
+    // The live figure that exposed the bug: 70.04 total, 50% cap → 35.02 on chain, and a 34 USDC intent fits.
+    expect(fillCapacityOf(vault({ vault: B.vault, liquidBalance: USDC(70.04) }))).toBe(USDC(35.02));
     expect(fillCapacityOf(vault({ vault: B.vault, paused: true }))).toBe(0n);
   });
 
@@ -82,7 +84,7 @@ describe('vault arithmetic', () => {
   });
 
   it('scarcity is the bps share of outstanding volume no destination vault could fill at that size', () => {
-    // Arc capacities: House 54, B 27, C 20.25 → largest 54.
+    // Arc capacities: House 60, B 30, C 22.5 → largest 60.
     const pending = [
       { sourceChainId: SEPOLIA, destinationChainId: ARC, amount: USDC(30), createdAt: 1 },
       { sourceChainId: SEPOLIA, destinationChainId: ARC, amount: USDC(70), createdAt: 2 },
@@ -110,7 +112,7 @@ describe('computeEcosystem', () => {
     expect(view.pendingCctpExposure).toBe(0n);
     expect(view.recentFillVelocityPerHour).toBe(2);
     expect(view.recentSettlementLatency).toEqual({ p50Seconds: 900, p95Seconds: 1_200, sampleSize: 3 });
-    expect(view.estimatedOpportunitySize).toBe(USDC(54));
+    expect(view.estimatedOpportunitySize).toBe(USDC(60));
     expect(view.scarcityScoreBps).toBe(0);
     expect(view.sourceBlocks).toEqual({ [ARC]: 61_736_000n, [SEPOLIA]: 11_690_000n });
     expect(view.computedAt).toBe(1_800_000_000);
@@ -152,7 +154,7 @@ describe('computeChain / computeVault / computeQuoteContext', () => {
 
   it('describes one vault: capacity, share of its chain, fee rank among active peers', () => {
     const view = computeVault(inputs(), ARC, C.vault)!;
-    expect(view).toMatchObject({ chainId: ARC, vault: C.vault, currentFeeBps: 5, availableLiquidity: USDC(40.5), fillCapacity: USDC(20.25), paused: false, feeRank: 0 });
+    expect(view).toMatchObject({ chainId: ARC, vault: C.vault, currentFeeBps: 5, availableLiquidity: USDC(40.5), fillCapacity: USDC(22.5), paused: false, feeRank: 0 });
     // 40.5 of (108 + 54 + 40.5) = 20%
     expect(view.liquidityShareBps).toBe(2_000);
     expect(computeVault(inputs(), ARC, B.vault)!.feeRank).toBe(2);
@@ -162,7 +164,7 @@ describe('computeChain / computeVault / computeQuoteContext', () => {
   it('quote context: which vaults could take this size right now, and the fee they post', () => {
     // 30 USDC on Arc: House (54) and B (27)? no — B's capacity is 27 → only House. C is 20.25.
     const thirty = computeQuoteContext(inputs(), USDC(30), ARC);
-    expect(thirty).toMatchObject({ vaultsAbleToFill: 1, bestFeeBps: 10, feeRangeBps: [10, 10], estimatedOpportunitySize: USDC(54) });
+    expect(thirty).toMatchObject({ vaultsAbleToFill: 2, bestFeeBps: 10, feeRangeBps: [10, 15], estimatedOpportunitySize: USDC(60) });
     // 10 USDC: all three; cheapest is C at 5.
     const ten = computeQuoteContext(inputs(), USDC(10), ARC);
     expect(ten).toMatchObject({ vaultsAbleToFill: 3, bestFeeBps: 5, feeRangeBps: [5, 15] });

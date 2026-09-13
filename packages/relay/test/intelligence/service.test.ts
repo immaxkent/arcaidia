@@ -153,7 +153,7 @@ describe('GET /v1/intelligence/*', () => {
     expect(chain.chainId).toBe(ARC);
 
     const vault = (await (await fetch(url(`/v1/intelligence/vault/${ARC}/${VAULT_B}`))).json()) as { fillCapacity: string; feeRank: number };
-    expect(vault).toMatchObject({ fillCapacity: '27000000', feeRank: 1 });
+    expect(vault).toMatchObject({ fillCapacity: '30000000', feeRank: 1 });
 
     const quote = (await (await fetch(url(`/v1/intelligence/quote-context?amount=10000000&destinationChainId=${ARC}`))).json()) as { vaultsAbleToFill: number; bestFeeBps: number };
     expect(quote).toMatchObject({ vaultsAbleToFill: 2, bestFeeBps: 10 });
