@@ -32,7 +32,14 @@ interface RawNestResponse<T> {
 interface RawReadyResponse {
   readonly ready?: boolean;
   readonly last_poll_unixtime?: number;
+  readonly lag_blocks?: number;
+  readonly seconds_since_poll?: number;
+  readonly stalled?: boolean;
+  readonly tip_seal_stalled?: boolean;
 }
+
+/** A tip polled within this many seconds is fresh enough to decide on. */
+const TIP_FRESH_SECONDS = 120;
 
 /** A `fetch`-based client. Errors are surfaced, never swallowed — see the provider. */
 const RETRYABLE_STATUS = new Set([429, 503]);
@@ -77,10 +84,21 @@ export class FetchNestQueryClient implements NestQueryClient {
 
   async ready(endpoint: string): Promise<{ lastPollUnixtime: number; ready: boolean }> {
     const response = await fetchWithRetry(this.fetchImpl, `${endpoint.replace(/\/+$/, '')}/ready`);
-    if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as RawReadyResponse | null;
+    if (!response.ok && !body) {
       throw new Error(`Nest /ready failed: ${response.status} ${response.statusText}`);
     }
-    const body = (await response.json()) as RawReadyResponse;
-    return { lastPollUnixtime: body.last_poll_unixtime ?? 0, ready: body.ready ?? false };
+    // The Nest answers 503 with `ready: false` when its *sealing* (finalisation) has stalled,
+    // while still polling and serving the chain tip — seen live on Sepolia, 2026-09-13, with
+    // `lag_blocks: 0` and a fresh poll behind a 12-hour seal stall. What a solver needs is a
+    // fresh tip, not a sealed one, so a stalled seal with a fresh tip counts as ready.
+    const tipFresh =
+      (body?.lag_blocks ?? Number.POSITIVE_INFINITY) === 0 &&
+      (body?.seconds_since_poll ?? Number.POSITIVE_INFINITY) <= TIP_FRESH_SECONDS;
+    const ready = Boolean(body?.ready) || (Boolean(body?.tip_seal_stalled ?? body?.stalled) && tipFresh);
+    if (!response.ok && !ready) {
+      throw new Error(`Nest /ready failed: ${response.status} ${response.statusText}`);
+    }
+    return { lastPollUnixtime: body?.last_poll_unixtime ?? 0, ready };
   }
 }

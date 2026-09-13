@@ -31,3 +31,19 @@ describe('FetchNestQueryClient retries the Nest\'s concurrency cap', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('FetchNestQueryClient.ready and a stalled seal', () => {
+  it('treats a 503 whose body shows a fresh tip behind a stalled seal as ready', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ ready: false, stalled: true, tip_seal_stalled: true, lag_blocks: 0, seconds_since_poll: 7, last_poll_unixtime: 99 }), { status: 503 }),
+    ) as unknown as typeof fetch;
+    expect(await new FetchNestQueryClient(fetchImpl).ready('https://nest.local/x')).toEqual({ lastPollUnixtime: 99, ready: true });
+  });
+
+  it('still refuses a 503 whose tip is stale or lagging', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ ready: false, stalled: true, lag_blocks: 40, seconds_since_poll: 900 }), { status: 503 }),
+    ) as unknown as typeof fetch;
+    await expect(new FetchNestQueryClient(fetchImpl).ready('https://nest.local/x')).rejects.toThrow(/503/);
+  });
+});
