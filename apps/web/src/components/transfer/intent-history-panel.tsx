@@ -18,6 +18,8 @@ import { ChainBadge } from "@/components/vaults/vault-bits";
 import { TimeValue } from "@/components/site/time-value";
 import { useAllTransfers, useIntentHistory, type IntentHistoryRow } from "@/hooks/arcaidia/use-intent-history";
 import { cn } from "@/lib/utils";
+import { marketToken } from "@/hooks/arcaidia/use-swap-quote";
+import { formatTokenAmount } from "@/components/trade/trade-form";
 
 /**
  * Click copies the intent id; Cmd/Ctrl-click opens the *creation* tx (the
@@ -90,7 +92,24 @@ function resolutionFor(row: IntentHistoryRow): Resolution {
   return { kind: "PENDING" };
 }
 
-function FillChip({ resolution }: { resolution: Resolution }) {
+function FillChip({ resolution, row }: { resolution: Resolution; row?: IntentHistoryRow }) {
+  // WP-34: a fast fill of a trade intent either delivered the token (SWAP) or fell back to USDC.
+  if (resolution.kind === "FAST" && row?.deliveredVia === "SWAP") {
+    const token = marketToken(row.intent.destinationChainId, row.intent.tokenOut ?? null);
+    return (
+      <span className="num rounded-sm border border-acid/50 bg-acid/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-acid" title="Fast filled and swapped into the requested token by the vault">
+        Swapped → {token?.tokenOut.symbol ?? "token"}
+        {row.amountOut !== null && token ? ` ${formatTokenAmount(row.amountOut, token.tokenOut.decimals)}` : ""}
+      </span>
+    );
+  }
+  if (resolution.kind === "FAST" && row?.deliveredVia === "SWAP_FALLBACK") {
+    return (
+      <span className="num rounded-sm border border-warning/50 bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning" title="Fast filled, but the swap could not meet the floor — USDC was delivered instead">
+        USDC fallback
+      </span>
+    );
+  }
   if (resolution.kind === "PENDING") {
     return (
       <span className="num rounded-sm border border-text-dim/40 bg-text-dim/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-dim">
@@ -229,7 +248,7 @@ function IntentHistoryTable({
                         {row.feeCharged === null ? "—" : `${formatUsdc(row.feeCharged)} USDC`}
                       </td>
                       <td className="py-2.5">
-                        <FillChip resolution={resolution} />
+                        <FillChip resolution={resolution} row={row} />
                       </td>
                       <td className="num py-2.5 text-text-dim">
                         {resolution.kind !== "PENDING" && resolution.seconds !== null

@@ -51,6 +51,10 @@ export interface IntentHistoryRow {
   destinationTxHash: string | null;
   settlementTxHash: string | null;
   settlementLatencySeconds: number | null;
+  /** WP-34: how a fast fill paid the recipient — USDC, the requested token (SWAP), or USDC because the swap could not meet the floor (SWAP_FALLBACK). Null when not fast-filled or unknown. */
+  deliveredVia: "USDC" | "SWAP" | "SWAP_FALLBACK" | null;
+  /** WP-34: the token amount delivered on a SWAP fill (token units); null otherwise. */
+  amountOut: bigint | null;
 }
 
 interface RawIntent {
@@ -76,6 +80,12 @@ interface RawFill {
   output_amount: string;
   timestamp: number;
   tx_hash: string;
+  delivered_via?: string | null;
+  amount_out?: string | null;
+}
+
+function deliveredViaOf(raw: string | null | undefined): "USDC" | "SWAP" | "SWAP_FALLBACK" | null {
+  return raw === "USDC" || raw === "SWAP" || raw === "SWAP_FALLBACK" ? raw : null;
 }
 
 interface RawSettlement {
@@ -146,7 +156,7 @@ async function fetchIntentRowsFromNest(
       const [fillsResult, settlementsResult] = await Promise.all([
         queryNest<RawFill>(
           endpoint,
-          `SELECT id, intent_id, output_amount, timestamp, tx_hash FROM fills WHERE intent_id IN (${idsClause})`,
+          `SELECT id, intent_id, output_amount, timestamp, tx_hash, delivered_via, amount_out FROM fills WHERE intent_id IN (${idsClause})`,
         ),
         queryNest<RawSettlement>(
           endpoint,
@@ -219,6 +229,8 @@ async function fetchIntentRowsFromNest(
       winningVault: fill ? (houseVaultByChain.get(destinationChainId) ?? null) : null,
       feeCharged: fill ? intent.amount - BigInt(fill.output_amount) : null,
       destinationTxHash: fill?.tx_hash ?? null,
+      deliveredVia: fill ? deliveredViaOf(fill.delivered_via) : null,
+      amountOut: fill?.amount_out ? BigInt(fill.amount_out) : null,
       settlementTxHash: settlement?.tx_hash ? settlement.tx_hash : null,
       settlementLatencySeconds: settlement && settlement.timestamp > 0 ? settlement.timestamp - createdAt : null,
     };
@@ -279,6 +291,8 @@ async function fetchIntentRowsFromChain(
       winningVault: fill?.vault ?? null,
       feeCharged: fill?.feeAmount ?? null,
       destinationTxHash: fill?.txHash ?? null,
+      deliveredVia: null,
+      amountOut: null,
       settlementTxHash: settlement?.txHash ?? null,
       settlementLatencySeconds: settlement ? settlement.timestamp - intent.createdAt : null,
     };

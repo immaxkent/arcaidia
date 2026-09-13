@@ -170,6 +170,8 @@ export const SERVICES = {
   marketIntelligenceUrl: str("VITE_MARKET_INTELLIGENCE_URL"),
   /** WP-35: the Hedera x402 gateway in front of the intelligence endpoints (`/v1/pricing`, paid `/v1/intelligence/*`). */
   x402GatewayUrl: str("VITE_X402_GATEWAY_URL"),
+  /** WP-34 (Line 1): the market price API — spot prices and history for every tokenOut, both chains. */
+  marketPriceUrl: str("VITE_MARKET_PRICE_URL"),
 };
 
 /**

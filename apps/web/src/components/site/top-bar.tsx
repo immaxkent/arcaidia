@@ -14,6 +14,7 @@ import { WalletControl } from "./wallet-control";
 // directly, but no longer a first-class surface).
 const ROUTES = [
   { to: "/transfer", label: "Transfer" },
+  { to: "/trade", label: "Trade" },
   { to: "/liquidity", label: "Liquidity" },
   { to: "/earn", label: "Earn" },
   { to: "/console", label: "Console" },

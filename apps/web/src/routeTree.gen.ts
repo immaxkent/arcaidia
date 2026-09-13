@@ -18,6 +18,7 @@ import { Route as IntelligenceRouteImport } from './routes/intelligence'
 import { Route as LiquidityRouteImport } from './routes/liquidity'
 import { Route as RoadmapRouteImport } from './routes/roadmap'
 import { Route as SolverRouteImport } from './routes/solver'
+import { Route as TradeRouteImport } from './routes/trade'
 import { Route as TransferRouteImport } from './routes/transfer'
 
 const IndexRoute = IndexRouteImport.update({
@@ -65,6 +66,11 @@ const SolverRoute = SolverRouteImport.update({
   path: '/solver',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TradeRoute = TradeRouteImport.update({
+  id: '/trade',
+  path: '/trade',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TransferRoute = TransferRouteImport.update({
   id: '/transfer',
   path: '/transfer',
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/liquidity': typeof LiquidityRoute
   '/roadmap': typeof RoadmapRoute
   '/solver': typeof SolverRoute
+  '/trade': typeof TradeRoute
   '/transfer': typeof TransferRoute
 }
 export interface FileRoutesByTo {
@@ -93,6 +100,7 @@ export interface FileRoutesByTo {
   '/liquidity': typeof LiquidityRoute
   '/roadmap': typeof RoadmapRoute
   '/solver': typeof SolverRoute
+  '/trade': typeof TradeRoute
   '/transfer': typeof TransferRoute
 }
 export interface FileRoutesById {
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   '/liquidity': typeof LiquidityRoute
   '/roadmap': typeof RoadmapRoute
   '/solver': typeof SolverRoute
+  '/trade': typeof TradeRoute
   '/transfer': typeof TransferRoute
 }
 export interface FileRouteTypes {
@@ -120,6 +129,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/roadmap'
     | '/solver'
+    | '/trade'
     | '/transfer'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/roadmap'
     | '/solver'
+    | '/trade'
     | '/transfer'
   id:
     | '__root__'
@@ -144,6 +155,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/roadmap'
     | '/solver'
+    | '/trade'
     | '/transfer'
   fileRoutesById: FileRoutesById
 }
@@ -157,6 +169,7 @@ export interface RootRouteChildren {
   LiquidityRoute: typeof LiquidityRoute
   RoadmapRoute: typeof RoadmapRoute
   SolverRoute: typeof SolverRoute
+  TradeRoute: typeof TradeRoute
   TransferRoute: typeof TransferRoute
 }
 
@@ -225,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SolverRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/trade': {
+      id: '/trade'
+      path: '/trade'
+      fullPath: '/trade'
+      preLoaderRoute: typeof TradeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/transfer': {
       id: '/transfer'
       path: '/transfer'
@@ -245,6 +265,7 @@ const rootRouteChildren: RootRouteChildren = {
   LiquidityRoute: LiquidityRoute,
   RoadmapRoute: RoadmapRoute,
   SolverRoute: SolverRoute,
+  TradeRoute: TradeRoute,
   TransferRoute: TransferRoute,
 }
 export const routeTree = rootRouteImport
