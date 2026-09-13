@@ -30,3 +30,5 @@ subgraph/build-arc
 loadgen.jsonl
 loadgen.metrics.json
 .env.loadgen
+
+.vercel

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "cd ../.. && corepack enable && pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && NITRO_PRESET=vercel pnpm --filter @arcaidia/web build",
+  "outputDirectory": ".vercel/output",
+  "git": { "deploymentEnabled": { "main": true } }
+}
