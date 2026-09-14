@@ -81,14 +81,21 @@ export class CircleAgentWalletSigner implements AgentAuthority {
     private readonly client: CircleSigningClient,
     readonly address: Address,
     private readonly walletId: string,
+    /** Wallet record per chain id (same address); falls back to `walletId`. */
+    private readonly walletIdByChain: Readonly<Record<number, string>> = {},
   ) {}
+
+  /** The Circle wallet record that may sign for `chainId`. */
+  walletIdFor(chainId: number): string {
+    return this.walletIdByChain[chainId] ?? this.walletId;
+  }
 
   async signFillAuthorization(
     authorization: FillAuthorization,
     domain: { chainId: number; verifyingContract: Address },
   ): Promise<SignedFillAuthorization> {
     const response = await this.client.signTypedData({
-      walletId: this.walletId,
+      walletId: this.walletIdFor(domain.chainId),
       data: typedDataToJson(authorization, domain),
     });
 

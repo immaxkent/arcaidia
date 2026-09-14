@@ -70,6 +70,7 @@ function circleConfig(): SolverEntrypointConfig {
       apiKey: 'TEST_API_KEY:abc:def',
       entitySecret: '11'.repeat(32),
       walletId: 'wallet-id-1',
+      walletIdByChain: {},
       address: CIRCLE_ADDRESS,
     },
   };

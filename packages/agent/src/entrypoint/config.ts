@@ -41,6 +41,8 @@ export type SignerAuthorityConfig =
       readonly apiKey: string;
       readonly entitySecret: string;
       readonly walletId: string;
+      /** Per-chain wallet ids: Circle keeps one wallet record per blockchain (same address); the typed data's chainId picks the record. */
+      readonly walletIdByChain: Readonly<Record<number, string>>;
       readonly address: `0x${string}`;
     };
 
@@ -190,11 +192,21 @@ function loadSignerAuthority(env: Env): SignerAuthorityConfig {
     );
   }
 
+  // One Circle wallet record exists per blockchain, all sharing the address. A typed-data
+  // signature is refused by a record on the wrong chain ("invalid transaction or rawTransaction
+  // in request"), so each chain may name its own record; CIRCLE_AGENT_WALLET_ID is the fallback.
+  const walletIdByChain: Record<number, string> = {};
+  for (const key of Object.keys(CHAINS) as ChainKey[]) {
+    const id = env[`CIRCLE_AGENT_WALLET_ID_${CHAIN_ENV_PREFIX[key]}`];
+    if (id) walletIdByChain[CHAINS[key].chainId] = id;
+  }
+
   return {
     mode: 'circle',
     apiKey: env.CIRCLE_API_KEY as string,
     entitySecret: env.CIRCLE_ENTITY_SECRET as string,
     walletId: env.CIRCLE_AGENT_WALLET_ID as string,
+    walletIdByChain,
     address: requireHex(env, 'CIRCLE_AGENT_WALLET_ADDRESS'),
   };
 }

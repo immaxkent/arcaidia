@@ -247,6 +247,7 @@ describe('loadSolverConfig', () => {
       apiKey: 'TEST_API_KEY:abc:def',
       entitySecret: '11'.repeat(32),
       walletId: 'wallet-id-1',
+      walletIdByChain: {},
       address: CIRCLE_ADDRESS,
     });
   });
@@ -360,5 +361,23 @@ describe('SWAP_ADAPTER_MODE (WP-34)', () => {
     expect(loadSolverConfig(baseEnv()).swapAdapterMode).toBe('none');
     expect(loadSolverConfig({ ...baseEnv(), SWAP_ADAPTER_MODE: 'uniswap-v2' }).swapAdapterMode).toBe('uniswap-v2');
     expect(() => loadSolverConfig({ ...baseEnv(), SWAP_ADAPTER_MODE: 'uniswap-v3' })).toThrow(ConfigError);
+  });
+});
+
+describe('Circle wallet ids per chain', () => {
+  it('maps CIRCLE_AGENT_WALLET_ID_<CHAIN> to chain ids and keeps the plain id as the fallback', () => {
+    const config = loadSolverConfig({
+      ...baseEnv(),
+      LOCAL_AGENT_PRIVATE_KEY: '',
+      CIRCLE_API_KEY: 'k',
+      CIRCLE_ENTITY_SECRET: 's',
+      CIRCLE_AGENT_WALLET_ID: 'default-id',
+      CIRCLE_AGENT_WALLET_ADDRESS: '0x6b73143220c1fb00b96d7dbde302ff55157f3424',
+      CIRCLE_AGENT_WALLET_ID_ETHEREUM_SEPOLIA: 'sepolia-id',
+    });
+    expect(config.signerAuthority.mode).toBe('circle');
+    if (config.signerAuthority.mode !== 'circle') throw new Error();
+    expect(config.signerAuthority.walletId).toBe('default-id');
+    expect(config.signerAuthority.walletIdByChain).toEqual({ 11155111: 'sepolia-id' });
   });
 });

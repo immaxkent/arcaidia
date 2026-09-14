@@ -135,3 +135,11 @@ describe('CircleAgentWalletSigner', () => {
     await expect(signer.signMessage('x')).rejects.toThrow(/unexpected format/);
   });
 });
+
+describe('CircleAgentWalletSigner — wallet record per chain', () => {
+  it('signs with the chain\'s own wallet record and falls back to the default', () => {
+    const signer = new CircleAgentWalletSigner({ signTypedData: async () => ({ data: { signature: '0x' + 'ab'.repeat(65) } }), signMessage: async () => ({ data: { signature: '0x' + 'ab'.repeat(65) } }) } as never, '0x6b73143220c1fb00b96d7dbde302ff55157f3424', 'arc-id', { 11155111: 'sepolia-id' });
+    expect(signer.walletIdFor(11155111)).toBe('sepolia-id');
+    expect(signer.walletIdFor(5042002)).toBe('arc-id');
+  });
+});

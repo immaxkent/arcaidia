@@ -45,7 +45,7 @@ function buildAuthority(signerAuthority: SolverEntrypointConfig['signerAuthority
     apiKey: signerAuthority.apiKey,
     entitySecret: signerAuthority.entitySecret,
   });
-  return new CircleAgentWalletSigner(client, signerAuthority.address, signerAuthority.walletId);
+  return new CircleAgentWalletSigner(client, signerAuthority.address, signerAuthority.walletId, signerAuthority.walletIdByChain);
 }
 
 function viemChainFor(chainId: number) {
