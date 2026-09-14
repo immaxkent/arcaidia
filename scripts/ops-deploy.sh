@@ -38,7 +38,7 @@ rsync -az --delete \
   --exclude 'subgraph/build*' --exclude '.claude' --exclude '*.jsonl' \
   "$ROOT/" "$HOST:$REMOTE_DIR/"
 
-for f in .env .env.solver-b .env.solver-c .env.loadgen .env.market; do
+for f in .env .env.solver-b .env.solver-c .env.solver-d .env.loadgen .env.market; do
   [ -f "$ROOT/$f" ] && rsync -az "$ROOT/$f" "$HOST:$REMOTE_DIR/$f"
 done
 

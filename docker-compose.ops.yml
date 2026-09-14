@@ -107,6 +107,21 @@ services:
       SOLVER_DECISION_LOG_PATH: /tmp/solver-decisions.jsonl
     depends_on: [relay]
 
+  # Fourth operator (2026-09-14): the vault deployed through Earn (Sepolia only), moved here from
+  # the owner's laptop so it stays online. Same image; its own keys in .env.solver-d.
+  solver-d:
+    profiles: [operators]
+    image: arcaidia-service:latest
+    restart: unless-stopped
+    env_file: [.env.solver-d]
+    environment:
+      SERVICE: packages/agent/src/entrypoint/main.ts
+      SOLVER_QUOTE_PORT: '8787'
+      ARCAIDIA_TELEMETRY_URL: http://relay:8090
+      TELEMETRY_ENABLED: 'true'
+      SOLVER_DECISION_LOG_PATH: /tmp/solver-decisions.jsonl
+    depends_on: [relay]
+
   loadgen:
     profiles: [loadgen]
     image: arcaidia-service:latest
