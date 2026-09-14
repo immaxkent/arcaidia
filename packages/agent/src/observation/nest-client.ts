@@ -43,8 +43,14 @@ const TIP_FRESH_SECONDS = 120;
 
 /** A `fetch`-based client. Errors are surfaced, never swallowed — see the provider. */
 const RETRYABLE_STATUS = new Set([429, 503]);
+/** Production defaults: a whole pass must not die on one 429/503. Tests pass a faster policy. */
 const MAX_ATTEMPTS = 6;
 const RETRY_DELAY_MS = 1_000;
+
+export interface NestRetryPolicy {
+  readonly attempts?: number;
+  readonly delayMs?: number;
+}
 
 /**
  * The Nest enforces a small concurrency cap and answers `503 server busy` (or `429`) when a
@@ -52,22 +58,27 @@ const RETRY_DELAY_MS = 1_000;
  * as `/sql`. A transient rejection retried a moment later is not an outage, so both paths retry
  * briefly before giving up; a persistent one still surfaces as the error it is.
  */
-async function fetchWithRetry(fetchImpl: typeof fetch, url: string): Promise<Response> {
+async function fetchWithRetry(fetchImpl: typeof fetch, url: string, policy: NestRetryPolicy = {}): Promise<Response> {
   let last: Response | undefined;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  const attempts = policy.attempts ?? MAX_ATTEMPTS;
+  const delayMs = policy.delayMs ?? RETRY_DELAY_MS;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     last = await fetchImpl(url);
-    if (!RETRYABLE_STATUS.has(last.status) || attempt === MAX_ATTEMPTS) return last;
-    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+    if (!RETRYABLE_STATUS.has(last.status) || attempt === attempts) return last;
+    await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
   }
   return last!;
 }
 
 export class FetchNestQueryClient implements NestQueryClient {
-  constructor(private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly retry: NestRetryPolicy = {},
+  ) {}
 
   async query<T>(endpoint: string, sql: string): Promise<NestQueryResult<T>> {
     const url = `${endpoint.replace(/\/+$/, '')}/sql?q=${encodeURIComponent(sql)}`;
-    const response = await fetchWithRetry(this.fetchImpl, url);
+    const response = await fetchWithRetry(this.fetchImpl, url, this.retry);
     const body = (await response.json().catch(() => ({}))) as RawNestResponse<T>;
 
     if (!response.ok) {
@@ -83,7 +94,7 @@ export class FetchNestQueryClient implements NestQueryClient {
   }
 
   async ready(endpoint: string): Promise<{ lastPollUnixtime: number; ready: boolean }> {
-    const response = await fetchWithRetry(this.fetchImpl, `${endpoint.replace(/\/+$/, '')}/ready`);
+    const response = await fetchWithRetry(this.fetchImpl, `${endpoint.replace(/\/+$/, '')}/ready`, this.retry);
     const body = (await response.json().catch(() => null)) as RawReadyResponse | null;
     if (!response.ok && !body) {
       throw new Error(`Nest /ready failed: ${response.status} ${response.statusText}`);

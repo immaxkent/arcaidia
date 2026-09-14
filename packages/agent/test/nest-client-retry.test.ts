@@ -14,7 +14,7 @@ function responses(...statuses: number[]) {
 describe('FetchNestQueryClient retries the Nest\'s concurrency cap', () => {
   it('retries a 503 on /sql and on /ready, succeeding when the Nest answers', async () => {
     const { fetchImpl, calls } = responses(503, 200, 503, 503, 200);
-    const client = new FetchNestQueryClient(fetchImpl);
+    const client = new FetchNestQueryClient(fetchImpl, { attempts: 3, delayMs: 5 });
     expect((await client.query('https://nest.local/x', 'SELECT 1')).rows).toEqual([{ ok: 1 }]);
     expect(await client.ready('https://nest.local/x')).toEqual({ lastPollUnixtime: 5, ready: true });
     expect(calls).toHaveLength(5);
@@ -22,12 +22,12 @@ describe('FetchNestQueryClient retries the Nest\'s concurrency cap', () => {
 
   it('gives up after three attempts with the real status', async () => {
     const { fetchImpl } = responses(503, 503, 503);
-    await expect(new FetchNestQueryClient(fetchImpl).query('https://nest.local/x', 'SELECT 1')).rejects.toThrow(/503/);
+    await expect(new FetchNestQueryClient(fetchImpl, { attempts: 3, delayMs: 5 }).query('https://nest.local/x', 'SELECT 1')).rejects.toThrow(/503/);
   });
 
   it('does not retry a 400 — that is a bad query, not load', async () => {
     const { fetchImpl, calls } = responses(400);
-    await expect(new FetchNestQueryClient(fetchImpl).query('https://nest.local/x', 'SELECT zzz')).rejects.toThrow(/400/);
+    await expect(new FetchNestQueryClient(fetchImpl, { attempts: 3, delayMs: 5 }).query('https://nest.local/x', 'SELECT zzz')).rejects.toThrow(/400/);
     expect(calls).toHaveLength(1);
   });
 });
@@ -37,13 +37,13 @@ describe('FetchNestQueryClient.ready and a stalled seal', () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ ready: false, stalled: true, tip_seal_stalled: true, lag_blocks: 0, seconds_since_poll: 7, last_poll_unixtime: 99 }), { status: 503 }),
     ) as unknown as typeof fetch;
-    expect(await new FetchNestQueryClient(fetchImpl).ready('https://nest.local/x')).toEqual({ lastPollUnixtime: 99, ready: true });
+    expect(await new FetchNestQueryClient(fetchImpl, { attempts: 3, delayMs: 5 }).ready('https://nest.local/x')).toEqual({ lastPollUnixtime: 99, ready: true });
   });
 
   it('still refuses a 503 whose tip is stale or lagging', async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify({ ready: false, stalled: true, lag_blocks: 40, seconds_since_poll: 900 }), { status: 503 }),
     ) as unknown as typeof fetch;
-    await expect(new FetchNestQueryClient(fetchImpl).ready('https://nest.local/x')).rejects.toThrow(/503/);
+    await expect(new FetchNestQueryClient(fetchImpl, { attempts: 3, delayMs: 5 }).ready('https://nest.local/x')).rejects.toThrow(/503/);
   });
 });
