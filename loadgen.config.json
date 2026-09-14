@@ -30,10 +30,10 @@
         "max": 0.33
       },
       "amount": {
-        "mu": 2.3,
+        "mu": 2.48,
         "sigma": 0.5,
-        "minUsdc": 3,
-        "maxUsdc": 25
+        "minUsdc": 3.6,
+        "maxUsdc": 30
       },
       "maxFeeBps": [
         {
@@ -75,10 +75,10 @@
         "max": 0.6
       },
       "amount": {
-        "mu": 2.4,
+        "mu": 2.58,
         "sigma": 0.5,
-        "minUsdc": 4,
-        "maxUsdc": 25
+        "minUsdc": 4.8,
+        "maxUsdc": 30
       },
       "maxFeeBps": [
         {
@@ -161,10 +161,10 @@
         "max": 0.4
       },
       "amount": {
-        "mu": 2.2,
+        "mu": 2.38,
         "sigma": 0.5,
-        "minUsdc": 3,
-        "maxUsdc": 20
+        "minUsdc": 3.6,
+        "maxUsdc": 24
       },
       "maxFeeBps": [
         {
@@ -202,10 +202,10 @@
         "max": 0.33
       },
       "amount": {
-        "mu": 2.2,
+        "mu": 2.38,
         "sigma": 0.5,
-        "minUsdc": 3,
-        "maxUsdc": 20
+        "minUsdc": 3.6,
+        "maxUsdc": 24
       },
       "maxFeeBps": [
         {
@@ -256,5 +256,5 @@
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every three to six minutes across both directions, about two in nine naming a token out (WP-34) \u2014 background at 0.17\u20130.33 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json. Sizes raised 2026-09-14 (median ~10 USDC, cap 25) so ~5 fills in flight show as 15\u201330% utilisation across ~350 USDC of vault capital."
+  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every three to six minutes across both directions, about two in nine naming a token out (WP-34) \u2014 background at 0.17\u20130.33 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json. Sizes raised 2026-09-14 (median ~10 USDC, cap 25) so ~5 fills in flight show as 15\u201330% utilisation across ~350 USDC of vault capital. +20% on 2026-09-14 (median ~12 USDC, cap 30) so at least one vault is usually carrying exposure."
 }
