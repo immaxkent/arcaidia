@@ -28,7 +28,7 @@ describe('parseLoadgenConfig', () => {
 });
 
 describe('the committed default profile is the demo cadence', () => {
-  it('averages about one transfer every six minutes before clusters and the controller, and cannot be driven above 1.5x', () => {
+  it('averages one transfer every three to four minutes before clusters and the controller, and cannot be driven above 1.5x', () => {
     const { readFileSync } = require('node:fs') as typeof import('node:fs');
     const { join } = require('node:path') as typeof import('node:path');
     const raw = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'loadgen.config.json'), 'utf8'));
@@ -36,11 +36,12 @@ describe('the committed default profile is the demo cadence', () => {
     const weights = config.phaseWeights;
     const perHour = config.phases.map((p) => ((p.intentsPerMinuteRange.min + p.intentsPerMinuteRange.max) / 2) * 60);
     const weighted = perHour.reduce((acc, r, i) => acc + r * weights[i]!, 0) / weights.reduce((a, b) => a + b, 0);
-    // ~10/hour = one every six minutes; the weighted mean lands near 11 with the rarer phases.
-    expect(weighted).toBeGreaterThan(7);
-    expect(weighted).toBeLessThan(15);
+    // ~16/hour = one every three to four minutes on average (3–6 min gaps); raised from ~10/hour
+    // on 2026-09-14 so the market shows some utilisation.
+    expect(weighted).toBeGreaterThan(12);
+    expect(weighted).toBeLessThan(20);
     expect(config.scarcity.weightMultiplierBounds.max).toBeLessThanOrEqual(1.5);
-    expect(config.phases.find((p) => p.kind === 'background')!.intentsPerMinuteRange.max).toBeLessThanOrEqual(0.2);
+    expect(config.phases.find((p) => p.kind === 'background')!.intentsPerMinuteRange.max).toBeLessThanOrEqual(0.34);
     // WP-34: about two in nine intents name a token out.
     expect(config.tradeIntentShare).toBeCloseTo(0.22, 2);
   });
