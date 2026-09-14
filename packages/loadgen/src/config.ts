@@ -76,6 +76,12 @@ export interface LoadgenConfig {
   readonly scarcity: ScarcityControllerConfig;
   /** Trade intents (WP-34) — kept at 0 until Line 1 lands. */
   readonly tradeIntentShare: number;
+  /**
+   * Intents per arrival: every time a phase fires, this many independently sampled intents go
+   * out a few seconds apart (1 = one intent per arrival). Raises volume without changing the
+   * rhythm — the market sees pairs, not a faster metronome. Integer 1–5.
+   */
+  readonly intentsPerFire: number;
   readonly journalPath: string;
   readonly metricsPath: string;
 }
@@ -99,6 +105,11 @@ export function parseLoadgenConfig(raw: unknown): LoadgenConfig {
   if (!Number.isInteger(c.seed)) throw new LoadgenConfigError('seed: integer required');
   assertUnit('ethereumToArcShare', c.ethereumToArcShare);
   assertUnit('tradeIntentShare', c.tradeIntentShare);
+  const perFire = (c as { intentsPerFire?: unknown }).intentsPerFire ?? 1;
+  if (!Number.isInteger(perFire) || (perFire as number) < 1 || (perFire as number) > 5) {
+    throw new LoadgenConfigError('intentsPerFire: integer 1–5 required');
+  }
+  (c as { intentsPerFire: number }).intentsPerFire = perFire as number;
   if (!Array.isArray(c.chains) || c.chains.length !== 2) throw new LoadgenConfigError('chains: exactly two entries');
   for (const ch of c.chains) {
     if (!Number.isInteger(ch.chainId)) throw new LoadgenConfigError('chains[].chainId: integer required');

@@ -108,3 +108,25 @@ describe('trade intents (WP-34)', () => {
     for (const intent of planPhase(config, config.phases[0]!, 1_000, rng).intents) expect(intent.trade).toBeUndefined();
   });
 });
+
+describe('intentsPerFire', () => {
+  it('fires that many freshly sampled intents per arrival, a few seconds apart, and one by default', () => {
+    const raw = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'loadgen.stress.config.json'), 'utf8'));
+    const one = parseLoadgenConfig({ ...raw, intentsPerFire: 1 });
+    const two = parseLoadgenConfig({ ...raw, intentsPerFire: 2 });
+    expect(parseLoadgenConfig(raw).intentsPerFire).toBe(1);
+    const background = (c: typeof one) => c.phases.find((p) => p.kind === 'background')!;
+    let single = 0;
+    let paired = 0;
+    for (let i = 0; i < 20; i++) {
+      single += planPhase(one, background(one), 1_000 + i * 10_000, mulberry32(i)).intents.length;
+      const plan = planPhase(two, background(two), 1_000 + i * 10_000, mulberry32(i)).intents.filter((x) => x.tag !== 'cluster');
+      paired += plan.length;
+      // pairs: consecutive regular/whale intents within 15 s of each other
+      for (let j = 0; j + 1 < plan.length; j += 2) expect(plan[j + 1]!.at - plan[j]!.at).toBeLessThanOrEqual(15);
+    }
+    expect(paired).toBeGreaterThan(single * 1.5);
+    expect(() => parseLoadgenConfig({ ...raw, intentsPerFire: 0 })).toThrow(/intentsPerFire/);
+    expect(() => parseLoadgenConfig({ ...raw, intentsPerFire: 6 })).toThrow(/intentsPerFire/);
+  });
+});

@@ -256,5 +256,6 @@
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every three to six minutes across both directions, about two in nine naming a token out (WP-34) \u2014 background at 0.17\u20130.33 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json. Sizes raised 2026-09-14 (median ~10 USDC, cap 25) so ~5 fills in flight show as 15\u201330% utilisation across ~350 USDC of vault capital. +20% on 2026-09-14 (median ~12 USDC, cap 30) so at least one vault is usually carrying exposure."
+  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every three to six minutes across both directions, about two in nine naming a token out (WP-34) \u2014 background at 0.17\u20130.33 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json. Sizes raised 2026-09-14 (median ~10 USDC, cap 25) so ~5 fills in flight show as 15\u201330% utilisation across ~350 USDC of vault capital. +20% on 2026-09-14 (median ~12 USDC, cap 30) so at least one vault is usually carrying exposure. intentsPerFire 2 (2026-09-14): every arrival fires a pair a few seconds apart.",
+  "intentsPerFire": 2
 }

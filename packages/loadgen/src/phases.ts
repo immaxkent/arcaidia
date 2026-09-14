@@ -119,17 +119,22 @@ export function planPhase(config: LoadgenConfig, phase: PhaseConfig, startsAt: n
     const [sourceChainId, destinationChainId] = sampleDirection(config, rng);
     const deadlineSeconds = intBetween(rng, phase.deadlineSecondsRange.min, phase.deadlineSecondsRange.max);
 
+    // Every arrival fires `intentsPerFire` intents, each freshly sampled, a few seconds apart.
+    const salvo = (k: number): number => (k === 0 ? t : t + k * intBetween(rng, 3, 15));
+
     if (rng.next() < phase.largeIntentProbability) {
-      intents.push({
-        at: t,
-        sourceChainId,
-        destinationChainId,
-        amount: usdc(Math.round(between(rng, phase.largeAmountRange.min, phase.largeAmountRange.max))),
-        maxFeeBps: sampleFee(phase, rng),
-        deadlineSeconds,
-        phase: phase.kind,
-        tag: 'whale',
-      });
+      for (let k = 0; k < config.intentsPerFire; k++) {
+        intents.push({
+          at: salvo(k),
+          sourceChainId,
+          destinationChainId,
+          amount: usdc(Math.round(between(rng, phase.largeAmountRange.min, phase.largeAmountRange.max))),
+          maxFeeBps: sampleFee(phase, rng),
+          deadlineSeconds,
+          phase: phase.kind,
+          tag: 'whale',
+        });
+      }
       continue;
     }
 
@@ -152,18 +157,20 @@ export function planPhase(config: LoadgenConfig, phase: PhaseConfig, startsAt: n
       continue;
     }
 
-    const trade = sampleTrade(config, destinationChainId, rng);
-    intents.push({
-      at: t,
-      sourceChainId,
-      destinationChainId,
-      amount: trade ? sampleTradeAmount(rng) : sampleAmount(phase, rng),
-      maxFeeBps: sampleFee(phase, rng),
-      deadlineSeconds,
-      phase: phase.kind,
-      tag: 'regular',
-      ...(trade ? { trade } : {}),
-    });
+    for (let k = 0; k < config.intentsPerFire; k++) {
+      const trade = sampleTrade(config, destinationChainId, rng);
+      intents.push({
+        at: salvo(k),
+        sourceChainId,
+        destinationChainId,
+        amount: trade ? sampleTradeAmount(rng) : sampleAmount(phase, rng),
+        maxFeeBps: sampleFee(phase, rng),
+        deadlineSeconds,
+        phase: phase.kind,
+        tag: 'regular',
+        ...(trade ? { trade } : {}),
+      });
+    }
   }
 
   intents.sort((x, y) => x.at - y.at);
