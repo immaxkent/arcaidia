@@ -146,6 +146,7 @@ export function buildSettlementDependencies(config: SettlementEntrypointConfig):
     clock: () => Math.floor(Date.now() / 1000),
     discovery,
     registrar: adapter,
+    graceSeconds: config.graceSeconds,
   };
 
   return { deps, reporterAddress: reporterAccount.address };

@@ -54,6 +54,7 @@ function main(): void {
   console.log('[settlement] starting');
   console.log(`[settlement] reporter ${reporterAddress}`);
   console.log(`[settlement] iris     ${config.irisBaseUrl}`);
+  console.log(`[settlement] grace    ${config.graceSeconds}s head start for fast fills before canonical settlement`);
   for (const chain of config.chains) {
     console.log(
       `[settlement] chain ${chain.chainId}: receiver ${chain.settlementReceiver}, ` +

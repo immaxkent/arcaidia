@@ -79,6 +79,21 @@ describe('runSettlementWorkerPass', () => {
     await expect(adapter.status(record(1).reference)).resolves.toBeDefined();
   });
 
+  it('leaves an intent younger than graceSeconds to the solvers, then tracks it once the window has passed', async () => {
+    discovery.records = [record(1)];
+    const withGrace = { ...deps, graceSeconds: 90 };
+
+    const first = await runSettlementWorkerPass(withGrace);
+    expect(first.kind).toBe('RAN');
+    if (first.kind === 'RAN') expect(first.newlyTracked).toBe(0);
+    expect(journal.all()).toHaveLength(0);
+
+    clock.advance(90);
+    const second = await runSettlementWorkerPass(withGrace);
+    if (second.kind === 'RAN') expect(second.newlyTracked).toBe(1);
+    expect(journal.all()).toHaveLength(1);
+  });
+
   it('reports how many records were newly tracked this pass', async () => {
     discovery.records = [record(1), record(2, true)];
 

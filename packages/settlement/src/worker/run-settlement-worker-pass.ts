@@ -33,6 +33,13 @@ export interface Registrable {
 export interface SettlementWorkerDependencies extends SettlementDependencies {
   readonly discovery: SettlementDiscoveryProvider;
   readonly registrar: Registrable;
+  /**
+   * Head start for fast fills: an intent younger than this (seconds since it was created) is
+   * not tracked yet. Arc attests a burn in well under a minute, so without it canonical
+   * settlement on Ethereum lands before any solver can fill — the recipient is paid either way,
+   * but the vaults on that side never see a fill. Default 0: settle as soon as possible.
+   */
+  readonly graceSeconds?: number;
 }
 
 export type SettlementWorkerPassResult =
@@ -60,9 +67,12 @@ export async function runSettlementWorkerPass(
   const known = new Set(deps.journal.all().map((record) => record.reference.intentId.toLowerCase()));
   let newlyTracked = 0;
 
+  const grace = deps.graceSeconds ?? 0;
+  const now = deps.clock();
   for (const record of discovered) {
     const key = record.reference.intentId.toLowerCase();
     if (known.has(key)) continue;
+    if (grace > 0 && now - record.reference.initiatedAt < grace) continue; // next pass, once the solvers have had their window
 
     deps.journal.add(record);
     deps.registrar.register(record.reference, record.amount);

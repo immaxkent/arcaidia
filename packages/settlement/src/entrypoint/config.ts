@@ -34,6 +34,8 @@ export interface SettlementEntrypointConfig {
   readonly reporterPrivateKey: `0x${string}`;
   readonly irisBaseUrl: string;
   readonly pollIntervalMs: number;
+  /** Seconds a fresh intent is left to the solvers before canonical settlement is attempted (0 = none). */
+  readonly graceSeconds: number;
   readonly chains: readonly [ChainEntrypointConfig, ChainEntrypointConfig];
   readonly observationSource: SettlementObservationSource;
 }
@@ -103,11 +105,16 @@ export function loadSettlementConfig(env: Env): SettlementEntrypointConfig {
   if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
     throw new ConfigError('SETTLEMENT_POLL_INTERVAL_MS must be a positive number.');
   }
+  const graceSeconds = env.SETTLEMENT_GRACE_SECONDS ? Number(env.SETTLEMENT_GRACE_SECONDS) : 0;
+  if (!Number.isFinite(graceSeconds) || graceSeconds < 0 || graceSeconds > 600) {
+    throw new ConfigError('SETTLEMENT_GRACE_SECONDS must be between 0 and 600.');
+  }
 
   return {
     reporterPrivateKey,
     irisBaseUrl,
     pollIntervalMs,
+    graceSeconds,
     chains: [chainEntrypointConfig('ethereum-sepolia', env, observationSource), chainEntrypointConfig('arc-testnet', env, observationSource)],
     observationSource,
   };

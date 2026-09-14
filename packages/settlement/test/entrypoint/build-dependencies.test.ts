@@ -34,6 +34,7 @@ function config(): SettlementEntrypointConfig {
     reporterPrivateKey: REPORTER_KEY,
     irisBaseUrl: 'https://iris-api-sandbox.circle.com',
     pollIntervalMs: 15_000,
+    graceSeconds: 0,
     observationSource: 'nest' as const,
     chains: [SEPOLIA_CHAIN, ARC_CHAIN],
   };
