@@ -26,14 +26,14 @@
         "max": 1200
       },
       "intentsPerMinuteRange": {
-        "min": 0.17,
-        "max": 0.33
+        "min": 0.2,
+        "max": 0.4
       },
       "amount": {
-        "mu": 2.48,
-        "sigma": 0.5,
-        "minUsdc": 3.6,
-        "maxUsdc": 30
+        "mu": 4.7,
+        "sigma": 0.45,
+        "minUsdc": 40,
+        "maxUsdc": 200
       },
       "maxFeeBps": [
         {
@@ -54,10 +54,10 @@
         "min": 1,
         "max": 1
       },
-      "largeIntentProbability": 0.02,
+      "largeIntentProbability": 0.1,
       "largeAmountRange": {
-        "min": 20,
-        "max": 40
+        "min": 200,
+        "max": 300
       },
       "deadlineSecondsRange": {
         "min": 1800,
@@ -71,14 +71,14 @@
         "max": 300
       },
       "intentsPerMinuteRange": {
-        "min": 0.4,
-        "max": 0.6
+        "min": 0.45,
+        "max": 0.75
       },
       "amount": {
-        "mu": 2.58,
-        "sigma": 0.5,
-        "minUsdc": 4.8,
-        "maxUsdc": 30
+        "mu": 4.8,
+        "sigma": 0.45,
+        "minUsdc": 50,
+        "maxUsdc": 220
       },
       "maxFeeBps": [
         {
@@ -99,10 +99,10 @@
         "min": 2,
         "max": 2
       },
-      "largeIntentProbability": 0.05,
+      "largeIntentProbability": 0.14,
       "largeAmountRange": {
-        "min": 20,
-        "max": 40
+        "min": 200,
+        "max": 300
       },
       "deadlineSecondsRange": {
         "min": 1800,
@@ -116,14 +116,14 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.13,
-        "max": 0.2
+        "min": 0.15,
+        "max": 0.3
       },
       "amount": {
-        "mu": 3.0,
-        "sigma": 0.3,
-        "minUsdc": 15,
-        "maxUsdc": 45
+        "mu": 5.45,
+        "sigma": 0.45,
+        "minUsdc": 180,
+        "maxUsdc": 300
       },
       "maxFeeBps": [
         {
@@ -140,10 +140,10 @@
         "min": 1,
         "max": 1
       },
-      "largeIntentProbability": 1,
+      "largeIntentProbability": 1.0,
       "largeAmountRange": {
-        "min": 25,
-        "max": 45
+        "min": 200,
+        "max": 300
       },
       "deadlineSecondsRange": {
         "min": 1800,
@@ -157,14 +157,14 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.25,
-        "max": 0.4
+        "min": 0.3,
+        "max": 0.5
       },
       "amount": {
-        "mu": 2.38,
-        "sigma": 0.5,
-        "minUsdc": 3.6,
-        "maxUsdc": 24
+        "mu": 4.5,
+        "sigma": 0.45,
+        "minUsdc": 35,
+        "maxUsdc": 160
       },
       "maxFeeBps": [
         {
@@ -181,7 +181,7 @@
         "min": 2,
         "max": 3
       },
-      "largeIntentProbability": 0,
+      "largeIntentProbability": 0.0,
       "largeAmountRange": {
         "min": 0,
         "max": 0
@@ -198,14 +198,14 @@
         "max": 900
       },
       "intentsPerMinuteRange": {
-        "min": 0.17,
-        "max": 0.33
+        "min": 0.2,
+        "max": 0.4
       },
       "amount": {
-        "mu": 2.38,
-        "sigma": 0.5,
-        "minUsdc": 3.6,
-        "maxUsdc": 24
+        "mu": 4.5,
+        "sigma": 0.45,
+        "minUsdc": 35,
+        "maxUsdc": 160
       },
       "maxFeeBps": [
         {
@@ -226,7 +226,7 @@
         "min": 1,
         "max": 1
       },
-      "largeIntentProbability": 0,
+      "largeIntentProbability": 0.0,
       "largeAmountRange": {
         "min": 0,
         "max": 0
@@ -256,6 +256,6 @@
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Demo default (WP-32, 2026-09-13): about one transfer every three to six minutes across both directions, about two in nine naming a token out (WP-34) \u2014 background at 0.17\u20130.33 intents/minute dominates; bursts short; the scarcity controller may raise the rate by at most 1.5x. For development stress runs use LOADGEN_CONFIG=loadgen.stress.config.json. Sizes raised 2026-09-14 (median ~10 USDC, cap 25) so ~5 fills in flight show as 15\u201330% utilisation across ~350 USDC of vault capital. +20% on 2026-09-14 (median ~12 USDC, cap 30) so at least one vault is usually carrying exposure. intentsPerFire 2 (2026-09-14): every arrival fires a pair a few seconds apart.",
-  "intentsPerFire": 2
+  "_comment": "Demo profile (WP-32/34). Sized 2026-09-15 for a market that shows both depth and pressure: regular intents median ~110 USDC, whales 200-300 (under the House Vault's 315 per-fill cap and over every other vault's, so a whale concentrates exposure where there is room and pushes one vault toward its 80% exposure cap). Pairs per arrival, arrivals every 2-5 min, about two in nine naming a token out. Aggregate utilisation lands near a third of the 3,240 USDC of vault capital; the binding constraints are bot working capital (in-flight volume is bot money) and Sepolia gas, not the vaults.",
+  "intentsPerFire": 3
 }
