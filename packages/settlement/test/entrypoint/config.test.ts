@@ -144,3 +144,12 @@ describe('loadSettlementConfig', () => {
     );
   });
 });
+
+describe('SETTLEMENT_GRACE_SECONDS', () => {
+  it('accepts a window up to the solvers\' backlog threshold and refuses one beyond it', () => {
+    expect(loadSettlementConfig({ ...baseEnv(), SETTLEMENT_GRACE_SECONDS: '1500' }).graceSeconds).toBe(1_500);
+    expect(loadSettlementConfig(baseEnv()).graceSeconds).toBe(0);
+    expect(() => loadSettlementConfig({ ...baseEnv(), SETTLEMENT_GRACE_SECONDS: '2401' })).toThrow(/2400/);
+    expect(() => loadSettlementConfig({ ...baseEnv(), SETTLEMENT_GRACE_SECONDS: '-1' })).toThrow(/2400/);
+  });
+});

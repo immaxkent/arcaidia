@@ -106,8 +106,11 @@ export function loadSettlementConfig(env: Env): SettlementEntrypointConfig {
     throw new ConfigError('SETTLEMENT_POLL_INTERVAL_MS must be a positive number.');
   }
   const graceSeconds = env.SETTLEMENT_GRACE_SECONDS ? Number(env.SETTLEMENT_GRACE_SECONDS) : 0;
-  if (!Number.isFinite(graceSeconds) || graceSeconds < 0 || graceSeconds > 600) {
-    throw new ConfigError('SETTLEMENT_GRACE_SECONDS must be between 0 and 600.');
+  // The ceiling is the solvers' own backlog circuit breaker (`maxOldestUnsettledAgeSeconds`,
+  // 3000s): hold settlement past that and every solver reads healthy traffic as a dead
+  // settlement path and refuses to fill. 2400 leaves ten minutes of margin for CCTP itself.
+  if (!Number.isFinite(graceSeconds) || graceSeconds < 0 || graceSeconds > 2_400) {
+    throw new ConfigError('SETTLEMENT_GRACE_SECONDS must be between 0 and 2400 (below the solvers\' 3000s backlog threshold).');
   }
 
   return {

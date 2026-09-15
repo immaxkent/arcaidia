@@ -164,11 +164,18 @@ describe('the risk engine reacts to derived health', () => {
   });
 
   it('rejects once the oldest outstanding settlement is too old', () => {
-    const journal = journalWith([record(31, NOW - 1_800, USDC(1_000))]);
+    // Past the solvers' 3000s circuit breaker. A shorter wait is ordinary now that the worker
+    // deliberately gives fills a head start before settling (SETTLEMENT_GRACE_SECONDS).
+    const journal = journalWith([record(31, NOW - 3_600, USDC(1_000))]);
     const decision = decide(journal, 'HEALTHY');
 
     expect(decision.verdict).toBe('REJECT');
     expect(decision.reason).toBe('SETTLEMENT_BACKLOG');
+  });
+
+  it('does not call a fill still inside the grace window a backlog', () => {
+    const decision = decide(journalWith([record(32, NOW - 1_800, USDC(1_000))]), 'HEALTHY');
+    expect(decision.verdict).toBe('ACCEPT');
   });
 
   it('pauses when the transport is unreachable', () => {
