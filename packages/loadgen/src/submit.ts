@@ -93,15 +93,18 @@ export class ViemIntentSubmitter implements IntentSubmitter {
     return (await client.readContract({ address: endpoint.usdc, abi: ERC20_ABI, functionName: 'balanceOf', args: [address] })) as bigint;
   }
 
-  /** The planned intent, or the same intent reversed when only the other chain can fund it. */
+  /** The planned intent, or the same intent reversed when the other chain funds it better. */
   private async affordableDirection(intent: PlannedIntent, walletIndex: number): Promise<PlannedIntent> {
     const key = this.keys[walletIndex];
     if (!key) return intent;
     const address = privateKeyToAccount(key).address;
     const here = await this.usdcOn(intent.sourceChainId, address);
-    if (here >= MIN_INTENT_AMOUNT) return intent;
+    // Covering the planned size is the test, not merely clearing the floor: a wallet down to its
+    // last few USDC on this chain would otherwise keep sending token 2 USDC intents from the
+    // empty side while hundreds sit on the other one, which is how the market stalled before.
+    if (here >= intent.amount) return intent;
     const there = await this.usdcOn(intent.destinationChainId, address);
-    if (there < MIN_INTENT_AMOUNT) return intent; // neither side can pay; let submit() say so
+    if (there <= here) return intent; // no better side; submit() clamps or says it cannot pay
     return { ...intent, sourceChainId: intent.destinationChainId, destinationChainId: intent.sourceChainId };
   }
 
