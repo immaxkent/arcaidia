@@ -5,7 +5,7 @@
 #
 #   scripts/redistribute.sh --dry-run    # print the plan and stop
 #   scripts/redistribute.sh              # confirm, then send
-#   VAULT_HOUSE=200 scripts/redistribute.sh   # override any amount below
+#   VAULT_HOUSE_ARC=300 GAS_EACH=0.04 scripts/redistribute.sh   # override any amount below
 #
 # Uniswap pool depth is deliberately NOT here: adding liquidity mints matching mock tokens and
 # moves prices, so it lives in the market repo (see the note at the end of this file).
@@ -42,7 +42,19 @@ VAULT_HOUSE_SEPOLIA=${VAULT_HOUSE_SEPOLIA:-250}
 VAULT_B=${VAULT_B:-150}          # each chain
 VAULT_C=${VAULT_C:-150}          # each chain
 BOT_TOPUP=${BOT_TOPUP:-150}      # each bot, each chain
+# Sepolia gas, in ETH, to every wallet that spends it. The floors are ~0.01–0.06; these buffers
+# are days of headroom each, so the market stops needing a human between faucet visits.
+GAS_EACH=${GAS_EACH:-0.03}
+GAS_MARKET_BOT=${GAS_MARKET_BOT:-0.06}
 DRY=${1:-}
+
+# Wallets that spend Sepolia gas (submitters sign fills, the reporter signs settlements)
+HOUSE_SUBMITTER=0x21F6A2feb26c2da068C47DDfd85FDde429931cf2
+REPORTER=0x1BBCcFc2CC7Ff7296e3E18646218211631De9862
+B_SUBMITTER=0x90f9Cc769bDffAac58510839F7E1E9516a783F90
+C_SUBMITTER=0xDfCD3f8983e33D607a4cd96c38bd673bff9079cC
+D_SUBMITTER=0xC3D02b3504a98b29d79E277F2e9f5a89DD096B29
+MARKET_BOT=0x387297228f13d72c778A205A242a48C6364F7EcB
 
 units() { python3 -c "print(int($1 * 10**6))"; }
 
@@ -64,10 +76,19 @@ plan() {
   local arc sep
   arc=$(python3 -c "print($VAULT_HOUSE_ARC + $VAULT_B + $VAULT_C + 2*$BOT_TOPUP)")
   sep=$(python3 -c "print($VAULT_HOUSE_SEPOLIA + $VAULT_B + $VAULT_C + 2*$BOT_TOPUP)")
-  echo "  total: $arc USDC on Arc, $sep USDC on Sepolia"
+  echo "  Sepolia gas (the deployer has ETH now):"
+  echo "    House / B / C / D submitters, reporter, both bots   $GAS_EACH ETH each"
+  echo "    market bot                                          $GAS_MARKET_BOT ETH"
   echo
-  echo "  NOT included: Sepolia ETH for gas (use a faucet -> $DEPLOYER, then scripts/fund-bots.sh),"
-  echo "                Uniswap pool depth (see the note at the end of this script)."
+  echo "  total: $arc USDC on Arc, $sep USDC on Sepolia, $(python3 -c "print(7*$GAS_EACH + $GAS_MARKET_BOT)") ETH on Sepolia"
+  echo
+  echo "  NOT included: Uniswap pool depth (see the note at the end of this script)."
+}
+
+send_eth() { # to, eth, label
+  local to=$1 amount=$2 label=$3
+  echo "-- gas $label: $amount ETH"
+  cast send "$to" --value "${amount}ether" --rpc-url "$SEPOLIA_RPC" --account deployKey -f "$DEPLOYER" | grep -E "^status|^transactionHash"
 }
 
 deposit() { # rpc, usdc, vault, whole-usdc, label
@@ -101,6 +122,15 @@ send_usdc "$ARC_RPC" "$USDC_ARC" "$BOT1" "$BOT_TOPUP" "bot #1 on Arc"
 send_usdc "$ARC_RPC" "$USDC_ARC" "$BOT2" "$BOT_TOPUP" "bot #2 on Arc"
 send_usdc "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$BOT1" "$BOT_TOPUP" "bot #1 on Sepolia"
 send_usdc "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$BOT2" "$BOT_TOPUP" "bot #2 on Sepolia"
+
+send_eth "$HOUSE_SUBMITTER" "$GAS_EACH" "House submitter"
+send_eth "$REPORTER" "$GAS_EACH" "settlement reporter"
+send_eth "$B_SUBMITTER" "$GAS_EACH" "B submitter"
+send_eth "$C_SUBMITTER" "$GAS_EACH" "C submitter"
+send_eth "$D_SUBMITTER" "$GAS_EACH" "D submitter (your vault)"
+send_eth "$BOT1" "$GAS_EACH" "bot #1"
+send_eth "$BOT2" "$GAS_EACH" "bot #2"
+send_eth "$MARKET_BOT" "$GAS_MARKET_BOT" "market bot"
 
 echo
 echo "done. Check the result with:  pnpm exec tsx scripts/balance-watch.ts --once"
