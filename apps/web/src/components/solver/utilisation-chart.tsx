@@ -20,8 +20,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useState } from "react";
 import { formatUsdc } from "@/lib/arcaidia/format";
 import { StateSection } from "@/components/data/state-views";
+import { cn } from "@/lib/utils";
 import type { EcosystemUtilisation } from "@/hooks/arcaidia/use-ecosystem-utilisation";
 import type { VaultAnalytics } from "@/hooks/arcaidia/use-vaults";
 import type { DataState } from "@/lib/arcaidia/data-state";
@@ -59,6 +61,42 @@ interface MergedRow {
  * forward-filled table so each vault's line only starts where its own
  * history actually starts, rather than being padded with a fabricated zero.
  */
+/**
+ * How much history to draw, and how coarsely. Days of step data at full resolution is a
+ * seismograph, not a chart: the window trims it to a readable span and the bucket collapses
+ * everything inside one interval to its last value, so the shape survives and the noise does not.
+ */
+export const CHART_WINDOWS = [
+  { id: "1h", label: "1H", seconds: 3_600, bucketSeconds: 60 },
+  { id: "24h", label: "24H", seconds: 86_400, bucketSeconds: 900 },
+  { id: "7d", label: "7D", seconds: 7 * 86_400, bucketSeconds: 3 * 3_600 },
+  { id: "all", label: "All", seconds: Number.POSITIVE_INFINITY, bucketSeconds: 6 * 3_600 },
+] as const;
+export type ChartWindowId = (typeof CHART_WINDOWS)[number]["id"];
+
+/**
+ * Keep the rows inside `[now − seconds, now]`, then one row per bucket (the last in each, since
+ * these are step series where the latest value is the state). The row before the window is kept
+ * as the opening value so a line does not start in mid-air.
+ */
+export function windowRows<T extends { at: number }>(rows: readonly T[], seconds: number, bucketSeconds: number, now: number): T[] {
+  if (rows.length === 0) return [];
+  const from = Number.isFinite(seconds) ? now - seconds : -Infinity;
+  const inside = rows.filter((r) => r.at >= from);
+  if (inside.length === 0) return [];
+  // One row per bucket, the last in each: these are step series, so the latest value is the state.
+  const byBucket = new Map<number, T>();
+  for (const row of inside) byBucket.set(Math.floor(row.at / bucketSeconds) * bucketSeconds, row);
+  const out = [...byBucket.values()].sort((a, b) => a.at - b.at);
+  const last = inside.at(-1)!;
+  if (out.at(-1)!.at !== last.at) out.push(last); // always end on the live value
+  // The row before the window becomes the opening value at the window's edge, so a line never
+  // starts in mid-air; it is kept whole rather than bucketed with what follows it.
+  const before = rows.filter((r) => r.at < from).at(-1);
+  if (before && Number.isFinite(from) && out[0]!.at > from) out.unshift({ ...before, at: from });
+  return out;
+}
+
 function mergeForChart(data: EcosystemUtilisation): MergedRow[] {
   const timestamps = [
     ...new Set([...data.aggregate.map((p) => p.at), ...data.perVault.flatMap((v) => v.points.map((p) => p.at))]),
@@ -84,11 +122,30 @@ function mergeForChart(data: EcosystemUtilisation): MergedRow[] {
 }
 
 export function UtilisationChart({ state }: { state: DataState<EcosystemUtilisation> }) {
+  const [windowId, setWindowId] = useState<ChartWindowId>("24h");
+  const frame = CHART_WINDOWS.find((w) => w.id === windowId) ?? CHART_WINDOWS[1];
   return (
     <section className="panel p-5">
-      <h3 className="text-sm font-semibold tracking-wide text-text uppercase">
-        Ecosystem utilisation over time
-      </h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h3 className="text-sm font-semibold tracking-wide text-text uppercase">
+          Ecosystem utilisation over time
+        </h3>
+        <div className="flex items-center gap-1">
+          {CHART_WINDOWS.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => setWindowId(w.id)}
+              className={cn(
+                "num rounded-md border px-2 py-0.5 text-[11px] transition-colors",
+                w.id === windowId ? "border-acid/60 bg-acid/15 text-acid" : "border-border text-text-dim hover:text-text",
+              )}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <StateSection
         state={state}
         emptyTitle="No history yet"
@@ -97,9 +154,14 @@ export function UtilisationChart({ state }: { state: DataState<EcosystemUtilisat
         unavailableNote="Utilisation history needs at least one vault in the directory."
       >
         {(data) => {
-          const rows = mergeForChart(data);
+          const all = mergeForChart(data);
+          const rows = windowRows(all, frame.seconds, frame.bucketSeconds, Math.floor(Date.now() / 1000));
           if (rows.length === 0) {
-            return <p className="mt-3 text-xs text-text-dim">No history yet.</p>;
+            return (
+              <p className="mt-3 text-xs text-text-dim">
+                Nothing in the last {frame.label.toLowerCase()} — pick a longer window.
+              </p>
+            );
           }
           return (
             <div className="mt-3 h-64 w-full">
@@ -151,6 +213,9 @@ export function UtilisationChart({ state }: { state: DataState<EcosystemUtilisat
                   />
                 </LineChart>
               </ResponsiveContainer>
+              <p className="num mt-1 text-[10px] text-text-dim">
+                {rows.length} of {all.length} points · one every {frame.bucketSeconds >= 3_600 ? `${frame.bucketSeconds / 3_600}h` : `${frame.bucketSeconds / 60}m`}
+              </p>
             </div>
           );
         }}
