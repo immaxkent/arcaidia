@@ -11,8 +11,13 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { ABIS, USDC_TOKEN_OUT, type Address } from '@arcaidia/domain';
 import type { PlannedIntent } from './phases.js';
 
+/** Below this there is no point sending: fees and gas dominate. */
+export const MIN_INTENT_AMOUNT = 1_000_000n;
+
 export interface SubmittedIntent {
   readonly intentId: Hex;
+  /** What was actually sent — the planned amount, or less when the wallet could not cover it. */
+  readonly amount?: bigint;
   readonly txHash: Hex;
   readonly from: Address;
   readonly nonce: bigint;
@@ -89,10 +94,24 @@ export class ViemIntentSubmitter implements IntentSubmitter {
     const publicClient = createPublicClient({ chain: endpoint.chain, transport: http(endpoint.rpcUrl) });
     const wallet = createWalletClient({ account, chain: endpoint.chain, transport: http(endpoint.rpcUrl) });
 
+    // A planned intent can outrun what this wallet holds on this chain: sizes are drawn from the
+    // profile, but the balance drifts with the direction of recent traffic. Sending anyway burns
+    // gas on a certain `ERC20: transfer amount exceeds balance` revert, so clamp to what is
+    // actually there (keeping a little back for the next one) and say so.
+    const held = (await publicClient.readContract({ address: endpoint.usdc, abi: ERC20_ABI, functionName: 'balanceOf', args: [account.address] })) as bigint;
+    const affordable = (held * 9_000n) / 10_000n;
+    let amount = intent.amount;
+    if (amount > affordable) {
+      if (affordable < MIN_INTENT_AMOUNT) {
+        throw new Error(`wallet ${account.address} holds ${held} on chain ${endpoint.chainId}: too little for any intent`);
+      }
+      amount = affordable;
+    }
+
     const approvalKey = `${endpoint.chainId}:${account.address}`;
     if (!this.approved.has(approvalKey)) {
       const allowance = await publicClient.readContract({ address: endpoint.usdc, abi: ERC20_ABI, functionName: 'allowance', args: [account.address, endpoint.router] });
-      if (allowance < intent.amount * 1_000n) {
+      if (allowance < amount * 1_000n) {
         const hash = await wallet.writeContract({ address: endpoint.usdc, abi: ERC20_ABI, functionName: 'approve', args: [endpoint.router, 2n ** 255n] });
         await publicClient.waitForTransactionReceipt({ hash });
       }
@@ -107,7 +126,7 @@ export class ViemIntentSubmitter implements IntentSubmitter {
       if (!destination) throw new Error(`No endpoint configured for chain ${intent.destinationChainId}.`);
       const destinationClient = createPublicClient({ chain: destination.chain, transport: http(destination.rpcUrl) });
       tokenOut = intent.trade.tokenOut;
-      targetMinOut = await quoteTargetMinOut(destination, tokenOut, intent.amount, intent.trade.unsatisfiable, (args) =>
+      targetMinOut = await quoteTargetMinOut(destination, tokenOut, amount, intent.trade.unsatisfiable, (args) =>
         destinationClient.readContract(args) as Promise<bigint>,
       );
     }
@@ -118,7 +137,7 @@ export class ViemIntentSubmitter implements IntentSubmitter {
       address: endpoint.router,
       abi: ROUTER_ABI,
       functionName: 'createIntent',
-      args: [account.address, intent.amount, BigInt(intent.destinationChainId), intent.maxFeeBps, deadline, nonce, tokenOut, targetMinOut],
+      args: [account.address, amount, BigInt(intent.destinationChainId), intent.maxFeeBps, deadline, nonce, tokenOut, targetMinOut],
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
     if (receipt.status !== 'success') throw new Error(`createIntent ${txHash} reverted.`);
@@ -127,7 +146,7 @@ export class ViemIntentSubmitter implements IntentSubmitter {
     const log = receipt.logs.find((l) => l.address.toLowerCase() === endpoint.router.toLowerCase() && l.topics[0] === topic);
     if (!log) throw new Error(`createIntent ${txHash} emitted no IntentCreated.`);
     const decoded = decodeEventLog({ abi: ROUTER_ABI, eventName: 'IntentCreated', topics: log.topics, data: log.data });
-    return { intentId: decoded.args.intentId, txHash, from: account.address, nonce, submittedAt: this.clock() };
+    return { intentId: decoded.args.intentId, txHash, from: account.address, nonce, submittedAt: this.clock(), amount };
   }
 }
 

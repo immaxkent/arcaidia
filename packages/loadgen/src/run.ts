@@ -109,7 +109,9 @@ export async function runLoadgen(deps: RunDependencies): Promise<RunSummary> {
       journal.push(entry);
       deps.onJournal(entry);
       const trade = intent.trade ? ` → ${intent.trade.symbol}${intent.trade.unsatisfiable ? ' (floor above market: expect USDC fallback)' : ''}` : '';
-      log(`sent ${intent.tag} ${(Number(intent.amount) / 1e6).toFixed(2)} USDC ${intent.sourceChainId}→${intent.destinationChainId}${trade} maxFee ${intent.maxFeeBps} bps → ${submitted.intentId.slice(0, 10)}…`);
+      const sent = submitted.amount ?? intent.amount;
+      const clamped = sent < intent.amount ? ` (planned ${(Number(intent.amount) / 1e6).toFixed(2)}, wallet could not cover it)` : '';
+      log(`sent ${intent.tag} ${(Number(sent) / 1e6).toFixed(2)} USDC${clamped} ${intent.sourceChainId}→${intent.destinationChainId}${trade} maxFee ${intent.maxFeeBps} bps → ${submitted.intentId.slice(0, 10)}…`);
     } catch (error) {
       const entry: JournalEntry = { planned: intent, submitted: null, error: error instanceof Error ? error.message : String(error), walletIndex };
       journal.push(entry);
