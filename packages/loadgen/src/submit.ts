@@ -85,7 +85,33 @@ export class ViemIntentSubmitter implements IntentSubmitter {
     this.nonceCounter = BigInt(Date.now()) * 1_000n;
   }
 
-  async submit(intent: PlannedIntent, walletIndex: number): Promise<SubmittedIntent> {
+  /** USDC this wallet holds on `chainId`, or 0 when that chain is not configured. */
+  private async usdcOn(chainId: number, address: Address): Promise<bigint> {
+    const endpoint = this.endpoints.get(chainId);
+    if (!endpoint) return 0n;
+    const client = createPublicClient({ chain: endpoint.chain, transport: http(endpoint.rpcUrl) });
+    return (await client.readContract({ address: endpoint.usdc, abi: ERC20_ABI, functionName: 'balanceOf', args: [address] })) as bigint;
+  }
+
+  /** The planned intent, or the same intent reversed when only the other chain can fund it. */
+  private async affordableDirection(intent: PlannedIntent, walletIndex: number): Promise<PlannedIntent> {
+    const key = this.keys[walletIndex];
+    if (!key) return intent;
+    const address = privateKeyToAccount(key).address;
+    const here = await this.usdcOn(intent.sourceChainId, address);
+    if (here >= MIN_INTENT_AMOUNT) return intent;
+    const there = await this.usdcOn(intent.destinationChainId, address);
+    if (there < MIN_INTENT_AMOUNT) return intent; // neither side can pay; let submit() say so
+    return { ...intent, sourceChainId: intent.destinationChainId, destinationChainId: intent.sourceChainId };
+  }
+
+  async submit(planned: PlannedIntent, walletIndex: number): Promise<SubmittedIntent> {
+    // A transfer moves the wallet's USDC from one chain to the other, so a run of intents in one
+    // direction empties the sending side and the generator stalls on a chain it cannot pay from.
+    // Send it the other way instead when that side has the money: the traffic rebalances itself,
+    // which is also what a real user does. Trade intents name a token on their destination chain,
+    // so those are left as planned rather than silently pointed at the wrong token.
+    const intent = planned.trade ? planned : await this.affordableDirection(planned, walletIndex);
     const endpoint = this.endpoints.get(intent.sourceChainId);
     if (!endpoint) throw new Error(`No endpoint configured for chain ${intent.sourceChainId}.`);
     const key = this.keys[walletIndex];
