@@ -19,6 +19,7 @@ import { sepolia } from 'viem/chains';
 import { parseLoadgenConfig } from '../config.js';
 import { NestMarketObserver } from '../observe.js';
 import { runLoadgen } from '../run.js';
+import { sweepTokensToUsdc } from '../sweep.js';
 import { mulberry32 } from '../rng.js';
 import { DryRunSubmitter, ViemIntentSubmitter, type ChainEndpoint } from '../submit.js';
 
@@ -71,6 +72,14 @@ async function main(): Promise<void> {
   // time — which reads as a broken generator. Tests and dry runs keep the config's seed.
   const seed = process.env.LOADGEN_SEED ? Number(process.env.LOADGEN_SEED) : dryRun ? config.seed : Date.now() % 2_147_483_647;
   console.log(`[loadgen] ${dryRun ? 'DRY RUN' : 'LIVE'} seed=${seed} wallets=${keys.length} phases=${config.phases.map((p) => p.kind).join(',')}`);
+  // Trade intents pay the bots in mock tokens; sell them back to USDC every 30 minutes (and once
+  // at start) so the bot economy does not drain into tokens overnight.
+  if (!dryRun) {
+    const sweep = () => sweepTokensToUsdc(endpoints(), keys, { log: (line) => console.log(`[loadgen] sweep: ${line}`) }).catch((e: unknown) => console.warn(`[loadgen] sweep failed: ${e instanceof Error ? e.message : String(e)}`));
+    void sweep();
+    const sweeper = setInterval(() => void sweep(), Number(process.env.LOADGEN_SWEEP_INTERVAL_MS ?? 30 * 60_000));
+    sweeper.unref?.();
+  }
   const summary = await runLoadgen({
     config,
     rng: mulberry32(seed),
