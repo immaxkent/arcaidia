@@ -1,7 +1,7 @@
 {
   "seed": 20260912,
   "ethereumToArcShare": 0.5,
-  "tradeIntentShare": 0.22,
+  "tradeIntentShare": 0.15,
   "chains": [
     {
       "chainId": 11155111,
@@ -26,14 +26,14 @@
         "max": 1200
       },
       "intentsPerMinuteRange": {
-        "min": 0.2,
-        "max": 0.4
+        "min": 0.12,
+        "max": 0.24
       },
       "amount": {
-        "mu": 4.7,
-        "sigma": 0.45,
-        "minUsdc": 40,
-        "maxUsdc": 200
+        "mu": 5.35,
+        "sigma": 0.4,
+        "minUsdc": 90,
+        "maxUsdc": 300
       },
       "maxFeeBps": [
         {
@@ -54,10 +54,10 @@
         "min": 1,
         "max": 1
       },
-      "largeIntentProbability": 0.1,
+      "largeIntentProbability": 0.18,
       "largeAmountRange": {
-        "min": 200,
-        "max": 300
+        "min": 260,
+        "max": 310
       },
       "deadlineSecondsRange": {
         "min": 1800,
@@ -71,14 +71,14 @@
         "max": 300
       },
       "intentsPerMinuteRange": {
-        "min": 0.45,
-        "max": 0.75
+        "min": 0.27,
+        "max": 0.45
       },
       "amount": {
-        "mu": 4.8,
-        "sigma": 0.45,
-        "minUsdc": 50,
-        "maxUsdc": 220
+        "mu": 5.45,
+        "sigma": 0.4,
+        "minUsdc": 110,
+        "maxUsdc": 310
       },
       "maxFeeBps": [
         {
@@ -99,10 +99,10 @@
         "min": 2,
         "max": 2
       },
-      "largeIntentProbability": 0.14,
+      "largeIntentProbability": 0.22,
       "largeAmountRange": {
-        "min": 200,
-        "max": 300
+        "min": 260,
+        "max": 310
       },
       "deadlineSecondsRange": {
         "min": 1800,
@@ -116,14 +116,14 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.15,
-        "max": 0.3
+        "min": 0.1,
+        "max": 0.18
       },
       "amount": {
-        "mu": 5.45,
-        "sigma": 0.45,
-        "minUsdc": 180,
-        "maxUsdc": 300
+        "mu": 5.7,
+        "sigma": 0.4,
+        "minUsdc": 240,
+        "maxUsdc": 310
       },
       "maxFeeBps": [
         {
@@ -142,8 +142,8 @@
       },
       "largeIntentProbability": 1.0,
       "largeAmountRange": {
-        "min": 200,
-        "max": 300
+        "min": 260,
+        "max": 310
       },
       "deadlineSecondsRange": {
         "min": 1800,
@@ -157,14 +157,14 @@
         "max": 600
       },
       "intentsPerMinuteRange": {
-        "min": 0.3,
-        "max": 0.5
+        "min": 0.18,
+        "max": 0.3
       },
       "amount": {
-        "mu": 4.5,
-        "sigma": 0.45,
-        "minUsdc": 35,
-        "maxUsdc": 160
+        "mu": 5.2,
+        "sigma": 0.4,
+        "minUsdc": 80,
+        "maxUsdc": 280
       },
       "maxFeeBps": [
         {
@@ -198,14 +198,14 @@
         "max": 900
       },
       "intentsPerMinuteRange": {
-        "min": 0.2,
-        "max": 0.4
+        "min": 0.12,
+        "max": 0.24
       },
       "amount": {
-        "mu": 4.5,
-        "sigma": 0.45,
-        "minUsdc": 35,
-        "maxUsdc": 160
+        "mu": 5.2,
+        "sigma": 0.4,
+        "minUsdc": 80,
+        "maxUsdc": 280
       },
       "maxFeeBps": [
         {
@@ -238,9 +238,9 @@
     }
   ],
   "phaseWeights": [
-    8,
+    6,
     1,
-    1,
+    3,
     1,
     1
   ],
@@ -256,6 +256,6 @@
   },
   "journalPath": "loadgen.jsonl",
   "metricsPath": "loadgen.metrics.json",
-  "_comment": "Demo profile (WP-32/34). Sized 2026-09-15 for a market that shows both depth and pressure: regular intents median ~110 USDC, whales 200-300 (under the House Vault's 315 per-fill cap and over every other vault's, so a whale concentrates exposure where there is room and pushes one vault toward its 80% exposure cap). Pairs per arrival, arrivals every 2-5 min, about two in nine naming a token out. Aggregate utilisation lands near a third of the 3,240 USDC of vault capital; the binding constraints are bot working capital (in-flight volume is bot money) and Sepolia gas, not the vaults.",
+  "_comment": "Demo profile (WP-32/34). Sized 2026-09-15 for high utilisation at low gas: half the arrivals, roughly double the size. Regular intents median ~210 USDC, whales 260-310 \u2014 just under the House Vault's 315 per-fill cap and well over every other vault's 225, so whales land where there is room and walk one vault per chain to its 80% exposure cap while the rest still show depth. About 30 intents an hour, ~8,000 USDC of throughput, roughly 1,600 in flight against 3,240 of vault capital (the contract ceiling is 80%, so that is about two thirds of what the market can carry). Halving the rate halves Sepolia gas, which is the real running cost; in-flight volume is bot money, which is the other.",
   "intentsPerFire": 3
 }

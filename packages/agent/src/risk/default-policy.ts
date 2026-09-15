@@ -46,8 +46,16 @@ export const DEFAULT_RISK_POLICY: RiskPolicy = {
     slowMaxFillAmount: USDC(5_000),
     /** Stop advancing once this much principal is already awaiting reimbursement. */
     backlogRejectValue: USDC(45_000),
-    /** Or once the oldest unreimbursed advance is twenty minutes old. */
-    maxOldestUnsettledAgeSeconds: 1_200,
+    /**
+     * Or once the oldest unreimbursed advance is fifty minutes old. Twenty was calibrated when
+     * canonical settlement followed a fill within a few minutes; the worker now deliberately
+     * gives solvers a head start before settling (`SETTLEMENT_GRACE_SECONDS`), so a fill on the
+     * Ethereum side is routinely fifteen minutes from reimbursement and one on the Arc side as
+     * long as the grace window. At twenty this fired on healthy traffic and every solver refused
+     * every intent; it is a circuit breaker for a settlement path that has actually stopped, and
+     * fifty minutes is still far short of anything working.
+     */
+    maxOldestUnsettledAgeSeconds: 3_000,
   },
 
   /** Observations older than a minute are refused as a basis for risking capital. */

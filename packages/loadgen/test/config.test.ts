@@ -28,7 +28,7 @@ describe('parseLoadgenConfig', () => {
 });
 
 describe('the committed default profile is the demo cadence', () => {
-  it('averages an arrival every two to four minutes before clusters and the controller, and cannot be driven above 1.5x', () => {
+  it('averages an arrival every four to six minutes before clusters and the controller, and cannot be driven above 1.5x', () => {
     const { readFileSync } = require('node:fs') as typeof import('node:fs');
     const { join } = require('node:path') as typeof import('node:path');
     const raw = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'loadgen.config.json'), 'utf8'));
@@ -36,13 +36,16 @@ describe('the committed default profile is the demo cadence', () => {
     const weights = config.phaseWeights;
     const perHour = config.phases.map((p) => ((p.intentsPerMinuteRange.min + p.intentsPerMinuteRange.max) / 2) * 60);
     const weighted = perHour.reduce((acc, r, i) => acc + r * weights[i]!, 0) / weights.reduce((a, b) => a + b, 0);
-    // ~20 arrivals/hour before intentsPerFire; with pairs-or-triples that is ~60 intents an hour,
-    // which against 3,240 USDC of vault capital lands utilisation near a third (2026-09-15).
-    expect(weighted).toBeGreaterThan(15);
-    expect(weighted).toBeLessThan(28);
+    // ~11 arrivals an hour before intentsPerFire; at three per arrival that is ~34 intents an
+    // hour, and at a median ~210 USDC it carries roughly half the market's 3,240 USDC of vault
+    // capital as live exposure — high utilisation bought with fewer, larger transactions rather
+    // than more of them, because gas is the running cost (2026-09-15).
+    expect(weighted).toBeGreaterThan(8);
+    expect(weighted).toBeLessThan(18);
     expect(config.scarcity.weightMultiplierBounds.max).toBeLessThanOrEqual(1.5);
-    expect(config.phases.find((p) => p.kind === 'background')!.intentsPerMinuteRange.max).toBeLessThanOrEqual(0.5);
-    // WP-34: about two in nine intents name a token out.
-    expect(config.tradeIntentShare).toBeCloseTo(0.22, 2);
+    expect(config.phases.find((p) => p.kind === 'background')!.intentsPerMinuteRange.max).toBeLessThanOrEqual(0.3);
+    // WP-34: about one in seven intents names a token out — trades are 1-8 USDC against 40 USDC
+    // pools, so a larger share would drag the average intent size (and utilisation) down.
+    expect(config.tradeIntentShare).toBeCloseTo(0.15, 2);
   });
 });

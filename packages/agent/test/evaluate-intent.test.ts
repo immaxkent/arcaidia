@@ -144,13 +144,19 @@ describe('evaluateIntent', () => {
   });
 
   it('rejects once the oldest unsettled advance is too old', () => {
-    const decision = evaluate(intent(), vault(), health({ oldestUnsettledAgeSeconds: 1_201 }));
+    const decision = evaluate(intent(), vault(), health({ oldestUnsettledAgeSeconds: 3_001 }));
     expect(decision.reason).toBe(DecisionReason.SETTLEMENT_BACKLOG);
+  });
+
+  it('accepts a fill whose settlement is merely waiting out the grace window', () => {
+    // The worker gives solvers a head start before settling canonically, so a routine fill sits
+    // unreimbursed for the length of that window plus CCTP. That is not a backlog.
+    expect(evaluate(intent(), vault(), health({ oldestUnsettledAgeSeconds: 1_500 })).verdict).toBe(Verdict.ACCEPT);
   });
 
   it('accepts at exactly the oldest-unsettled limit', () => {
     expect(
-      evaluate(intent(), vault(), health({ oldestUnsettledAgeSeconds: 1_200 })).verdict,
+      evaluate(intent(), vault(), health({ oldestUnsettledAgeSeconds: 3_000 })).verdict,
     ).toBe(Verdict.ACCEPT);
   });
 
