@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
-# Redistribute the deployer's USDC across the market — vault depth first, then the generator's
-# working capital. Every transfer is signed by the `deployKey` keystore (one password prompt per
-# transaction; cast caches nothing, so expect to type it once per line).
+# Bring every wallet and vault in the market up to a target, from the deployer keystore.
 #
-#   scripts/redistribute.sh --dry-run    # print the plan and stop
-#   scripts/redistribute.sh              # confirm, then send
-#   VAULT_HOUSE_ARC=300 GAS_EACH=0.04 scripts/redistribute.sh   # override any amount below
+#   scripts/redistribute.sh --dry-run    # read the chain, print what is missing, stop
+#   scripts/redistribute.sh              # confirm, then send only the shortfalls
+#   TARGET_HOUSE=900 scripts/redistribute.sh   # override any target below
 #
-# Uniswap pool depth is deliberately NOT here: adding liquidity mints matching mock tokens and
-# moves prices, so it lives in the market repo (see the note at the end of this file).
+# Targets, not transfers. Every line reads the chain first and sends only the difference, so a
+# run that dies halfway (an RPC timeout mid-deposit is how this script earned its rewrite) is
+# resumed by running it again, and running it twice in a row sends nothing the second time.
+# Each call is retried three times before giving up on that line and carrying on with the rest.
 #
-# What this does, and why:
-#   * Vault deposits mint the deployer ERC-4626 shares; the capital is lent to recipients on a
-#     fast fill and returned with the fee by canonical settlement. It compounds rather than
-#     being consumed, so it is the highest-value place to put USDC.
-#   * Generator top-ups are working capital that circulates; it leaks into mock tokens on trade
-#     intents, which the generator's own sweep converts back every 30 minutes.
-set -euo pipefail
+# Vault deposits mint the deployer ERC-4626 shares: the capital is lent out on a fast fill and
+# returned with the fee by canonical settlement, so it compounds rather than being spent. Bot
+# USDC is working capital that circulates; the generator's own sweep recovers what trade intents
+# leak into mock tokens. Gas is pure consumption and the only thing a faucet has to replace.
+set -uo pipefail
 
 DEPLOYER=0x538e5E9797fa86eE25e97289439b6A3AbA0165b0
 SEPOLIA_RPC=${ETHEREUM_SEPOLIA_RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}
@@ -24,117 +22,160 @@ ARC_RPC=${ARC_TESTNET_RPC_URL:-https://arc-testnet.drpc.org}
 USDC_SEPOLIA=0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
 USDC_ARC=0x3600000000000000000000000000000000000000
 
-# Vaults (deposit → shares for the deployer)
-HOUSE_ARC=0xB4bA190D5C78869366e7963f5CcCf4c3167d855C
-HOUSE_SEPOLIA=0xB4bA190D5C78869366e7963f5CcCf4c3167d855C
-VAULT_B_ARC=0x73e0b52C68F5912544C176D265782133947b68fc
-VAULT_C_ARC=0x180d1c22a41c2E43b9a9086a3C4B2a37fBa8E5Ae
-VAULT_B_SEPOLIA=0x8c924cA38856f4Fdb2e8f672Fd0084689B1EE47B
-VAULT_C_SEPOLIA=0x3d11E0452a154CF6255F5E12Fb56E361832Da203
-
-# Generator wallets (plain transfers)
-BOT1=0xd2A11B3d4A71Cad528E13e868401F2534881937C
-BOT2=0x2A450f96a8C4890CDdf280ADA297519dab2E3F95
-
-# --- amounts, in whole USDC; override any of them from the environment -------------------------
-VAULT_HOUSE_ARC=${VAULT_HOUSE_ARC:-250}
-VAULT_HOUSE_SEPOLIA=${VAULT_HOUSE_SEPOLIA:-250}
-VAULT_B=${VAULT_B:-150}          # each chain
-VAULT_C=${VAULT_C:-150}          # each chain
-BOT_TOPUP=${BOT_TOPUP:-150}      # each bot, each chain
-# Sepolia gas, in ETH, to every wallet that spends it. The floors are ~0.01–0.06; these buffers
-# are days of headroom each, so the market stops needing a human between faucet visits.
-GAS_EACH=${GAS_EACH:-0.03}
-GAS_MARKET_BOT=${GAS_MARKET_BOT:-0.06}
+# --- targets, in whole USDC (vault total assets) and ETH (wallet gas) ------------------------
+TARGET_HOUSE=${TARGET_HOUSE:-700}        # each chain
+TARGET_B=${TARGET_B:-500}                # each chain
+TARGET_C=${TARGET_C:-500}                # each chain
+TARGET_D=${TARGET_D:-200}                # Sepolia only (the Earn-created vault)
+TARGET_BOT=${TARGET_BOT:-250}            # each bot, each chain
+TARGET_GAS=${TARGET_GAS:-0.05}           # each Sepolia signer
+TARGET_GAS_MARKET=${TARGET_GAS_MARKET:-0.08}
 DRY=${1:-}
 
-# Wallets that spend Sepolia gas (submitters sign fills, the reporter signs settlements)
-HOUSE_SUBMITTER=0x21F6A2feb26c2da068C47DDfd85FDde429931cf2
-REPORTER=0x1BBCcFc2CC7Ff7296e3E18646218211631De9862
-B_SUBMITTER=0x90f9Cc769bDffAac58510839F7E1E9516a783F90
-C_SUBMITTER=0xDfCD3f8983e33D607a4cd96c38bd673bff9079cC
-D_SUBMITTER=0xC3D02b3504a98b29d79E277F2e9f5a89DD096B29
-MARKET_BOT=0x387297228f13d72c778A205A242a48C6364F7EcB
+# vaults: chain|label|address
+VAULTS_SEPOLIA="House|0xB4bA190D5C78869366e7963f5CcCf4c3167d855C|$TARGET_HOUSE
+Moody (B)|0x8c924cA38856f4Fdb2e8f672Fd0084689B1EE47B|$TARGET_B
+Skylight (C)|0x3d11E0452a154CF6255F5E12Fb56E361832Da203|$TARGET_C
+Your vault (D)|0xc13ED8AF3f9B23E33Dc193754BaB6293CFB5CA35|$TARGET_D"
+VAULTS_ARC="House|0xB4bA190D5C78869366e7963f5CcCf4c3167d855C|$TARGET_HOUSE
+Moody (B)|0x73e0b52C68F5912544C176D265782133947b68fc|$TARGET_B
+Skylight (C)|0x180d1c22a41c2E43b9a9086a3C4B2a37fBa8E5Ae|$TARGET_C"
 
-units() { python3 -c "print(int($1 * 10**6))"; }
+BOT1=0xd2A11B3d4A71Cad528E13e868401F2534881937C
+BOT2=0x2A450f96a8C4890CDdf280ADA297519dab2E3F95
+GAS_WALLETS="House submitter|0x21F6A2feb26c2da068C47DDfd85FDde429931cf2|$TARGET_GAS
+settlement reporter|0x1BBCcFc2CC7Ff7296e3E18646218211631De9862|$TARGET_GAS
+B submitter|0x90f9Cc769bDffAac58510839F7E1E9516a783F90|$TARGET_GAS
+C submitter|0xDfCD3f8983e33D607a4cd96c38bd673bff9079cC|$TARGET_GAS
+D submitter|0xC3D02b3504a98b29d79E277F2e9f5a89DD096B29|$TARGET_GAS
+bot #1|$BOT1|$TARGET_GAS
+bot #2|$BOT2|$TARGET_GAS
+market bot|0x387297228f13d72c778A205A242a48C6364F7EcB|$TARGET_GAS_MARKET"
 
-plan() {
-  echo "from $DEPLOYER"
-  echo
-  echo "  Arc vault deposits (deployer receives shares):"
-  echo "    House Vault      $VAULT_HOUSE_ARC USDC   -> $HOUSE_ARC"
-  echo "    Moody (B)        $VAULT_B USDC   -> $VAULT_B_ARC"
-  echo "    Skylight (C)     $VAULT_C USDC   -> $VAULT_C_ARC"
-  echo "  Sepolia vault deposits:"
-  echo "    House Vault      $VAULT_HOUSE_SEPOLIA USDC   -> $HOUSE_SEPOLIA"
-  echo "    Moody (B)        $VAULT_B USDC   -> $VAULT_B_SEPOLIA"
-  echo "    Skylight (C)     $VAULT_C USDC   -> $VAULT_C_SEPOLIA"
-  echo "  Generator working capital (plain transfers):"
-  echo "    bot #1           $BOT_TOPUP USDC on each chain"
-  echo "    bot #2           $BOT_TOPUP USDC on each chain"
-  echo
-  local arc sep
-  arc=$(python3 -c "print($VAULT_HOUSE_ARC + $VAULT_B + $VAULT_C + 2*$BOT_TOPUP)")
-  sep=$(python3 -c "print($VAULT_HOUSE_SEPOLIA + $VAULT_B + $VAULT_C + 2*$BOT_TOPUP)")
-  echo "  Sepolia gas (the deployer has ETH now):"
-  echo "    House / B / C / D submitters, reporter, both bots   $GAS_EACH ETH each"
-  echo "    market bot                                          $GAS_MARKET_BOT ETH"
-  echo
-  echo "  total: $arc USDC on Arc, $sep USDC on Sepolia, $(python3 -c "print(7*$GAS_EACH + $GAS_MARKET_BOT)") ETH on Sepolia"
-  echo
-  echo "  NOT included: Uniswap pool depth (see the note at the end of this script)."
+# --- chain reads, retried: a timeout must not be mistaken for a zero balance ------------------
+read_retry() { # rpc, address, signature, [arg]
+  local rpc=$1 addr=$2 sig=$3 arg=${4:-} out i
+  for i in 1 2 3; do
+    if [ -n "$arg" ]; then out=$(cast call "$addr" "$sig" "$arg" --rpc-url "$rpc" 2>/dev/null)
+    else out=$(cast call "$addr" "$sig" --rpc-url "$rpc" 2>/dev/null); fi
+    [ -n "$out" ] && { echo "${out%% *}"; return 0; }
+    sleep 2
+  done
+  echo "READ_FAILED"; return 1
+}
+eth_of() { cast balance "$1" --rpc-url "$2" 2>/dev/null || echo "READ_FAILED"; }
+whole() { python3 -c "print(f'{$1/10**$2:.2f}')"; }
+short() { python3 -c "d=$1-$2; print(f'{d:.2f}' if d > 0.009 else '0')"; }
+units() { python3 -c "print(int(round($1 * 10**$2)))"; }
+
+send_retry() { # label, then the cast send argv
+  local label=$1; shift
+  local i
+  for i in 1 2 3; do
+    if "$@" 2>&1 | grep -qE "^status +1"; then echo "   ok"; return 0; fi
+    echo "   attempt $i failed; retrying"; sleep 4
+  done
+  echo "   !! $label failed three times — rerun the script to pick it up"; return 1
 }
 
-send_eth() { # to, eth, label
-  local to=$1 amount=$2 label=$3
-  echo "-- gas $label: $amount ETH"
-  cast send "$to" --value "${amount}ether" --rpc-url "$SEPOLIA_RPC" --account deployKey -f "$DEPLOYER" | grep -E "^status|^transactionHash"
-}
-
-deposit() { # rpc, usdc, vault, whole-usdc, label
+deposit_to() { # rpc, usdc, vault, whole-usdc, label
   local rpc=$1 usdc=$2 vault=$3 amount=$4 label=$5 u
-  u=$(units "$amount")
-  echo "-- $label: approve $amount USDC"
-  cast send "$usdc" "approve(address,uint256)" "$vault" "$u" --rpc-url "$rpc" --account deployKey -f "$DEPLOYER" | grep -E "^status|^transactionHash"
+  u=$(units "$amount" 6)
   echo "-- $label: deposit $amount USDC"
-  cast send "$vault" "deposit(uint256,address)" "$u" "$DEPLOYER" --rpc-url "$rpc" --account deployKey -f "$DEPLOYER" | grep -E "^status|^transactionHash"
+  send_retry "$label approve" cast send "$usdc" "approve(address,uint256)" "$vault" "$u" --rpc-url "$rpc" --account deployKey -f "$DEPLOYER" || return 1
+  send_retry "$label deposit" cast send "$vault" "deposit(uint256,address)" "$u" "$DEPLOYER" --rpc-url "$rpc" --account deployKey -f "$DEPLOYER"
 }
-
 send_usdc() { # rpc, usdc, to, whole-usdc, label
-  local rpc=$1 usdc=$2 to=$3 amount=$4 label=$5 u
-  u=$(units "$amount")
-  echo "-- $label: $amount USDC"
-  cast send "$usdc" "transfer(address,uint256)" "$to" "$u" --rpc-url "$rpc" --account deployKey -f "$DEPLOYER" | grep -E "^status|^transactionHash"
+  local u; u=$(units "$4" 6)
+  echo "-- $5: $4 USDC"
+  send_retry "$5" cast send "$2" "transfer(address,uint256)" "$3" "$u" --rpc-url "$1" --account deployKey -f "$DEPLOYER"
+}
+send_eth() { # to, whole-eth, label
+  echo "-- gas $3: $2 ETH"
+  send_retry "$3" cast send "$1" --value "${2}ether" --rpc-url "$SEPOLIA_RPC" --account deployKey -f "$DEPLOYER"
 }
 
-plan
-if [ "$DRY" = "--dry-run" ]; then echo "dry run — nothing sent."; exit 0; fi
+# --- work out the shortfalls -------------------------------------------------------------------
+echo "reading the chain…"
+PLAN_FILE=$(mktemp); TOTAL_SEP=0; TOTAL_ARC=0; TOTAL_ETH=0
+plan_line() { printf '%s\n' "$1" >> "$PLAN_FILE"; }
+
+scan_vaults() { # chain, rpc, usdc, vault-list
+  local chain=$1 rpc=$2 usdc=$3 list=$4 label addr target have need
+  while IFS='|' read -r label addr target; do
+    [ -z "$label" ] && continue
+    have=$(read_retry "$rpc" "$addr" 'totalAssets()(uint256)')
+    if [ "$have" = "READ_FAILED" ]; then plan_line "  ?? $chain $label: could not read, skipping"; continue; fi
+    have=$(whole "$have" 6); need=$(short "$target" "$have")
+    if [ "$need" = "0" ]; then plan_line "  ok $chain vault $label: $have / $target USDC"
+    else
+      plan_line "  -> $chain vault $label: $have / $target USDC, deposit $need"
+      echo "VAULT|$chain|$rpc|$usdc|$addr|$need|$chain $label" >> "$PLAN_FILE.do"
+      if [ "$chain" = sepolia ]; then TOTAL_SEP=$(python3 -c "print($TOTAL_SEP + $need)"); else TOTAL_ARC=$(python3 -c "print($TOTAL_ARC + $need)"); fi
+    fi
+  done <<< "$list"
+}
+scan_vaults sepolia "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$VAULTS_SEPOLIA"
+scan_vaults arc "$ARC_RPC" "$USDC_ARC" "$VAULTS_ARC"
+
+# `|` rather than `:` — an RPC URL is full of colons, and splitting on those read every bot
+# balance from the host "https", which looked exactly like a chain that would not answer.
+while IFS='|' read -r chain rpc usdc; do
+  [ -z "$chain" ] && continue
+  while IFS='|' read -r label addr; do
+    [ -z "$label" ] && continue
+    have=$(read_retry "$rpc" "$usdc" 'balanceOf(address)(uint256)' "$addr")
+    if [ "$have" = "READ_FAILED" ]; then plan_line "  ?? $chain $label: could not read, skipping"; continue; fi
+    have=$(whole "$have" 6); need=$(short "$TARGET_BOT" "$have")
+    if [ "$need" = "0" ]; then plan_line "  ok $chain $label: $have / $TARGET_BOT USDC"
+    else
+      plan_line "  -> $chain $label: $have / $TARGET_BOT USDC, send $need"
+      echo "USDC|$chain|$rpc|$usdc|$addr|$need|$chain $label" >> "$PLAN_FILE.do"
+      if [ "$chain" = sepolia ]; then TOTAL_SEP=$(python3 -c "print($TOTAL_SEP + $need)"); else TOTAL_ARC=$(python3 -c "print($TOTAL_ARC + $need)"); fi
+    fi
+  done <<< "bot #1|$BOT1
+bot #2|$BOT2"
+done <<< "sepolia|$SEPOLIA_RPC|$USDC_SEPOLIA
+arc|$ARC_RPC|$USDC_ARC"
+
+while IFS='|' read -r label addr target; do
+  [ -z "$label" ] && continue
+  raw=$(eth_of "$addr" "$SEPOLIA_RPC")
+  if [ "$raw" = "READ_FAILED" ]; then plan_line "  ?? gas $label: could not read, skipping"; continue; fi
+  have=$(whole "$raw" 18); need=$(short "$target" "$have")
+  if [ "$need" = "0" ]; then plan_line "  ok gas $label: $have / $target ETH"
+  else
+    plan_line "  -> gas $label: $have / $target ETH, send $need"
+    echo "ETH||||$addr|$need|$label" >> "$PLAN_FILE.do"
+    TOTAL_ETH=$(python3 -c "print($TOTAL_ETH + $need)")
+  fi
+done <<< "$GAS_WALLETS"
+
+echo; echo "from $DEPLOYER"; echo
+cat "$PLAN_FILE"
+echo
+echo "  to send: $(python3 -c "print(f'{$TOTAL_SEP:.2f}')") USDC on Sepolia, $(python3 -c "print(f'{$TOTAL_ARC:.2f}')") USDC on Arc, $(python3 -c "print(f'{$TOTAL_ETH:.4f}')") ETH on Sepolia"
+echo "  (targets, so anything already at its level is left alone; safe to rerun)"
+echo
+echo "  NOT included: Uniswap pool depth — that mints matching mock tokens and moves prices,"
+echo "                so it lives in the market repo (~/code/uniswap-v2). Ask before running it."
+
+if [ ! -s "$PLAN_FILE.do" ]; then echo; echo "everything is already at target — nothing to send."; rm -f "$PLAN_FILE" "$PLAN_FILE.do"; exit 0; fi
+if [ "$DRY" = "--dry-run" ]; then echo; echo "dry run — nothing sent."; rm -f "$PLAN_FILE" "$PLAN_FILE.do"; exit 0; fi
+echo
 read -r -p "send these? [y/N] " reply
-[ "$reply" = "y" ] || { echo "cancelled."; exit 0; }
+[ "$reply" = "y" ] || { echo "cancelled."; rm -f "$PLAN_FILE" "$PLAN_FILE.do"; exit 0; }
 
-deposit "$ARC_RPC" "$USDC_ARC" "$HOUSE_ARC" "$VAULT_HOUSE_ARC" "Arc House Vault"
-deposit "$ARC_RPC" "$USDC_ARC" "$VAULT_B_ARC" "$VAULT_B" "Arc Moody (B)"
-deposit "$ARC_RPC" "$USDC_ARC" "$VAULT_C_ARC" "$VAULT_C" "Arc Skylight (C)"
-deposit "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$HOUSE_SEPOLIA" "$VAULT_HOUSE_SEPOLIA" "Sepolia House Vault"
-deposit "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$VAULT_B_SEPOLIA" "$VAULT_B" "Sepolia Moody (B)"
-deposit "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$VAULT_C_SEPOLIA" "$VAULT_C" "Sepolia Skylight (C)"
-send_usdc "$ARC_RPC" "$USDC_ARC" "$BOT1" "$BOT_TOPUP" "bot #1 on Arc"
-send_usdc "$ARC_RPC" "$USDC_ARC" "$BOT2" "$BOT_TOPUP" "bot #2 on Arc"
-send_usdc "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$BOT1" "$BOT_TOPUP" "bot #1 on Sepolia"
-send_usdc "$SEPOLIA_RPC" "$USDC_SEPOLIA" "$BOT2" "$BOT_TOPUP" "bot #2 on Sepolia"
-
-send_eth "$HOUSE_SUBMITTER" "$GAS_EACH" "House submitter"
-send_eth "$REPORTER" "$GAS_EACH" "settlement reporter"
-send_eth "$B_SUBMITTER" "$GAS_EACH" "B submitter"
-send_eth "$C_SUBMITTER" "$GAS_EACH" "C submitter"
-send_eth "$D_SUBMITTER" "$GAS_EACH" "D submitter (your vault)"
-send_eth "$BOT1" "$GAS_EACH" "bot #1"
-send_eth "$BOT2" "$GAS_EACH" "bot #2"
-send_eth "$MARKET_BOT" "$GAS_MARKET_BOT" "market bot"
+FAILED=0
+while IFS='|' read -r kind chain rpc usdc addr amount label; do
+  case "$kind" in
+    VAULT) deposit_to "$rpc" "$usdc" "$addr" "$amount" "$label" || FAILED=$((FAILED+1)) ;;
+    USDC)  send_usdc "$rpc" "$usdc" "$addr" "$amount" "$label" || FAILED=$((FAILED+1)) ;;
+    ETH)   send_eth "$addr" "$amount" "$label" || FAILED=$((FAILED+1)) ;;
+  esac
+done < "$PLAN_FILE.do"
+rm -f "$PLAN_FILE" "$PLAN_FILE.do"
 
 echo
-echo "done. Check the result with:  pnpm exec tsx scripts/balance-watch.ts --once"
-echo
-echo "Uniswap pool depth is a separate job: each pool holds ~40 USDC, which is why trade intents"
-echo "are capped at 1–8 USDC. Deepening them means addLiquidity with matching minted mock tokens"
-echo "in the market repo (~/code/uniswap-v2). Ask before running that — it moves prices."
+if [ "$FAILED" -gt 0 ]; then echo "$FAILED line(s) failed — rerun this script; it only sends what is still short."; else echo "done."; fi
+echo "check with:  pnpm exec tsx scripts/balance-watch.ts --once"
