@@ -49,7 +49,11 @@ const ADAPTER_ABI = [
 /** The widest fee tier a vault posts today; the floor is quoted on the amount the vault would actually swap. */
 const ASSUMED_FEE_BPS = 15n;
 /** Satisfiable: 3% under the quote (the bot moves prices a little between plan and fill). Unsatisfiable: 50% over it. */
-const SATISFIABLE_FLOOR_BPS = 9_700n;
+// 15%, not 3%. The floor is quoted when the intent is created and checked again when a solver
+// fills it, and the market bot walks these pairs hard (mETH +130% and mPEPE +600% in a day), so
+// a tight floor goes stale in the minutes between the two and the trade is declined as
+// unreachable. Over 24h only 11 of 27 trade intents reached a swap; the rest expired on drift.
+const SATISFIABLE_FLOOR_BPS = 8_500n;
 const UNSATISFIABLE_FLOOR_BPS = 15_000n;
 
 /**
