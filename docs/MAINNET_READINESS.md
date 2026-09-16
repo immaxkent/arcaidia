@@ -15,7 +15,7 @@
 - 🧪 **test** — reproduced by a Foundry test in this repository (`forge test --match-contract MainnetReadinessPoC`).
 - ⚠️ **assumption** — not verified. Listed again in section J.
 
-Assumption for the whole document: the counterpart of Arc Mainnet is **Ethereum Mainnet**, mirroring today's Arc Testnet ↔ Ethereum Sepolia pair (see J-1).
+Decisions recorded 2026-09-16: the launch route is **Ethereum Mainnet ↔ Arc Mainnet**. Pausing stays an owner action through the Safe, with no separate guardian role for now. Trade intents, the Uniswap adapter and Hedera intelligence are off at launch. The fix plan and post-launch milestones are in [`work-packages/MAINNET-PLAN.md`](../work-packages/MAINNET-PLAN.md).
 
 ---
 
@@ -699,15 +699,15 @@ Contracts are not upgradeable. "Rollback" therefore means **stop intake, let in-
 
 | # | Question | Why it matters | Recommendation |
 |---|---|---|---|
-| J-1 | Is Ethereum Mainnet the counterpart chain, or only some other CCTP chain? | Every D.1 value, the finality gate (C-05) and gas budgeting | Ethereum Mainnet, mirroring testnet |
+| J-1 | Counterpart chain | Every D.1 value and the finality gate (C-05) | **Decided:** Ethereum Mainnet ↔ Arc Mainnet |
 | J-2 | Safe signers and threshold on each chain | Protocol owner security (C-07) | 2-of-3 hardware wallets held by different people |
 | J-3 | External audit scope and timing for the C-01 to C-04 and C-09/C-10 fixes | These changes touch settlement, the most sensitive path | Required before stage 5 funding |
-| J-4 | Add a pause-only guardian role and the operator timelock (C-08)? | Incident response latency; LP protection in third-party vaults | Guardian yes before launch; timelock before third-party vaults are exposed in the UI |
+| J-4 | Pause-only guardian role; operator timelock (C-08) | Incident response latency; LP protection in third-party vaults | **Decided:** no guardian for now, the Safe pauses. Timelock still recommended before third-party vaults are exposed in the UI |
 | J-5 | Launch limits in H.2 | Maximum loss during early operation | Accept, or set lower |
 | J-6 | RPC providers and Iris quota | Public RPCs rate-limited and caused testnet outages | Paid provider per chain, plus a second as fallback |
 | J-7 | Contract verification route for `explorer.arc.io` | Arc's explorer type and verification API were not confirmed in this audit | Confirm with Arc docs or support before deploy day |
-| J-8 | Hedera x402 on mainnet at all? | Needs Hedera mainnet, a production facilitator and real funds; not on the settlement path | Off at launch |
-| J-9 | Uniswap trade intents at launch? | Adds adapter, liquidity and pair-allowlist risk (C-17, C-19) | Off at launch (`setTradeIntentsAllowed(false)`); enable per pair later |
+| J-8 | Hedera x402 on mainnet | Needs Hedera mainnet, a production facilitator and real funds; not on the settlement path | **Decided:** off at launch; opt-in upgrade in plan M3 |
+| J-9 | Uniswap trade intents at launch | Adds adapter, liquidity and pair-allowlist risk (C-17, C-19) | **Decided:** off at launch; plan M1 then M2 |
 | J-10 | Protocol fee share and treasury address | Economic parameter | Keep 50% share only if the treasury is a Safe |
 | J-11 | Circle production account for developer-controlled wallets and the entity secret's custody | House signer custody (C-08) | Secret in a managed secret store; audit Circle API key scope |
 | J-12 | Keep or remove the reporter valve (C-04)? | Recovery flexibility against a proven attack path | Remove |
