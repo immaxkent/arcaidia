@@ -18,6 +18,10 @@ export interface SubmittedIntent {
   readonly intentId: Hex;
   /** What was actually sent — the planned amount, or less when the wallet could not cover it. */
   readonly amount?: bigint;
+  /** The chain it was actually sent from, which is not the planned one when the direction was reversed. */
+  readonly sourceChainId?: number;
+  /** The chain it was actually sent to, the mirror of `sourceChainId`. */
+  readonly destinationChainId?: number;
   readonly txHash: Hex;
   readonly from: Address;
   readonly nonce: bigint;
@@ -175,7 +179,16 @@ export class ViemIntentSubmitter implements IntentSubmitter {
     const log = receipt.logs.find((l) => l.address.toLowerCase() === endpoint.router.toLowerCase() && l.topics[0] === topic);
     if (!log) throw new Error(`createIntent ${txHash} emitted no IntentCreated.`);
     const decoded = decodeEventLog({ abi: ROUTER_ABI, eventName: 'IntentCreated', topics: log.topics, data: log.data });
-    return { intentId: decoded.args.intentId, txHash, from: account.address, nonce, submittedAt: this.clock(), amount };
+    return {
+      intentId: decoded.args.intentId,
+      txHash,
+      from: account.address,
+      nonce,
+      submittedAt: this.clock(),
+      amount,
+      sourceChainId: intent.sourceChainId,
+      destinationChainId: intent.destinationChainId,
+    };
   }
 }
 

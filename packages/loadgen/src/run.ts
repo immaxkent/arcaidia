@@ -111,7 +111,13 @@ export async function runLoadgen(deps: RunDependencies): Promise<RunSummary> {
       const trade = intent.trade ? ` → ${intent.trade.symbol}${intent.trade.unsatisfiable ? ' (floor above market: expect USDC fallback)' : ''}` : '';
       const sent = submitted.amount ?? intent.amount;
       const clamped = sent < intent.amount ? ` (planned ${(Number(intent.amount) / 1e6).toFixed(2)}, wallet could not cover it)` : '';
-      log(`sent ${intent.tag} ${(Number(sent) / 1e6).toFixed(2)} USDC${clamped} ${intent.sourceChainId}→${intent.destinationChainId}${trade} maxFee ${intent.maxFeeBps} bps → ${submitted.intentId.slice(0, 10)}…`);
+      // The submitter can reverse a transfer onto whichever chain the wallet can actually fund,
+      // so report the direction it went, not the one that was planned: reading the planned one
+      // off a log sends you looking for the fill on the wrong chain.
+      const from = submitted.sourceChainId ?? intent.sourceChainId;
+      const to = submitted.destinationChainId ?? intent.destinationChainId;
+      const flipped = from !== intent.sourceChainId ? ' (reversed: planned side could not fund it)' : '';
+      log(`sent ${intent.tag} ${(Number(sent) / 1e6).toFixed(2)} USDC${clamped} ${from}→${to}${flipped}${trade} maxFee ${intent.maxFeeBps} bps → ${submitted.intentId.slice(0, 10)}…`);
     } catch (error) {
       const entry: JournalEntry = { planned: intent, submitted: null, error: error instanceof Error ? error.message : String(error), walletIndex };
       journal.push(entry);
