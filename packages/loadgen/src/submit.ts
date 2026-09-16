@@ -9,7 +9,7 @@
 import { createPublicClient, createWalletClient, decodeEventLog, encodeEventTopics, http, type Chain, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { ABIS, USDC_TOKEN_OUT, type Address } from '@arcaidia/domain';
-import type { PlannedIntent } from './phases.js';
+import { marketsOn, type PlannedIntent } from './phases.js';
 
 /** Below this there is no point sending: fees and gas dominate. */
 export const MIN_INTENT_AMOUNT = 1_000_000n;
@@ -109,16 +109,23 @@ export class ViemIntentSubmitter implements IntentSubmitter {
     if (here >= intent.amount) return intent;
     const there = await this.usdcOn(intent.destinationChainId, address);
     if (there <= here) return intent; // no better side; submit() clamps or says it cannot pay
-    return { ...intent, sourceChainId: intent.destinationChainId, destinationChainId: intent.sourceChainId };
+    const reversed = { ...intent, sourceChainId: intent.destinationChainId, destinationChainId: intent.sourceChainId };
+    if (!intent.trade) return reversed;
+    // A trade names a token that only exists on the chain it is delivered to, so reversing one
+    // means naming the same market on the new destination. Both chains list the same four
+    // symbols; if this one is ever missing, keep the planned direction rather than deliver a
+    // token the destination's adapter cannot quote.
+    const market = marketsOn(reversed.destinationChainId).find((m) => m.tokenOut.symbol === intent.trade!.symbol);
+    if (!market) return intent;
+    return { ...reversed, trade: { ...intent.trade, tokenOut: market.tokenOut.address, decimals: market.tokenOut.decimals } };
   }
 
   async submit(planned: PlannedIntent, walletIndex: number): Promise<SubmittedIntent> {
     // A transfer moves the wallet's USDC from one chain to the other, so a run of intents in one
     // direction empties the sending side and the generator stalls on a chain it cannot pay from.
     // Send it the other way instead when that side has the money: the traffic rebalances itself,
-    // which is also what a real user does. Trade intents name a token on their destination chain,
-    // so those are left as planned rather than silently pointed at the wrong token.
-    const intent = planned.trade ? planned : await this.affordableDirection(planned, walletIndex);
+    // which is also what a real user does.
+    const intent = await this.affordableDirection(planned, walletIndex);
     const endpoint = this.endpoints.get(intent.sourceChainId);
     if (!endpoint) throw new Error(`No endpoint configured for chain ${intent.sourceChainId}.`);
     const key = this.keys[walletIndex];

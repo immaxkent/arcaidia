@@ -44,8 +44,10 @@ describe('the committed default profile is the demo cadence', () => {
     expect(weighted).toBeLessThan(18);
     expect(config.scarcity.weightMultiplierBounds.max).toBeLessThanOrEqual(1.5);
     expect(config.phases.find((p) => p.kind === 'background')!.intentsPerMinuteRange.max).toBeLessThanOrEqual(0.3);
-    // WP-34: about one in seven intents names a token out — trades are 1-8 USDC against 40 USDC
-    // pools, so a larger share would drag the average intent size (and utilisation) down.
-    expect(config.tradeIntentShare).toBeCloseTo(0.15, 2);
+    // WP-34: about one intent in five names a token out. Trades are 1-8 USDC against 40 USDC
+    // pools, so every point of share trades utilisation for visible swaps: at 0.15 a live hour
+    // showed only one or two, which reads as a broken feature rather than a quiet market.
+    // Anything much above this starts to drag the average intent size, and so utilisation, down.
+    expect(config.tradeIntentShare).toBeCloseTo(0.22, 2);
   });
 });

@@ -1,7 +1,7 @@
 {
   "seed": 20260912,
   "ethereumToArcShare": 0.5,
-  "tradeIntentShare": 0.15,
+  "tradeIntentShare": 0.22,
   "chains": [
     {
       "chainId": 11155111,
