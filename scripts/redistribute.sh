@@ -30,6 +30,13 @@ TARGET_D=${TARGET_D:-200}                # Sepolia only (the Earn-created vault)
 TARGET_BOT=${TARGET_BOT:-400}            # each bot, each chain — in-flight volume is bot money
 TARGET_GAS=${TARGET_GAS:-0.05}           # each Sepolia signer
 TARGET_GAS_MARKET=${TARGET_GAS_MARKET:-0.08}
+# The reporter is the one wallet whose running dry takes the whole market down with it: on
+# 2026-09-16 it stopped mid-backlog with 0.00049 ETH, so Arc→Sepolia intents stopped settling,
+# vault exposure was never released, the recipients of unfilled intents were never paid, and the
+# generator's own capital sat in the pipeline until both its wallets were empty and it stalled.
+# It settles both directions and pays every fallback, so it burns gas faster than any single
+# submitter and gets a wider margin than the rest.
+TARGET_GAS_REPORTER=${TARGET_GAS_REPORTER:-0.12}
 DRY=${1:-}
 
 # vaults: chain|label|address
@@ -44,7 +51,7 @@ Skylight (C)|0x180d1c22a41c2E43b9a9086a3C4B2a37fBa8E5Ae|$TARGET_C"
 BOT1=0xd2A11B3d4A71Cad528E13e868401F2534881937C
 BOT2=0x2A450f96a8C4890CDdf280ADA297519dab2E3F95
 GAS_WALLETS="House submitter|0x21F6A2feb26c2da068C47DDfd85FDde429931cf2|$TARGET_GAS
-settlement reporter|0x1BBCcFc2CC7Ff7296e3E18646218211631De9862|$TARGET_GAS
+settlement reporter|0x1BBCcFc2CC7Ff7296e3E18646218211631De9862|$TARGET_GAS_REPORTER
 B submitter|0x90f9Cc769bDffAac58510839F7E1E9516a783F90|$TARGET_GAS
 C submitter|0xDfCD3f8983e33D607a4cd96c38bd673bff9079cC|$TARGET_GAS
 D submitter|0xC3D02b3504a98b29d79E277F2e9f5a89DD096B29|$TARGET_GAS
