@@ -28,9 +28,27 @@ done when its gate is evidenced by passing tests or on-chain reads, never when c
 | **MN-11 Roles** | B-7 | Safe owns protocol contracts; separate treasury; Circle wallet signs for the House Vault; hot keys only relay and settle. | On-chain owner and role reads match the plan |
 | **MN-12 Production profile** | B-8 | `ARCAIDIA_NETWORK=mainnet` with no default. Mainnet build excludes loadgen, market bot, demo solvers, mock tokens, x402 and the hackathon indexer. Own subgraphs on networks `arc` and `mainnet`. | CI fails if a mainnet artifact contains a testnet chain id, `sandbox`, `sslip.io`, `hedera:testnet`, `Mock` or `loadgen` |
 | **MN-13 Re-attestation** | B-9 (expiry) | Settlement worker calls `POST /v2/reattest/{nonce}` when a message has expired, then resubmits. | Adapter test with stubbed Iris responses |
-| **MN-14 Launch** | — | Deployment runbook (report §G) and staged launch (report §H). | Every stop/go row in report §H passes |
+| **MN-14 Launch** | — | Deployment runbook (report §G), then the launch path below. | Stage L1 passed |
 
-**M0 exit:** 7 consecutive days and 50 round trips at launch limits with zero HELD, zero double payments and quiet alerts.
+**M0 exit:** launch stage L1 passed.
+
+### Launch path
+
+Limits are set through the Safe. Two things bind: the router's per-intent and rolling daily caps on chain, and the House solver's absolute fill and exposure caps off chain. The solver caps matter because anyone can deposit into the House Vault, and its percentage caps grow with deposits.
+
+| Stage | Who can use it | Router per intent | Router daily cap | House Vault per chain | Solver max fill / max exposure | Minimum duration |
+|---|---|---|---|---|---|---|
+| **L0 Dark** | Nobody; routers paused | — | — | 0 | — | Until deploy checks pass |
+| **L1 Canary** | Team wallets; UI private | 25 USDC | 250 USDC | 100 USDC | 25 / 50 USDC | 7 days, 50 round trips |
+| **L2 Public transfers** | Anyone; Earn deposits hidden | 100 USDC | 2,500 USDC | 1,000 USDC | 100 / 500 USDC | 14 days, 200 round trips |
+| **L3 Public LPs** | Anyone can deposit into the House Vault, with the operator disclosure | 1,000 USDC | 25,000 USDC | market-led | 1,000 / 8,000 USDC | 14 days |
+| **L4 Third-party vaults** | Operators create vaults in the UI | per vault | 250,000 USDC | per vault | per operator | Needs the operator timelock decision |
+
+**L1 must also prove, once each:** both directions; fallback payment with the solver stopped; a full withdrawal; a re-attestation drill on an expired message; a Safe pause and unpause.
+
+**Go to the next stage only if:** zero double payments, zero HELD, zero stuck messages, every settlement within 60 minutes of attestation, and no alert unexplained.
+
+**On any incident:** the Safe pauses both routers. After the fix, restart at the previous stage's limits and restart its clock.
 
 ---
 
