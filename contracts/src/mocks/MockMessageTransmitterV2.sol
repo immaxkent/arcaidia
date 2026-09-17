@@ -64,6 +64,7 @@ contract MockMessageTransmitterV2 is IMessageTransmitterV2 {
         address destinationCaller;
         address burnToken;
         address mintRecipient;
+        address messageSender;
         uint256 amount;
         uint256 feeExecuted;
         bytes hookData;
@@ -78,6 +79,7 @@ contract MockMessageTransmitterV2 is IMessageTransmitterV2 {
         address destinationCaller = m.destinationCaller;
         address burnToken = m.burnToken;
         address mintRecipient = m.mintRecipient;
+        address messageSender = m.messageSender;
         uint256 amount = m.amount;
         uint256 feeExecuted = m.feeExecuted;
         bytes memory hookData = m.hookData;
@@ -86,7 +88,7 @@ contract MockMessageTransmitterV2 is IMessageTransmitterV2 {
             bytes32(uint256(uint160(burnToken))),
             bytes32(uint256(uint160(mintRecipient))),
             amount,
-            bytes32(0), // messageSender
+            bytes32(uint256(uint160(messageSender))),
             uint256(0), // maxFee
             feeExecuted,
             uint256(0), // expirationBlock

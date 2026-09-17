@@ -30,7 +30,7 @@ contract CircleCCTPInitiatorTest is ChainFixture {
         tokenMessenger = new MockTokenMessengerV2();
 
         vm.prank(owner);
-        initiator = new CircleCCTPInitiator(owner, address(tokenMessenger), address(asset));
+        initiator = new CircleCCTPInitiator(owner, address(tokenMessenger), address(asset), router);
 
         asset.mint(router, 10_000e6);
         vm.prank(router);
@@ -52,13 +52,13 @@ contract CircleCCTPInitiatorTest is ChainFixture {
 
     function test_constructorRejectsZeroAddresses() public {
         vm.expectRevert(CircleCCTPInitiator.ZeroAddress.selector);
-        new CircleCCTPInitiator(address(0), address(tokenMessenger), address(asset));
+        new CircleCCTPInitiator(address(0), address(tokenMessenger), address(asset), router);
 
         vm.expectRevert(CircleCCTPInitiator.ZeroAddress.selector);
-        new CircleCCTPInitiator(owner, address(0), address(asset));
+        new CircleCCTPInitiator(owner, address(0), address(asset), router);
 
         vm.expectRevert(CircleCCTPInitiator.ZeroAddress.selector);
-        new CircleCCTPInitiator(owner, address(tokenMessenger), address(0));
+        new CircleCCTPInitiator(owner, address(tokenMessenger), address(0), router);
     }
 
     function test_defaultsToStandardFinalizedZeroFee() public view {
@@ -94,6 +94,25 @@ contract CircleCCTPInitiatorTest is ChainFixture {
 
         assertTrue(initiator.supportsDestination(ETHEREUM_SEPOLIA));
         assertEq(initiator.domainFor(ETHEREUM_SEPOLIA), 0);
+    }
+
+    function test_constructorRejectsAZeroRouter() public {
+        vm.expectRevert(CircleCCTPInitiator.ZeroAddress.selector);
+        new CircleCCTPInitiator(owner, address(tokenMessenger), address(asset), address(0));
+    }
+
+    /// Anyone burning through this contract would inherit the trust the destination receiver puts
+    /// in its `messageSender`, so only the router may.
+    function test_onlyTheRouterMayInitiateSettlement() public {
+        _configureDestination();
+        address stranger = makeAddr("stranger");
+        asset.mint(stranger, 1_000e6);
+        vm.startPrank(stranger);
+        asset.approve(address(initiator), type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(CircleCCTPInitiator.NotRouter.selector, stranger));
+        initiator.initiateSettlement(address(asset), 1_000e6, destinationChainId, destinationReceiver, INTENT_ID, "");
+        vm.stopPrank();
+        assertEq(tokenMessenger.callCount(), 0, "nothing burned");
     }
 
     // -----------------------------------------------------------------------

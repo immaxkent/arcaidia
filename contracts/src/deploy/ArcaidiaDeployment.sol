@@ -82,6 +82,11 @@ library ArcaidiaDeployment {
         uint256 maxInFlightValue;
         /// Operator permitted to report canonical settlement through the recovery path.
         address settlementReporter;
+        /// The CCTP domain burns arrive from — the *other* chain's domain.
+        uint32 trustedSourceDomain;
+        /// That chain's `CircleCCTPInitiator`. Zero when it is not deployed yet: the owner then
+        /// calls `setTrustedInitiator` once the other chain exists, before any intent is created.
+        address trustedSourceInitiator;
     }
 
     struct Deployment {
@@ -195,6 +200,11 @@ library ArcaidiaDeployment {
         if (config.treasury != address(0)) {
             ArcaidiaLiquidityVault(deployment.vault).setTreasury(config.treasury);
             ArcaidiaLiquidityVault(deployment.vault).setProtocolFeeShareBps(config.protocolFeeShareBps);
+        }
+
+        if (config.trustedSourceInitiator != address(0)) {
+            SettlementReceiver(deployment.settlementReceiver)
+                .setTrustedInitiator(config.trustedSourceDomain, config.trustedSourceInitiator);
         }
 
         if (config.settlementReporter != address(0)) {

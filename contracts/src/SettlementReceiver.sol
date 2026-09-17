@@ -62,6 +62,14 @@ contract SettlementReceiver is ReentrancyGuard {
     IIntentMarket public market;
     IMessageTransmitterV2 public messageTransmitter;
 
+    /// @notice The `CircleCCTPInitiator` on each source CCTP domain whose burns this receiver
+    ///         accepts. Set once per domain by the owner, never changed.
+    /// @dev Circle attests *any* valid burn, and `hookData` is caller-chosen, so without this a
+    ///      stranger could burn one unit naming someone else's `intentId` and have this contract
+    ///      record that intent as settled — locking the genuine message out forever, because the
+    ///      router names this contract as the message's `destinationCaller`.
+    mapping(uint32 => address) public trustedInitiator;
+
     /// @notice Operators permitted to report canonical settlement through the legacy path.
     mapping(address => bool) public isReporter;
 
@@ -76,6 +84,7 @@ contract SettlementReceiver is ReentrancyGuard {
 
     event ReceiverInitialized(address owner, address asset, address market, address messageTransmitter);
     event ReporterSet(address indexed reporter, bool allowed);
+    event TrustedInitiatorSet(uint32 indexed sourceDomain, address initiator);
     event LpReimbursed(bytes32 indexed intentId, address indexed vault, uint256 amount);
     event RecipientPaidByFallback(bytes32 indexed intentId, address indexed recipient, uint256 amount);
     event SettledWithProof(bytes32 indexed intentId, uint8 outcome, uint256 amount, bytes32 cctpNonce);
@@ -89,6 +98,8 @@ contract SettlementReceiver is ReentrancyGuard {
     error AlreadySettled(bytes32 intentId);
     error InsufficientCanonicalFunds(uint256 requested, uint256 held);
     error MessageNotForThisReceiver(address destinationCaller, address mintRecipient);
+    error UntrustedSource(uint32 sourceDomain, address messageSender);
+    error TrustedInitiatorAlreadySet(uint32 sourceDomain, address initiator);
     error MessageNotAccepted();
     error MintedAmountMismatch(uint256 expected, uint256 actual);
     error NothingHeld(bytes32 intentId);
@@ -123,6 +134,15 @@ contract SettlementReceiver is ReentrancyGuard {
         if (reporter == address(0)) revert ZeroAddress();
         isReporter[reporter] = allowed;
         emit ReporterSet(reporter, allowed);
+    }
+
+    /// @notice Trust the initiator that burns on `sourceDomain`. One address per domain, forever.
+    function setTrustedInitiator(uint32 sourceDomain, address initiator) external onlyOwner {
+        if (initiator == address(0)) revert ZeroAddress();
+        address existing = trustedInitiator[sourceDomain];
+        if (existing != address(0)) revert TrustedInitiatorAlreadySet(sourceDomain, existing);
+        trustedInitiator[sourceDomain] = initiator;
+        emit TrustedInitiatorSet(sourceDomain, initiator);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
@@ -161,6 +181,12 @@ contract SettlementReceiver is ReentrancyGuard {
                 || (parsed.destinationCaller != address(0) && parsed.destinationCaller != address(this))
         ) {
             revert MessageNotForThisReceiver(parsed.destinationCaller, parsed.mintRecipient);
+        }
+        // Who burned decides whether this message means anything here. Only the protocol's own
+        // initiator on a trusted domain can name an `intentId`, and only its router can call it.
+        address trusted = trustedInitiator[parsed.sourceDomain];
+        if (trusted == address(0) || parsed.messageSender != trusted) {
+            revert UntrustedSource(parsed.sourceDomain, parsed.messageSender);
         }
         (bytes32 intentId, address recipient) = IntentHookLib.decode(parsed.hookData);
         if (outcomeOf[intentId] != Outcome.NONE) revert AlreadySettled(intentId);

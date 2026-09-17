@@ -30,6 +30,8 @@ contract SettlementReceiverProofTest is VaultFixture {
     uint32 internal constant DST_DOMAIN = 26;
     /// Circle's TokenMessengerV2 on both testnets — the `recipient` every real burn message carries.
     address internal constant TOKEN_MESSENGER = 0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA;
+    /// The source chain's `CircleCCTPInitiator` — the burner the receiver trusts (D8 / MN-01).
+    address internal constant SOURCE_INITIATOR = 0x6095944456C20A0acF7c44e4ff40DEa8f041d9b3;
 
     /// A real Arc→Sepolia burn message for intent 0x81c0…a7f8 (2026-09-12, the first live v2 batch),
     /// exactly as Circle's Iris API returned it. The field layout this contract relies on is asserted
@@ -41,6 +43,8 @@ contract SettlementReceiverProofTest is VaultFixture {
         transmitter = new MockMessageTransmitterV2(asset);
         receiver = new SettlementReceiver();
         receiver.initialize(vaultOwner, address(asset), address(market), address(transmitter));
+        vm.prank(vaultOwner);
+        receiver.setTrustedInitiator(SRC_DOMAIN, SOURCE_INITIATOR);
         vm.prank(vaultOwner);
         vault.setSettlementReceiver(address(receiver));
         _deposit(lpAlice, 100_000e6);
@@ -61,6 +65,7 @@ contract SettlementReceiverProofTest is VaultFixture {
             destinationCaller: address(receiver),
             burnToken: address(0xBEEF), // burnToken on the source chain
             mintRecipient: address(receiver),
+            messageSender: SOURCE_INITIATOR,
             amount: amount,
             feeExecuted: fee,
             hookData: IntentHookLib.encode(intentId, recipient)
@@ -199,6 +204,63 @@ contract SettlementReceiverProofTest is VaultFixture {
     }
 
     // -----------------------------------------------------------------------
+    // MN-01: only the trusted initiator's burns mean anything here
+    // -----------------------------------------------------------------------
+
+    function test_rejectsABurnFromAnyoneElse() public {
+        MockMessageTransmitterV2.MessageSpec memory spec = _spec(keccak256("spoof"), fallbackRecipient, 1, 0, "n12");
+        address stranger = makeAddr("stranger");
+        spec.messageSender = stranger;
+        bytes memory message = transmitter.encodeMessage(spec);
+        bytes memory attestation = transmitter.attest(message);
+        vm.expectRevert(
+            abi.encodeWithSelector(SettlementReceiver.UntrustedSource.selector, SRC_DOMAIN, stranger)
+        );
+        receiver.settleWithProof(message, attestation);
+        assertFalse(receiver.isSettled(keccak256("spoof")), "nothing recorded");
+        assertEq(transmitter.usedNonces("n12"), 0, "the message is still there for its rightful owner");
+    }
+
+    function test_rejectsABurnFromAnUnconfiguredDomain() public {
+        MockMessageTransmitterV2.MessageSpec memory spec = _spec(keccak256("other-domain"), fallbackRecipient, 1e6, 0, "n13");
+        spec.sourceDomain = 7;
+        bytes memory message = transmitter.encodeMessage(spec);
+        bytes memory attestation = transmitter.attest(message);
+        vm.expectRevert(
+            abi.encodeWithSelector(SettlementReceiver.UntrustedSource.selector, uint32(7), SOURCE_INITIATOR)
+        );
+        receiver.settleWithProof(message, attestation);
+    }
+
+    function testFuzz_onlyTheTrustedInitiatorSettles(address burner) public {
+        vm.assume(burner != SOURCE_INITIATOR);
+        MockMessageTransmitterV2.MessageSpec memory spec = _spec(keccak256("fuzz"), fallbackRecipient, 1e6, 0, "n14");
+        spec.messageSender = burner;
+        bytes memory message = transmitter.encodeMessage(spec);
+        bytes memory attestation = transmitter.attest(message);
+        vm.expectRevert(abi.encodeWithSelector(SettlementReceiver.UntrustedSource.selector, SRC_DOMAIN, burner));
+        receiver.settleWithProof(message, attestation);
+    }
+
+    function test_theTrustedInitiatorIsSetOnceAndOnlyByTheOwner() public {
+        address other = makeAddr("other-initiator");
+        vm.expectRevert(SettlementReceiver.NotOwner.selector);
+        receiver.setTrustedInitiator(1, other);
+
+        vm.prank(vaultOwner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementReceiver.TrustedInitiatorAlreadySet.selector, SRC_DOMAIN, SOURCE_INITIATOR
+            )
+        );
+        receiver.setTrustedInitiator(SRC_DOMAIN, other);
+
+        vm.prank(vaultOwner);
+        receiver.setTrustedInitiator(1, other);
+        assertEq(receiver.trustedInitiator(1), other, "a second domain may still be added");
+    }
+
+    // -----------------------------------------------------------------------
     // HELD_FOR_VAULT: canonical funds are never trapped
     // -----------------------------------------------------------------------
 
@@ -252,6 +314,8 @@ contract SettlementReceiverProofTest is VaultFixture {
 
     function test_realMessageParsesToTheFieldsCircleActuallySends() public view {
         CctpMessageLib.Parsed memory parsed = this.parseExternal(REAL_MESSAGE);
+        assertEq(parsed.sourceDomain, 26, "burned on Arc");
+        assertEq(parsed.messageSender, SOURCE_INITIATOR, "the burner is the source chain's initiator");
         assertEq(parsed.recipient, TOKEN_MESSENGER, "header recipient is the TokenMessenger, never the receiver");
         assertEq(parsed.destinationCaller, 0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd, "destinationCaller is the receiver");
         assertEq(parsed.mintRecipient, 0x8B93b54d6Df61E9422D14C309F3c9Ab950b920Cd, "mintRecipient is the receiver");

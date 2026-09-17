@@ -15,6 +15,7 @@ pragma solidity 0.8.28;
 ///      This library never validates the attestation — `MessageTransmitterV2.receiveMessage`
 ///      does that, and `SettlementReceiver` only acts on a message that call has accepted.
 library CctpMessageLib {
+    uint256 internal constant SOURCE_DOMAIN_INDEX = 4;
     uint256 internal constant NONCE_INDEX = 12;
     uint256 internal constant RECIPIENT_INDEX = 76;
     uint256 internal constant DESTINATION_CALLER_INDEX = 108;
@@ -22,16 +23,20 @@ library CctpMessageLib {
 
     uint256 internal constant BODY_MINT_RECIPIENT_INDEX = 36;
     uint256 internal constant BODY_AMOUNT_INDEX = 68;
+    uint256 internal constant BODY_MESSAGE_SENDER_INDEX = 100;
     uint256 internal constant BODY_FEE_EXECUTED_INDEX = 164;
     uint256 internal constant BODY_HOOK_DATA_INDEX = 228;
 
     uint256 internal constant MIN_LENGTH = BODY_INDEX + BODY_HOOK_DATA_INDEX;
 
     struct Parsed {
+        uint32 sourceDomain;
         bytes32 nonce;
         address recipient;
         address destinationCaller;
         address mintRecipient;
+        /// The account that called `depositForBurn*` on the source chain — who actually burned.
+        address messageSender;
         uint256 amount;
         uint256 feeExecuted;
         bytes hookData;
@@ -42,12 +47,14 @@ library CctpMessageLib {
     function parse(bytes calldata message) internal pure returns (Parsed memory parsed) {
         if (message.length < MIN_LENGTH) revert CctpMessageTooShort(message.length);
 
+        parsed.sourceDomain = uint32(bytes4(message[SOURCE_DOMAIN_INDEX:SOURCE_DOMAIN_INDEX + 4]));
         parsed.nonce = bytes32(message[NONCE_INDEX:NONCE_INDEX + 32]);
         parsed.recipient = _addressAt(message, RECIPIENT_INDEX);
         parsed.destinationCaller = _addressAt(message, DESTINATION_CALLER_INDEX);
 
         bytes calldata body = message[BODY_INDEX:];
         parsed.mintRecipient = _addressAt(body, BODY_MINT_RECIPIENT_INDEX);
+        parsed.messageSender = _addressAt(body, BODY_MESSAGE_SENDER_INDEX);
         parsed.amount = uint256(bytes32(body[BODY_AMOUNT_INDEX:BODY_AMOUNT_INDEX + 32]));
         parsed.feeExecuted = uint256(bytes32(body[BODY_FEE_EXECUTED_INDEX:BODY_FEE_EXECUTED_INDEX + 32]));
         parsed.hookData = body[BODY_HOOK_DATA_INDEX:];

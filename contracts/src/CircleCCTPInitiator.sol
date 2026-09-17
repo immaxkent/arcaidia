@@ -37,6 +37,13 @@ contract CircleCCTPInitiator is ISettlementInitiator {
     ITokenMessengerV2 public immutable tokenMessenger;
     IERC20 public immutable settlementAsset;
 
+    /// @notice The one contract allowed to burn through this initiator.
+    /// @dev Immutable, and therefore known before the router exists: the router is CREATE2'd, so
+    ///      its address is predictable. Without this, anyone could burn through the protocol's own
+    ///      initiator carrying any `hookData`, and the destination receiver would see a burn whose
+    ///      `messageSender` is this contract — the very thing `SettlementReceiver` trusts.
+    address public immutable router;
+
     address public owner;
 
     /// @notice Standard/finalized by default (2000). Fast is 1000 or below.
@@ -57,6 +64,7 @@ contract CircleCCTPInitiator is ISettlementInitiator {
     );
 
     error NotOwner();
+    error NotRouter(address caller);
     error ZeroAddress();
     error UnsupportedDestination(uint256 destinationChainId);
     error AssetMismatch(address expected, address actual);
@@ -66,11 +74,15 @@ contract CircleCCTPInitiator is ISettlementInitiator {
         _;
     }
 
-    constructor(address owner_, address tokenMessenger_, address settlementAsset_) {
-        if (owner_ == address(0) || tokenMessenger_ == address(0) || settlementAsset_ == address(0)) {
+    constructor(address owner_, address tokenMessenger_, address settlementAsset_, address router_) {
+        if (
+            owner_ == address(0) || tokenMessenger_ == address(0) || settlementAsset_ == address(0)
+                || router_ == address(0)
+        ) {
             revert ZeroAddress();
         }
         owner = owner_;
+        router = router_;
         tokenMessenger = ITokenMessengerV2(tokenMessenger_);
         settlementAsset = IERC20(settlementAsset_);
     }
@@ -120,6 +132,7 @@ contract CircleCCTPInitiator is ISettlementInitiator {
         bytes32 intentId,
         bytes calldata hookData
     ) external returns (bytes32 settlementRef) {
+        if (msg.sender != router) revert NotRouter(msg.sender);
         if (!domainConfigured[destinationChainId]) {
             revert UnsupportedDestination(destinationChainId);
         }

@@ -89,13 +89,14 @@ contract DeployScript is Script {
 
     /// @dev A fresh v2 initiator for this chain, owned by the broadcaster until hand-over, pointed at
     ///      the opposite chain's CCTP domain. Skipped (address reused) when the env names one.
-    function _ensureInitiator(address deployingAs, address settlementAsset, uint256 destinationChainId)
+    function _ensureInitiator(address deployingAs, address settlementAsset, uint256 destinationChainId, address predictedRouter)
         internal
         returns (address initiator, bool deployedHere)
     {
         address configured = _settlementInitiator(block.chainid);
         if (configured != address(0)) return (configured, false);
-        CircleCCTPInitiator fresh = new CircleCCTPInitiator(deployingAs, CCTP_V2_TOKEN_MESSENGER, settlementAsset);
+        CircleCCTPInitiator fresh =
+            new CircleCCTPInitiator(deployingAs, CCTP_V2_TOKEN_MESSENGER, settlementAsset, predictedRouter);
         fresh.setDomain(destinationChainId, _cctpDomain(destinationChainId));
         return (address(fresh), true);
     }
@@ -117,7 +118,11 @@ contract DeployScript is Script {
             protocolFeeShareBps: uint16(vm.envUint("PROTOCOL_FEE_SHARE_BPS")),
             maxIntentAmount: vm.envUint("MAX_INTENT_AMOUNT"),
             maxInFlightValue: vm.envUint("MAX_IN_FLIGHT_VALUE"),
-            settlementReporter: vm.envAddress("SETTLEMENT_REPORTER")
+            settlementReporter: vm.envAddress("SETTLEMENT_REPORTER"),
+            // The other chain's CCTP domain and initiator. The initiator is unknown on the first
+            // chain deployed, so it stays zero there and the owner sets it once both chains exist.
+            trustedSourceDomain: _cctpDomain(vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid))),
+            trustedSourceInitiator: vm.envOr("TRUSTED_SOURCE_INITIATOR", address(0))
         });
     }
 
@@ -165,7 +170,8 @@ contract DeployScript is Script {
 
         address settlementAsset = vm.envOr("SETTLEMENT_ASSET", _defaultSettlementAsset(block.chainid));
         uint256 destinationChainId = vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid));
-        (address initiator, bool initiatorDeployedHere) = _ensureInitiator(deployingAs, settlementAsset, destinationChainId);
+        (address initiator, bool initiatorDeployedHere) =
+            _ensureInitiator(deployingAs, settlementAsset, destinationChainId, predicted.router);
 
         ArcaidiaDeployment.Config memory config = _config(initiator, predicted.settlementReceiver);
         // Found in the WP-31 dry run: a stale DESTINATION_SETTLEMENT_RECEIVER in .env pointed the v2

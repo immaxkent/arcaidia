@@ -37,6 +37,8 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     uint16 internal constant PROTOCOL_SHARE_BPS = 5_000;
     uint256 internal constant MAX_INTENT = 50_000e6;
     uint256 internal constant MAX_IN_FLIGHT = 200_000e6;
+    /// The other chain's CCTP domain; the mock initiator stands in for its initiator.
+    uint32 internal constant TRUSTED_SOURCE_DOMAIN = 26;
 
     function setUp() public {
         _configureDirection();
@@ -66,7 +68,9 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             protocolFeeShareBps: PROTOCOL_SHARE_BPS,
             maxIntentAmount: MAX_INTENT,
             maxInFlightValue: MAX_IN_FLIGHT,
-            settlementReporter: settlementReporter
+            settlementReporter: settlementReporter,
+            trustedSourceDomain: TRUSTED_SOURCE_DOMAIN,
+            trustedSourceInitiator: address(initiator)
         });
     }
 
@@ -409,8 +413,14 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         ArcaidiaDeployment.Deployment memory base = _deployBase();
 
         MockTokenMessengerV2 tokenMessenger = new MockTokenMessengerV2();
-        CircleCCTPInitiator cctp =
-            new CircleCCTPInitiator(address(this), address(tokenMessenger), address(asset));
+        // The initiator serves exactly one router (MN-01), and that router's CREATE2 address is
+        // known before it exists — which is what makes the constructor argument possible.
+        CircleCCTPInitiator cctp = new CircleCCTPInitiator(
+            address(this),
+            address(tokenMessenger),
+            address(asset),
+            ArcaidiaDeployment.predictReplacementRouter(deployer)
+        );
         cctp.setDomain(destinationChainId, 26);
 
         address router = ArcaidiaDeployment.deployReplacementRouter(

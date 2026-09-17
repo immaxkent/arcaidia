@@ -60,6 +60,8 @@ contract MainnetReadinessPoCTest is ChainFixture {
     uint32 internal constant SRC_DOMAIN = 0;
     uint32 internal constant DST_DOMAIN = 26;
     address internal constant TOKEN_MESSENGER = 0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d;
+    /// Stands in for the other chain's CircleCCTPInitiator, the only burner this receiver trusts.
+    address internal constant TRUSTED_INITIATOR = 0x6095944456C20A0acF7c44e4ff40DEa8f041d9b3;
 
     ArcaidiaDeployer internal deployer;
     MockUSDC internal asset;
@@ -114,7 +116,9 @@ contract MainnetReadinessPoCTest is ChainFixture {
                 protocolFeeShareBps: 5_000,
                 maxIntentAmount: 1_000e6,
                 maxInFlightValue: 300e6,
-                settlementReporter: reporter
+                settlementReporter: reporter,
+                trustedSourceDomain: SRC_DOMAIN,
+                trustedSourceInitiator: TRUSTED_INITIATOR
             }),
             address(this)
         );
@@ -183,6 +187,7 @@ contract MainnetReadinessPoCTest is ChainFixture {
                 destinationCaller: receiver,
                 burnToken: address(0xBEEF),
                 mintRecipient: receiver,
+                messageSender: TRUSTED_INITIATOR,
                 amount: amount,
                 feeExecuted: 0,
                 hookData: IntentHookLib.encode(intentId, recipient)
@@ -194,6 +199,8 @@ contract MainnetReadinessPoCTest is ChainFixture {
     function _redeployReceiverAsD12() internal returns (SettlementReceiver r2) {
         r2 = new SettlementReceiver();
         r2.initialize(protocolOwner, address(asset), d.market, address(transmitter));
+        vm.prank(protocolOwner);
+        r2.setTrustedInitiator(SRC_DOMAIN, TRUSTED_INITIATOR);
         vm.prank(protocolOwner);
         ArcaidiaLiquidityVault(d.vault).setSettlementReceiver(address(r2));
     }
@@ -218,6 +225,7 @@ contract MainnetReadinessPoCTest is ChainFixture {
                 destinationCaller: receiver,
                 burnToken: address(0xBEEF),
                 mintRecipient: receiver,
+                messageSender: attacker,
                 amount: amount,
                 feeExecuted: 0,
                 hookData: IntentHookLib.encode(victimIntentId, attacker)
@@ -225,9 +233,9 @@ contract MainnetReadinessPoCTest is ChainFixture {
         );
     }
 
-    /// Unfilled victim: 1 micro-USDC marks it settled, pays the attacker, and blocks every solver.
-    /// The user's genuine canonical funds can then never be minted.
-    function test_PoC_spoofedHookLocksAnUnfilledIntentForOneMicroUsdc() public {
+    /// Regression for B-1. The forged burn is refused before anything is recorded, and the user's
+    /// genuine message still settles afterwards.
+    function test_Fix_spoofedHookCannotLockAnUnfilledIntent() public {
         SettlementReceiver receiver = SettlementReceiver(d.settlementReceiver);
         ArcaidiaLiquidityVault house = ArcaidiaLiquidityVault(d.vault);
         asset.mint(address(this), 10_000e6);
@@ -240,32 +248,25 @@ contract MainnetReadinessPoCTest is ChainFixture {
         bytes32 victimId = IntentLib.computeIntentId(victim);
 
         bytes memory spoof = _spoofedMessage(address(receiver), victimId, 1, "attacker-burn");
+        bytes memory spoofAttestation = transmitter.attest(spoof);
         vm.prank(attacker);
-        receiver.settleWithProof(spoof, transmitter.attest(spoof));
-        assertEq(uint256(receiver.outcomeOf(victimId)), uint256(SettlementReceiver.Outcome.RECIPIENT_FALLBACK));
-        assertEq(asset.balanceOf(attacker), 1, "attacker is the 'recipient'");
+        vm.expectRevert(abi.encodeWithSelector(SettlementReceiver.UntrustedSource.selector, SRC_DOMAIN, attacker));
+        receiver.settleWithProof(spoof, spoofAttestation);
+        assertEq(uint256(receiver.outcomeOf(victimId)), uint256(SettlementReceiver.Outcome.NONE), "nothing recorded");
+        assertEq(asset.balanceOf(attacker), 0);
 
-        // No solver can fill it any more...
-        uint256 fee = (victim.amount * 10 + 9_999) / 10_000;
-        FillAuthorization memory auth = FillAuthorization({
-            intentId: victimId, sourceChainId: victim.sourceChainId, sourceTxHash: keccak256("tx"),
-            recipient: recipient, inputAmount: victim.amount, outputAmount: victim.amount - fee,
-            feeAmount: fee, expiry: uint64(block.timestamp + 45), nonce: 10
-        });
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(agentKey, house.hashFillAuthorization(auth));
-        vm.expectRevert();
-        house.fastFill(victim, auth, abi.encodePacked(r, s, v));
+        // The solver can still fill it, and the genuine message still settles.
+        _fill(house, victim);
+        assertEq(asset.balanceOf(recipient), 999e6);
 
-        // ...and the genuine message for the user's 1,000 USDC can never be received.
         bytes memory genuine = _message(address(receiver), victimId, 1_000e6, "genuine-burn");
-        bytes memory attestation = transmitter.attest(genuine);
-        vm.expectRevert(abi.encodeWithSelector(SettlementReceiver.AlreadySettled.selector, victimId));
-        receiver.settleWithProof(genuine, attestation);
-        assertEq(asset.balanceOf(recipient), 0, "user receives nothing");
+        receiver.settleWithProof(genuine, transmitter.attest(genuine));
+        assertEq(uint256(receiver.outcomeOf(victimId)), uint256(SettlementReceiver.Outcome.LP_REIMBURSED));
+        assertEq(house.outstandingExposure(), 0, "vault made whole");
     }
 
-    /// Filled victim: a sub-principal spoof parks as HELD_FOR_VAULT forever and the LP's principal is lost.
-    function test_PoC_spoofedHookStrandsAFilledVaultsPrincipal() public {
+    /// Regression for B-1: a sub-principal spoof against a filled intent cannot park anything.
+    function test_Fix_spoofedHookCannotStrandAFilledVaultsPrincipal() public {
         SettlementReceiver receiver = SettlementReceiver(d.settlementReceiver);
         ArcaidiaLiquidityVault vault = _operatorVault("victim-vault");
         vm.prank(operator);
@@ -277,36 +278,35 @@ contract MainnetReadinessPoCTest is ChainFixture {
         assertEq(vault.outstandingExposure(), 999e6);
 
         bytes memory spoof = _spoofedMessage(address(receiver), victimId, 1, "attacker-burn-2");
+        bytes memory spoofAttestation = transmitter.attest(spoof);
         vm.prank(attacker);
-        receiver.settleWithProof(spoof, transmitter.attest(spoof));
-        assertEq(uint256(receiver.outcomeOf(victimId)), uint256(SettlementReceiver.Outcome.HELD_FOR_VAULT));
-
-        vm.expectRevert();
-        receiver.retryHeld(victimId);
+        vm.expectRevert(abi.encodeWithSelector(SettlementReceiver.UntrustedSource.selector, SRC_DOMAIN, attacker));
+        receiver.settleWithProof(spoof, spoofAttestation);
 
         bytes memory genuine = _message(address(receiver), victimId, 1_000e6, "genuine-burn-2");
-        bytes memory attestation = transmitter.attest(genuine);
-        vm.expectRevert(abi.encodeWithSelector(SettlementReceiver.AlreadySettled.selector, victimId));
-        receiver.settleWithProof(genuine, attestation);
-        assertEq(vault.outstandingExposure(), 999e6, "LP principal never comes back");
+        receiver.settleWithProof(genuine, transmitter.attest(genuine));
+        assertEq(vault.outstandingExposure(), 0, "LP principal comes back in full");
     }
 
-    /// Restricting messageSender alone is not enough: the initiator itself accepts any caller and any hook.
-    function test_PoC_initiatorAcceptsAnyCallerAndAnyHook() public {
+    /// Regression for B-1's second half: the trusted initiator serves only its own router, so a
+    /// stranger cannot borrow the protocol's identity as the burn's `messageSender`.
+    function test_Fix_initiatorRefusesEveryCallerButItsRouter() public {
         MockTokenMessengerV2 messenger = new MockTokenMessengerV2();
-        CircleCCTPInitiator init = new CircleCCTPInitiator(protocolOwner, address(messenger), address(asset));
+        CircleCCTPInitiator init =
+            new CircleCCTPInitiator(protocolOwner, address(messenger), address(asset), d.router);
         vm.prank(protocolOwner);
         init.setDomain(sourceChainId, SRC_DOMAIN);
 
         asset.mint(attacker, 1);
         vm.startPrank(attacker);
         asset.approve(address(init), 1);
+        vm.expectRevert(abi.encodeWithSelector(CircleCCTPInitiator.NotRouter.selector, attacker));
         init.initiateSettlement(
             address(asset), 1, sourceChainId, d.settlementReceiver, keccak256("anything"),
             IntentHookLib.encode(keccak256("victim"), attacker)
         );
         vm.stopPrank();
-        assertEq(messenger.callCount(), 1, "burn issued with the attacker's hook, from the protocol's initiator");
+        assertEq(messenger.callCount(), 0, "nothing burned under the protocol's identity");
     }
 
     // -----------------------------------------------------------------------
@@ -348,6 +348,8 @@ contract MainnetReadinessPoCTest is ChainFixture {
         ArcaidiaIntentMarket boundMarket =
             new ArcaidiaIntentMarket(ISettlementCheck(address(live)), IVaultRegistry(d.factory));
         live.initialize(protocolOwner, address(asset), address(boundMarket), address(transmitter));
+        vm.prank(protocolOwner);
+        live.setTrustedInitiator(SRC_DOMAIN, TRUSTED_INITIATOR);
 
         ArcaidiaLiquidityVault vault = _operatorVault("bound");
         vm.prank(operator);
@@ -387,6 +389,8 @@ contract MainnetReadinessPoCTest is ChainFixture {
         ArcaidiaIntentMarket boundMarket =
             new ArcaidiaIntentMarket(ISettlementCheck(address(live)), IVaultRegistry(d.factory));
         live.initialize(protocolOwner, address(asset), address(boundMarket), address(transmitter));
+        vm.prank(protocolOwner);
+        live.setTrustedInitiator(SRC_DOMAIN, TRUSTED_INITIATOR);
         ArcaidiaLiquidityVault vault = _operatorVault(keccak256(abi.encode(intentId)));
 
         bytes memory message = _message(address(live), intentId, amount, intentId);

@@ -83,7 +83,8 @@ contract DeployCctpRouterScript is Script {
         console.log("chain id                    ", block.chainid);
         console.log("predicted replacement router", predictedRouter);
 
-        CircleCCTPInitiator initiator = new CircleCCTPInitiator(deployingAs, tokenMessenger, settlementAsset);
+        CircleCCTPInitiator initiator =
+            new CircleCCTPInitiator(deployingAs, tokenMessenger, settlementAsset, predictedRouter);
         initiator.setDomain(destinationChainId, _cctpDomain(destinationChainId));
 
         address router = ArcaidiaDeployment.deployReplacementRouter(
