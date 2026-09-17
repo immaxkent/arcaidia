@@ -14,10 +14,11 @@ cd "$ROOT/apps/web"
 [ -d .vercel ] || { echo "run 'vercel link' in apps/web first"; exit 1; }
 while IFS='=' read -r key value; do
   case "$key" in VITE_*) ;; *) continue ;; esac
+  [ -n "${value%$'\r'}" ] || { echo "skip $key (empty: the app's committed default applies)"; continue; }
   value=${value%$'\r'}
-  vercel env rm "$key" "$ENVIRONMENT" --yes >/dev/null 2>&1 || true
-  printf '%s' "$value" | vercel env add "$key" "$ENVIRONMENT" >/dev/null
-  echo "set $key"
+  vercel env rm "$key" "$ENVIRONMENT" --yes </dev/null >/dev/null 2>&1 || true
+  if printf '%s' "$value" | vercel env add "$key" "$ENVIRONMENT" >/dev/null 2>&1; then echo "set $key"; else echo "FAILED $key"; fi
 done < <(grep -E '^VITE_[A-Z0-9_]+=' .env)
-printf '%s' "vercel" | vercel env add NITRO_PRESET "$ENVIRONMENT" >/dev/null 2>&1 || true
+vercel env rm NITRO_PRESET "$ENVIRONMENT" --yes </dev/null >/dev/null 2>&1 || true
+printf '%s' "vercel" | vercel env add NITRO_PRESET "$ENVIRONMENT" >/dev/null 2>&1 || echo "FAILED NITRO_PRESET"
 echo "set NITRO_PRESET=vercel"

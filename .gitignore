@@ -24,6 +24,9 @@ solver-decisions*.jsonl
 .env.solver-*
 !.env.solver-*.example
 
+# Market maker env (WP-34) — holds MARKET_PRIVATE_KEY, never committed
+.env.market
+
 subgraph/build-arc
 
 # WP-32 load generator output
