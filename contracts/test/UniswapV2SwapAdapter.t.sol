@@ -64,8 +64,12 @@ contract UniswapV2SwapAdapterTest is MarketFixture {
         assertFalse(adapter.allowedPair(address(mockEth), address(usdc)), "inward is a separate grant");
     }
 
-    function test_ownershipTransfers() public {
+    function test_ownershipTransfersInTwoSteps() public {
         adapter.transferOwnership(STRANGER);
+        assertEq(adapter.owner(), address(this), "unchanged until accepted (MN-07)");
+
+        vm.prank(STRANGER);
+        adapter.acceptOwnership();
         assertEq(adapter.owner(), STRANGER);
 
         vm.expectRevert(UniswapV2SwapAdapter.NotOwner.selector);

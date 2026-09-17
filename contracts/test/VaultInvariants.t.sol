@@ -41,8 +41,7 @@ contract VaultInvariantsTest is ChainFixture {
         asset = new MockUSDC();
         vault = new VaultHarness();
         vault.initialize(
-            vaultOwner, address(asset), RESERVE_FLOOR_BPS, MAX_FILL_BPS, MAX_EXPOSURE_BPS, TestPolicies.permissive()
-        );
+            vaultOwner, address(asset), RESERVE_FLOOR_BPS, MAX_FILL_BPS, MAX_EXPOSURE_BPS, TestPolicies.permissive(), address(0), address(0));
 
         (, uint256 agentKey) = makeAddrAndKey("invAgent");
         handler = new VaultInvariantHandler(vault, asset, agentKey);

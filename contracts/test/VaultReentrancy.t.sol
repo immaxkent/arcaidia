@@ -35,7 +35,7 @@ contract VaultReentrancyTest is ChainFixture {
 
         asset = new ReentrantToken();
         vault = new VaultHarness();
-        vault.initialize(vaultOwner, address(asset), 1_000, 2_500, 10_000, TestPolicies.permissive());
+        vault.initialize(vaultOwner, address(asset), 1_000, 2_500, 10_000, TestPolicies.permissive(), address(0), address(0));
 
         (agent, agentKey) = makeAddrAndKey("agent");
         vm.startPrank(vaultOwner);

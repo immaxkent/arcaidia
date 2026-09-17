@@ -54,8 +54,7 @@ abstract contract VaultFixture is ChainFixture {
             RESERVE_FLOOR_BPS,
             DEFAULT_MAX_FILL_BPS,
             DEFAULT_MAX_EXPOSURE_BPS,
-            TestPolicies.permissive()
-        );
+            TestPolicies.permissive(), address(0), address(0));
 
         registry = new MockVaultRegistry();
         settlementCheck = address(new NeverSettledCheck());

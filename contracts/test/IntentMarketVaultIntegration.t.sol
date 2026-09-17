@@ -78,7 +78,7 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
 
         v = new VaultHarness();
         // 10% reserve floor, 50% fill cap, 80% exposure cap, permissive fee tiers
-        v.initialize(vOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive());
+        v.initialize(vOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive(), address(0), address(0));
 
         vm.startPrank(vOwner);
         v.setMarket(address(market));

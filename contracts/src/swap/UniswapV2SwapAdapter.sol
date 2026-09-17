@@ -31,10 +31,17 @@ contract UniswapV2SwapAdapter is ISwapAdapter {
     address public immutable factory;
 
     address public owner;
+
+    /// @notice Named by `transferOwnership`, effective only once it calls `acceptOwnership`.
+    /// @dev Two steps because one is unforgiving: every privileged call on this contract is
+    ///      `onlyOwner`, and a mistyped address in a single-step handover removes the pause,
+    ///      the limits and the wiring from anyone's reach, permanently (MN-07 / C-20).
+    address public pendingOwner;
     /// @notice `allowedPair[tokenIn][tokenOut]` — directional, owner-set.
     mapping(address => mapping(address => bool)) public allowedPair;
 
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event PairAllowed(address indexed tokenIn, address indexed tokenOut, bool allowed);
     event SwapExecuted(
         address indexed tokenIn,
@@ -45,6 +52,7 @@ contract UniswapV2SwapAdapter is ISwapAdapter {
     );
 
     error NotOwner();
+    error NotPendingOwner(address caller);
     error ZeroAddress();
     error IdenticalTokens(address token);
     error PairNotAllowed(address tokenIn, address tokenOut);
@@ -72,8 +80,17 @@ contract UniswapV2SwapAdapter is ISwapAdapter {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnerTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Take ownership named by the current owner. Only the named address can.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        address previous = owner;
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(previous, msg.sender);
     }
 
     /// @notice Allow or forbid swapping `tokenIn` into `tokenOut` through this adapter.

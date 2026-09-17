@@ -95,8 +95,7 @@ contract FastFillSettlementCheckTest is FastFillFixture {
     function test_vaultWiredToADifferentReceiverCannotFill() public {
         VaultHarness fresh = new VaultHarness();
         fresh.initialize(
-            vaultOwner, address(asset), RESERVE_FLOOR_BPS, DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, TestPolicies.permissive()
-        );
+            vaultOwner, address(asset), RESERVE_FLOOR_BPS, DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, TestPolicies.permissive(), address(0), address(0));
         ArcaidiaIntentMarket freshMarket =
             new ArcaidiaIntentMarket(ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(registry)));
 

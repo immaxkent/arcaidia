@@ -28,6 +28,12 @@ import {FeePolicy} from "./libraries/ArcaidiaTypes.sol";
 ///      deployed-and-initialised atomically by `ArcaidiaDeployer`.
 contract ArcaidiaVaultFactory is IVaultRegistry {
     address public owner;
+
+    /// @notice Named by `transferOwnership`, effective only once it calls `acceptOwnership`.
+    /// @dev Two steps because one is unforgiving: every privileged call on this contract is
+    ///      `onlyOwner`, and a mistyped address in a single-step handover removes the pause,
+    ///      the limits and the wiring from anyone's reach, permanently (MN-07 / C-20).
+    address public pendingOwner;
     bool public initialized;
 
     address public asset;
@@ -48,9 +54,11 @@ contract ArcaidiaVaultFactory is IVaultRegistry {
         uint16 maxExposureBps
     );
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     error AlreadyInitialized();
     error NotOwner();
+    error NotPendingOwner(address caller);
     error ZeroAddress();
     error VaultAddressMismatch(address predicted, address actual);
     /// The market settles through a different receiver than the one offered here (MN-02).
@@ -87,8 +95,17 @@ contract ArcaidiaVaultFactory is IVaultRegistry {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnerTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Take ownership named by the current owner. Only the named address can.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        address previous = owner;
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(previous, msg.sender);
     }
 
     /// @notice Create a standard vault owned by the caller, wired to this chain's market and
@@ -109,11 +126,12 @@ contract ArcaidiaVaultFactory is IVaultRegistry {
         vault = address(created);
         if (vault != predicted) revert VaultAddressMismatch(predicted, vault);
 
-        // Same transaction as the deploy: no window in which anyone else could initialise it.
-        created.initialize(address(this), asset, reserveFloorBps, maxFillBps, maxExposureBps, policy);
-        created.setMarket(market);
-        created.setSettlementReceiver(settlementReceiver);
-        created.transferOwnership(msg.sender);
+        // Same transaction as the deploy: no window in which anyone else could initialise it, and
+        // the creator owns it from its first block — no handover to accept, which is why the
+        // vault's own `transferOwnership` can be the careful two-step one (MN-07).
+        created.initialize(
+            msg.sender, asset, reserveFloorBps, maxFillBps, maxExposureBps, policy, market, settlementReceiver
+        );
 
         isFactoryVault[vault] = true;
         vaults.push(vault);

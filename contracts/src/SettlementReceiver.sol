@@ -61,6 +61,12 @@ contract SettlementReceiver is ReentrancyGuard {
     }
 
     address public owner;
+
+    /// @notice Named by `transferOwnership`, effective only once it calls `acceptOwnership`.
+    /// @dev One mistyped address in a single-step handover would leave nobody able to trust a
+    ///      source domain again — the only privileged call this contract has (MN-07 / C-20).
+    address public pendingOwner;
+
     bool public initialized;
 
     IERC20 public asset;
@@ -87,6 +93,8 @@ contract SettlementReceiver is ReentrancyGuard {
 
     event ReceiverInitialized(address owner, address asset, address market, address messageTransmitter);
     event TrustedInitiatorSet(uint32 indexed sourceDomain, address initiator);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+    event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
     event LpReimbursed(bytes32 indexed intentId, address indexed vault, uint256 amount);
     event RecipientPaidByFallback(bytes32 indexed intentId, address indexed recipient, uint256 amount);
     event SettledWithProof(bytes32 indexed intentId, uint8 outcome, uint256 amount, bytes32 cctpNonce);
@@ -97,6 +105,7 @@ contract SettlementReceiver is ReentrancyGuard {
     /// The market named here settles through a different receiver (MN-02).
     error MarketSettlesElsewhere(address marketReceiver);
     error NotOwner();
+    error NotPendingOwner(address caller);
     error ZeroAddress();
     error ZeroAmount();
     error AlreadySettled(bytes32 intentId);
@@ -148,7 +157,17 @@ contract SettlementReceiver is ReentrancyGuard {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Take ownership named by the current owner. Only the named address can.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        address previous = owner;
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(previous, msg.sender);
     }
 
     /// @notice Whether canonical settlement has already been recorded.

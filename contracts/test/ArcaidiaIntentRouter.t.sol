@@ -303,9 +303,14 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
         router.setDestination(block.chainid, bob);
     }
 
-    function test_ownershipCanBeTransferred() public {
+    /// MN-07: the new owner has to take it, so a mistyped address cannot strand the pause.
+    function test_ownershipTransfersInTwoSteps() public {
         vm.prank(deployerOwner);
         router.transferOwnership(alice);
+        assertEq(router.owner(), deployerOwner, "unchanged until accepted");
+
+        vm.prank(alice);
+        router.acceptOwnership();
         assertEq(router.owner(), alice);
 
         vm.prank(alice);

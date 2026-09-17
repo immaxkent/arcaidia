@@ -23,6 +23,13 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "acceptOwnership",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "createIntent",
       "inputs": [
         {
@@ -231,6 +238,19 @@ export const ABIS = {
           "name": "",
           "type": "bool",
           "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "pendingOwner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "stateMutability": "view"
@@ -597,6 +617,25 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "OwnershipTransferStarted",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "PausedSet",
       "inputs": [
         {
@@ -755,6 +794,17 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "NotPendingOwner",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "ReentrancyGuardReentrantCall",
       "inputs": []
     },
@@ -821,6 +871,13 @@ export const ABIS = {
     {
       "type": "constructor",
       "inputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "acceptOwnership",
+      "inputs": [],
+      "outputs": [],
       "stateMutability": "nonpayable"
     },
     {
@@ -1385,6 +1442,16 @@ export const ABIS = {
               "internalType": "uint16"
             }
           ]
+        },
+        {
+          "name": "market_",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "settlementReceiver_",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "outputs": [],
@@ -1699,6 +1766,19 @@ export const ABIS = {
           "name": "",
           "type": "bool",
           "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "pendingOwner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "stateMutability": "view"
@@ -2645,6 +2725,25 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "OwnershipTransferStarted",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "PausedSet",
       "inputs": [
         {
@@ -3333,6 +3432,17 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "NotPendingOwner",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "NotSettlementReceiver",
       "inputs": []
     },
@@ -3461,6 +3571,13 @@ export const ABIS = {
     }
   ] as const,
   SettlementReceiver: [
+    {
+      "type": "function",
+      "name": "acceptOwnership",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
     {
       "type": "function",
       "name": "asset",
@@ -3601,6 +3718,19 @@ export const ABIS = {
     {
       "type": "function",
       "name": "owner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "pendingOwner",
       "inputs": [],
       "outputs": [
         {
@@ -3788,6 +3918,44 @@ export const ABIS = {
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "OwnerTransferred",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "OwnershipTransferStarted",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
         }
       ],
       "anonymous": false
@@ -3988,6 +4156,17 @@ export const ABIS = {
       "type": "error",
       "name": "NotOwner",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotPendingOwner",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
     },
     {
       "type": "error",
@@ -5047,6 +5226,13 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "acceptOwnership",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "domainConfigured",
       "inputs": [
         {
@@ -5156,6 +5342,19 @@ export const ABIS = {
     {
       "type": "function",
       "name": "owner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "pendingOwner",
       "inputs": [],
       "outputs": [
         {
@@ -5313,6 +5512,25 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "OwnershipTransferStarted",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "OwnershipTransferred",
       "inputs": [
         {
@@ -5384,6 +5602,17 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "NotPendingOwner",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "NotRouter",
       "inputs": [
         {
@@ -5422,6 +5651,13 @@ export const ABIS = {
     }
   ] as const,
   ArcaidiaVaultFactory: [
+    {
+      "type": "function",
+      "name": "acceptOwnership",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
     {
       "type": "function",
       "name": "asset",
@@ -5604,6 +5840,19 @@ export const ABIS = {
     },
     {
       "type": "function",
+      "name": "pendingOwner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "predictVault",
       "inputs": [
         {
@@ -5736,6 +5985,25 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "OwnershipTransferStarted",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "VaultCreated",
       "inputs": [
         {
@@ -5832,6 +6100,17 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "NotPendingOwner",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "ReceiverNotTheMarketsOwn",
       "inputs": [
         {
@@ -5883,6 +6162,13 @@ export const ABIS = {
           "internalType": "address"
         }
       ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "acceptOwnership",
+      "inputs": [],
+      "outputs": [],
       "stateMutability": "nonpayable"
     },
     {
@@ -5959,6 +6245,19 @@ export const ABIS = {
     {
       "type": "function",
       "name": "owner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "pendingOwner",
       "inputs": [],
       "outputs": [
         {
@@ -6130,6 +6429,25 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "OwnershipTransferStarted",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "PairAllowed",
       "inputs": [
         {
@@ -6243,6 +6561,17 @@ export const ABIS = {
       "type": "error",
       "name": "NotOwner",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotPendingOwner",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
     },
     {
       "type": "error",

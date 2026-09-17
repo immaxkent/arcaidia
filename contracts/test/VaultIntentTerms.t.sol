@@ -161,7 +161,7 @@ contract VaultIntentTermsTest is FastFillFixture {
         vm.expectRevert(
             abi.encodeWithSelector(FeePolicyLib.FeePolicyAboveProtocolCeiling.selector, 151, 150)
         );
-        fresh.initialize(vaultOwner, address(asset), 1_000, 5_000, 8_000, bad);
+        fresh.initialize(vaultOwner, address(asset), 1_000, 5_000, 8_000, bad, address(0), address(0));
     }
 
     /// `FastFilled` carries the tier that applied, so the indexer can chart fee evolution.
@@ -294,7 +294,7 @@ contract VaultIntentTermsTest is FastFillFixture {
     /// A second vault with the tiered policy, 100% caps, funded with 100k so utilisation maths is exact.
     function _tieredVault() internal returns (VaultHarness tiered) {
         tiered = new VaultHarness();
-        tiered.initialize(vaultOwner, address(asset), 0, 10_000, 10_000, TestPolicies.tiered());
+        tiered.initialize(vaultOwner, address(asset), 0, 10_000, 10_000, TestPolicies.tiered(), address(0), address(0));
         vm.prank(vaultOwner);
         tiered.setMarket(address(market));
         vm.prank(lpBob);

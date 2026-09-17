@@ -72,6 +72,19 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         });
     }
 
+
+    /// MN-07: `deployAll` names the owner; the owner takes it. On mainnet that second step is the
+    /// Safe's, and until it happens the deploy key still holds the keys — which is exactly why the
+    /// runbook verifies ownership after acceptance, not before.
+    function _acceptOwnership(ArcaidiaDeployment.Deployment memory d) internal {
+        vm.startPrank(protocolOwner);
+        ArcaidiaIntentRouter(d.router).acceptOwnership();
+        SettlementReceiver(d.settlementReceiver).acceptOwnership();
+        ArcaidiaVaultFactory(d.factory).acceptOwnership();
+        ArcaidiaLiquidityVault(d.vault).acceptOwnership();
+        vm.stopPrank();
+    }
+
     // -----------------------------------------------------------------------
     // Prediction
     // -----------------------------------------------------------------------
@@ -197,6 +210,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     function test_ownershipEndsWithTheIntendedOwner() public {
         ArcaidiaDeployment.Deployment memory d =
             ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
+        _acceptOwnership(d);
 
         assertEq(ArcaidiaIntentRouter(d.router).owner(), protocolOwner);
         assertEq(ArcaidiaLiquidityVault(d.vault).owner(), protocolOwner);
@@ -206,6 +220,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     function test_deployingAddressRetainsNoAuthority() public {
         ArcaidiaDeployment.Deployment memory d =
             ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
+        _acceptOwnership(d);
 
         vm.expectRevert(ArcaidiaLiquidityVault.NotOwner.selector);
         ArcaidiaLiquidityVault(d.vault).setPaused(true);
@@ -220,6 +235,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     function test_intendedOwnerCanOperateImmediately() public {
         ArcaidiaDeployment.Deployment memory d =
             ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
+        _acceptOwnership(d);
 
         vm.startPrank(protocolOwner);
         ArcaidiaLiquidityVault(d.vault).setPaused(true);
@@ -279,6 +295,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     function test_houseVaultIsCreatedThroughTheFactoryAndRegistered() public {
         ArcaidiaDeployment.Deployment memory d =
             ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
+        _acceptOwnership(d);
 
         ArcaidiaVaultFactory factory = ArcaidiaVaultFactory(d.factory);
         assertTrue(factory.isFactoryVault(d.vault), "House Vault must be a factory vault");
@@ -293,6 +310,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     function test_houseVaultCarriesTheConfiguredEconomics() public {
         ArcaidiaDeployment.Deployment memory d =
             ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
+        _acceptOwnership(d);
         ArcaidiaLiquidityVault vault = ArcaidiaLiquidityVault(d.vault);
 
         (uint16 base,,, uint16 critical, uint16 mid,,) = vault.feePolicy();
@@ -384,6 +402,8 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             })
         );
 
+        vm.prank(protocolOwner);
+        ArcaidiaIntentRouter(router).acceptOwnership();
         assertEq(ArcaidiaIntentRouter(router).owner(), protocolOwner);
     }
 

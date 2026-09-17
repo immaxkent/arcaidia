@@ -69,6 +69,13 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
     // -----------------------------------------------------------------------
 
     address public owner;
+
+    /// @notice Named by `transferOwnership`, effective only once it calls `acceptOwnership`.
+    /// @dev The owner sets this vault's signers, caps and adapter, so a mistyped handover would
+    ///      freeze all of them for good (MN-07 / C-20). Vaults made by the factory never pass
+    ///      through here: they are initialised owned by their creator.
+    address public pendingOwner;
+
     bool public initialized;
     bool public paused;
 
@@ -201,6 +208,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
     );
     event PausedSet(bool paused);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     // -----------------------------------------------------------------------
     // Errors
@@ -208,6 +216,7 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
 
     error AlreadyInitialized();
     error NotOwner();
+    error NotPendingOwner(address caller);
     error VaultPaused();
     error ZeroAddress();
     error NoMarketConfigured();
@@ -258,13 +267,17 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
 
     /// @notice One-time configuration. The fee policy set here is permanent (D7); the two
     ///         caps remain owner-adjustable risk knobs.
+    /// @param market_ The market this vault competes through; `address(0)` to wire it later.
+    /// @param settlementReceiver_ That market's settlement receiver; `address(0)` to wire later.
     function initialize(
         address owner_,
         address asset_,
         uint16 reserveFloorBps_,
         uint16 maxFillBps_,
         uint16 maxExposureBps_,
-        FeePolicy calldata policy
+        FeePolicy calldata policy,
+        address market_,
+        address settlementReceiver_
     ) external {
         if (initialized) revert AlreadyInitialized();
         if (owner_ == address(0) || asset_ == address(0)) revert ZeroAddress();
@@ -281,6 +294,15 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
         maxFillBps = maxFillBps_;
         maxExposureBps = maxExposureBps_;
         feePolicy = policy;
+
+        if (market_ != address(0)) {
+            market = market_;
+            emit MarketConfigured(market_);
+        }
+        if (settlementReceiver_ != address(0)) {
+            settlementReceiver = settlementReceiver_;
+            emit SettlementReceiverConfigured(settlementReceiver_);
+        }
 
         emit VaultInitialized(owner_, asset_, reserveFloorBps_);
         emit FillLimitsConfigured(maxFillBps_, maxExposureBps_);
@@ -364,8 +386,17 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnerTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Take ownership named by the current owner. Only the named address can.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        address previous = owner;
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(previous, msg.sender);
     }
 
     // -----------------------------------------------------------------------

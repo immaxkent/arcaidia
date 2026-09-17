@@ -121,6 +121,14 @@ contract MainnetReadinessPoCTest is ChainFixture {
             }),
             address(this)
         );
+
+        // MN-07: the owner takes what it was handed, as the Safe does on mainnet.
+        vm.startPrank(protocolOwner);
+        ArcaidiaIntentRouter(d.router).acceptOwnership();
+        SettlementReceiver(d.settlementReceiver).acceptOwnership();
+        ArcaidiaVaultFactory(d.factory).acceptOwnership();
+        ArcaidiaLiquidityVault(d.vault).acceptOwnership();
+        vm.stopPrank();
     }
 
     /// An independent operator creates a vault through the factory, funds it and authorises a signer.

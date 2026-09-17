@@ -46,6 +46,12 @@ contract CircleCCTPInitiator is ISettlementInitiator {
 
     address public owner;
 
+    /// @notice Named by `transferOwnership`, effective only once it calls `acceptOwnership`.
+    /// @dev Two steps because one is unforgiving: every privileged call on this contract is
+    ///      `onlyOwner`, and a mistyped address in a single-step handover removes the pause,
+    ///      the limits and the wiring from anyone's reach, permanently (MN-07 / C-20).
+    address public pendingOwner;
+
     /// @notice Standard/finalized by default (2000). Fast is 1000 or below.
     uint32 public minFinalityThreshold = 2000;
     /// @notice In units of `settlementAsset`. 0 is correct for Standard transfers.
@@ -59,11 +65,13 @@ contract CircleCCTPInitiator is ISettlementInitiator {
     event DomainConfigured(uint256 indexed destinationChainId, uint32 domain);
     event FinalityConfigured(uint32 minFinalityThreshold, uint256 maxFee);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event SettlementInitiated(
         bytes32 indexed intentId, bytes32 settlementRef, uint256 amount, uint256 destinationChainId
     );
 
     error NotOwner();
+    error NotPendingOwner(address caller);
     error NotRouter(address caller);
     error ZeroAddress();
     error UnsupportedDestination(uint256 destinationChainId);
@@ -103,8 +111,17 @@ contract CircleCCTPInitiator is ISettlementInitiator {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    /// @notice Take ownership named by the current owner. Only the named address can.
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        address previous = owner;
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnershipTransferred(previous, msg.sender);
     }
 
     /// @inheritdoc ISettlementInitiator

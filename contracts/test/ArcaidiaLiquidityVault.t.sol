@@ -34,13 +34,13 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
 
     function test_initializeCannotBeCalledTwice() public {
         vm.expectRevert(ArcaidiaLiquidityVault.AlreadyInitialized.selector);
-        vault.initialize(lpAlice, address(asset), 0, DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, TestPolicies.permissive());
+        vault.initialize(lpAlice, address(asset), 0, DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, TestPolicies.permissive(), address(0), address(0));
     }
 
     function test_initializeRejectsReserveFloorAboveDenominator() public {
         VaultHarness fresh = new VaultHarness();
         vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.ReserveFloorTooHigh.selector, 10_001));
-        fresh.initialize(vaultOwner, address(asset), 10_001, 5_000, 8_000, TestPolicies.permissive());
+        fresh.initialize(vaultOwner, address(asset), 10_001, 5_000, 8_000, TestPolicies.permissive(), address(0), address(0));
     }
 
     /// Share decimals are asset decimals plus the virtual offset, which is what
@@ -539,9 +539,25 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         vault.setPaused(true);
     }
 
-    function test_ownershipCanBeTransferred() public {
+    /// MN-07: naming a new owner does not hand anything over. Only the named address can take it,
+    /// so a typo costs nothing.
+    function test_ownershipTransfersInTwoSteps() public {
         vm.prank(vaultOwner);
         vault.transferOwnership(lpAlice);
+        assertEq(vault.owner(), vaultOwner, "still the old owner until accepted");
+        assertEq(vault.pendingOwner(), lpAlice);
+
+        vm.prank(lpBob);
+        vm.expectRevert(abi.encodeWithSelector(ArcaidiaLiquidityVault.NotPendingOwner.selector, lpBob));
+        vault.acceptOwnership();
+
+        vm.prank(lpAlice);
+        vault.acceptOwnership();
         assertEq(vault.owner(), lpAlice);
+        assertEq(vault.pendingOwner(), address(0));
+
+        vm.prank(vaultOwner);
+        vm.expectRevert(ArcaidiaLiquidityVault.NotOwner.selector);
+        vault.setPaused(true);
     }
 }

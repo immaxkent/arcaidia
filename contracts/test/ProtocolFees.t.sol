@@ -173,7 +173,7 @@ contract ProtocolFeesTest is VaultFixture {
 
     function test_sweepRevertsWithNoTreasurySet() public {
         ArcaidiaLiquidityVault fresh = new ArcaidiaLiquidityVault();
-        fresh.initialize(vaultOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive());
+        fresh.initialize(vaultOwner, address(asset), 1_000, 5_000, 8_000, TestPolicies.permissive(), address(0), address(0));
 
         vm.prank(vaultOwner);
         vm.expectRevert(ArcaidiaLiquidityVault.TreasuryNotSet.selector);
