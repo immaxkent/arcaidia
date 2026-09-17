@@ -49,7 +49,7 @@ contract VaultInvariantsTest is ChainFixture {
 
         ArcaidiaIntentMarket market =
             new ArcaidiaIntentMarket(
-            ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(new MockVaultRegistry()))
+            ISettlementCheck(address(handler)), IVaultRegistry(address(new MockVaultRegistry()))
         );
 
         vm.startPrank(vaultOwner);

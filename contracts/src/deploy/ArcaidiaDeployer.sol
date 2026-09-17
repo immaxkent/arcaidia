@@ -22,12 +22,24 @@ pragma solidity 0.8.28;
 ///      Ethereum Sepolia and Arc testnet. Its own creation code takes no
 ///      arguments, so that address is chain-independent too.
 contract ArcaidiaDeployer {
+    /// @notice The only address that may deploy through this contract.
+    /// @dev Salts and init code are public, so a permissionless deployer lets anyone occupy the
+    ///      protocol's predicted addresses first — and the other chain's router is configured to
+    ///      send canonical USDC to exactly those predicted addresses (MN-03). The owner is a
+    ///      constructor argument, so the same deploy key on both chains keeps address parity.
+    address public immutable owner;
+
     event Deployed(bytes32 indexed salt, address indexed deployed, bool initialized);
 
     error DeploymentFailed(bytes32 salt);
     error AddressMismatch(address predicted, address actual);
     error InitializationFailed(address deployed, bytes reason);
     error EmptyCreationCode();
+    error NotOwner(address caller);
+
+    constructor(address owner_) {
+        owner = owner_;
+    }
 
     /// @notice Deploy `creationCode` at a deterministic address and initialize it.
     /// @param salt CREATE2 salt. The same salt and creation code must be used on
@@ -40,6 +52,7 @@ contract ArcaidiaDeployer {
         external
         returns (address deployed)
     {
+        if (msg.sender != owner) revert NotOwner(msg.sender);
         if (creationCode.length == 0) revert EmptyCreationCode();
 
         address predicted = predictAddress(salt, keccak256(creationCode));

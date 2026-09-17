@@ -211,6 +211,8 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
     error VaultPaused();
     error ZeroAddress();
     error NoMarketConfigured();
+    /// This vault's settlement receiver is not the one its market treats as canonical (MN-02).
+    error ReceiverMismatch(address vaultReceiver, address marketReceiver);
     error ZeroAmount();
     error ReserveFloorTooHigh(uint16 bps);
     error ExceedsMaxDeposit(uint256 assets, uint256 max);
@@ -491,10 +493,8 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
             && outputAmount > 0 && outputAmount <= maxFillAmount()
             && outstandingExposure + outputAmount <= maxOutstandingExposure()
             && outputAmount <= availableLiquidity() && !intentFilled[intentId]
-            && (
-                settlementReceiver == address(0)
-                    || !ISettlementCheck(settlementReceiver).isSettled(intentId)
-            );
+            && settlementReceiver == IIntentMarket(market).settlementCheck()
+            && !ISettlementCheck(settlementReceiver).isSettled(intentId);
     }
 
     // -----------------------------------------------------------------------
@@ -695,10 +695,16 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
         // indistinguishable here from one nobody has touched, since that
         // branch never calls this vault. A late fill would pay the recipient
         // a second time, out of LP capital, with no mint ever backing it.
-        if (
-            settlementReceiver != address(0)
-                && ISettlementCheck(settlementReceiver).isSettled(authorization.intentId)
-        ) {
+        // MN-02, learned the hard way on Arc testnet (intent 0xd277…3ca): a vault pointed at a
+        // retired receiver asks a contract that will never say "settled", so the late-fill guard
+        // below silently passes and the recipient is paid twice — once by canonical settlement and
+        // once from LP capital that can never be reimbursed. The market is the one place that
+        // knows which receiver actually settles, so a vault that disagrees does not fill at all.
+        address marketReceiver = IIntentMarket(market).settlementCheck();
+        if (settlementReceiver != marketReceiver) {
+            revert ReceiverMismatch(settlementReceiver, marketReceiver);
+        }
+        if (ISettlementCheck(settlementReceiver).isSettled(authorization.intentId)) {
             revert IntentAlreadySettledCanonically(authorization.intentId);
         }
 

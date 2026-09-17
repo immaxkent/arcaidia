@@ -28,8 +28,14 @@ contract FastFillSettlementCheckTest is FastFillFixture {
 
     function setUp() public {
         _deployWithAgent();
-        vm.prank(vaultOwner);
+        // This contract is both the market's canonical check and the vault's receiver, so the two
+        // agree (MN-02) and `settled` below drives them together, as one receiver does live.
+        ArcaidiaIntentMarket ownMarket =
+            new ArcaidiaIntentMarket(ISettlementCheck(address(this)), IVaultRegistry(address(registry)));
+        vm.startPrank(vaultOwner);
+        vault.setMarket(address(ownMarket));
         vault.setSettlementReceiver(address(this));
+        vm.stopPrank();
     }
 
     function isSettled(bytes32) external view returns (bool) {
@@ -84,7 +90,9 @@ contract FastFillSettlementCheckTest is FastFillFixture {
     /// in before deployment wiring runs — must not brick every fill. A fresh
     /// vault instance, never pointed at a receiver, stands in here since
     /// `setSettlementReceiver` itself refuses `address(0)`.
-    function test_unsetSettlementReceiverDoesNotBlockFills() public {
+    /// MN-02: a vault whose receiver is not its market's own fails closed rather than creating a
+    /// receivable that canonical settlement can never repay.
+    function test_vaultWiredToADifferentReceiverCannotFill() public {
         VaultHarness fresh = new VaultHarness();
         fresh.initialize(
             vaultOwner, address(asset), RESERVE_FLOOR_BPS, DEFAULT_MAX_FILL_BPS, DEFAULT_MAX_EXPOSURE_BPS, TestPolicies.permissive()
@@ -106,9 +114,18 @@ contract FastFillSettlementCheckTest is FastFillFixture {
 
         FillAuthorization memory auth = _authorization(5, 10_000e6, 50e6);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(agentKey, fresh.hashFillAuthorization(auth));
-        address signer = fresh.fastFill(_intentOf(auth), auth, abi.encodePacked(r, s, v));
+        bytes memory signature = abi.encodePacked(r, s, v);
+        address freshCheck = address(freshMarket.settlementCheck());
 
-        assertEq(signer, agent);
+        vm.expectRevert(
+            abi.encodeWithSelector(ArcaidiaLiquidityVault.ReceiverMismatch.selector, address(0), freshCheck)
+        );
+        fresh.fastFill(_intentOf(auth), auth, signature);
+        assertEq(asset.balanceOf(recipient), 0, "no LP capital moved");
+
+        vm.prank(vaultOwner);
+        fresh.setSettlementReceiver(freshCheck);
+        assertEq(fresh.fastFill(_intentOf(auth), auth, signature), agent, "wired correctly, it fills");
         assertEq(asset.balanceOf(recipient), 9_950e6);
     }
 }

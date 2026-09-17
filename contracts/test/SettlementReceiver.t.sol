@@ -21,8 +21,7 @@ contract SettlementReceiverTest is VaultFixture {
         _deployVault();
 
         transmitter = new MockMessageTransmitterV2(asset);
-        receiver = new SettlementReceiver();
-        receiver.initialize(vaultOwner, address(asset), address(market), address(transmitter));
+        receiver = _deployBoundReceiver(vaultOwner, address(transmitter));
 
         vm.startPrank(vaultOwner);
         receiver.setReporter(reporter, true);

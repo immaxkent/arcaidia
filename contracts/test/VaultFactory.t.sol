@@ -21,7 +21,7 @@ contract VaultFactoryTest is ChainFixture {
     MockUSDC internal asset;
     ArcaidiaVaultFactory internal factory;
     ArcaidiaIntentMarket internal market;
-    address internal receiver = makeAddr("receiver");
+    address internal receiver;
     address internal protocolOwner = makeAddr("protocolOwner");
 
     bytes32 internal constant FACTORY_SALT = keccak256("test.factory");
@@ -30,14 +30,13 @@ contract VaultFactoryTest is ChainFixture {
         _configureDirection();
         vm.chainId(destinationChainId);
         asset = new MockUSDC();
-        deployer = new ArcaidiaDeployer();
+        deployer = new ArcaidiaDeployer(address(this));
 
         // Same circular wiring the real deployment resolves by prediction.
         address predictedFactory =
             deployer.predictAddress(FACTORY_SALT, keccak256(type(ArcaidiaVaultFactory).creationCode));
-        market = new ArcaidiaIntentMarket(
-            ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(predictedFactory)
-        );
+        receiver = address(new NeverSettledCheck());
+        market = new ArcaidiaIntentMarket(ISettlementCheck(receiver), IVaultRegistry(predictedFactory));
         factory = ArcaidiaVaultFactory(
             deployer.deploy(
                 FACTORY_SALT,

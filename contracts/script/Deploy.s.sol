@@ -258,7 +258,10 @@ contract DeployScript is Script {
     /// @dev Deploys the Arcaidia deployer through Arachnid's proxy if it is not
     ///      already present, so both chains resolve it to the same address.
     function _ensureDeployer() internal returns (ArcaidiaDeployer) {
-        bytes memory creationCode = type(ArcaidiaDeployer).creationCode;
+        // The deploy key owns the deployer, so the same key must be used on both chains for the
+        // protocol's addresses to match (MN-03).
+        bytes memory creationCode =
+            abi.encodePacked(type(ArcaidiaDeployer).creationCode, abi.encode(vm.envAddress("DEPLOY_KEY_ADDRESS")));
         address predicted = address(
             uint160(
                 uint256(

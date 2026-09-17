@@ -42,7 +42,7 @@ contract VaultReentrancyTest is ChainFixture {
         vault.setMarket(
             address(
                 new ArcaidiaIntentMarket(
-                    ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(new MockVaultRegistry()))
+                    ISettlementCheck(address(this)), IVaultRegistry(address(new MockVaultRegistry()))
                 )
             )
         );

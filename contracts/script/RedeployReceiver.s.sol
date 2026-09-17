@@ -77,7 +77,8 @@ contract RedeployReceiver is Script {
     }
 
     function _existingDeployer() internal view returns (ArcaidiaDeployer) {
-        bytes memory creationCode = type(ArcaidiaDeployer).creationCode;
+        bytes memory creationCode =
+            abi.encodePacked(type(ArcaidiaDeployer).creationCode, abi.encode(vm.envAddress("DEPLOY_KEY_ADDRESS")));
         address predicted = address(
             uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), ARACHNID_FACTORY, DEPLOYER_SALT, keccak256(creationCode)))))
         );

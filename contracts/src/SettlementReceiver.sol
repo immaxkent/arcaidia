@@ -91,6 +91,8 @@ contract SettlementReceiver is ReentrancyGuard {
     event HeldForVault(bytes32 indexed intentId, address indexed vault, uint256 amount);
 
     error AlreadyInitialized();
+    /// The market named here settles through a different receiver (MN-02).
+    error MarketSettlesElsewhere(address marketReceiver);
     error NotOwner();
     error NotReporter();
     error ZeroAddress();
@@ -120,6 +122,15 @@ contract SettlementReceiver is ReentrancyGuard {
             owner_ == address(0) || asset_ == address(0) || market_ == address(0)
                 || messageTransmitter_ == address(0)
         ) revert ZeroAddress();
+
+        // D12 is the reason this exists. The v2.0 receiver was replaced on its own and the new
+        // one was initialised against the *existing* market — whose immutable settlement check
+        // still named the retired contract. Every vault then asked a receiver that would never
+        // settle anything, and one intent on Arc testnet was paid twice. A receiver, its market
+        // and its factory are one unit: if the market does not settle through this contract,
+        // this contract has no business existing beside it.
+        address marketReceiver = IIntentMarket(market_).settlementCheck();
+        if (marketReceiver != address(this)) revert MarketSettlesElsewhere(marketReceiver);
 
         initialized = true;
         owner = owner_;

@@ -138,22 +138,28 @@ library ArcaidiaDeployment {
     {
         address self = deployingAs;
 
-        // The receiver's init code takes no constructor arguments, so its address is fixed the
-        // instant it's deployed — deployed here without initializing yet, since `initialize`
-        // needs the market's address, and the market needs the receiver's and the factory's.
-        deployment.settlementReceiver =
-            deployer.deploy(RECEIVER_SALT, type(SettlementReceiver).creationCode, "");
-
+        // Order matters, and not for convenience. The receiver's init code takes no constructor
+        // arguments, so its address is known before it exists; the market's constructor binds that
+        // address. Deploying the market first lets the receiver be deployed *and* initialised in
+        // one transaction (MN-03: nothing can front-run an `initialize` that never stands alone),
+        // and lets `initialize` check that this market really settles through it (MN-02).
+        address predictedReceiver =
+            deployer.predictAddress(RECEIVER_SALT, keccak256(type(SettlementReceiver).creationCode));
         address predictedFactory =
             deployer.predictAddress(FACTORY_SALT, keccak256(type(ArcaidiaVaultFactory).creationCode));
 
-        deployment.market = deployer.deploy(
-            MARKET_SALT, _marketCreationCode(deployment.settlementReceiver, predictedFactory), ""
-        );
+        deployment.market =
+            deployer.deploy(MARKET_SALT, _marketCreationCode(predictedReceiver, predictedFactory), "");
 
-        SettlementReceiver(deployment.settlementReceiver).initialize(
-            self, config.settlementAsset, deployment.market, config.messageTransmitter
+        deployment.settlementReceiver = deployer.deploy(
+            RECEIVER_SALT,
+            type(SettlementReceiver).creationCode,
+            abi.encodeCall(
+                SettlementReceiver.initialize,
+                (self, config.settlementAsset, deployment.market, config.messageTransmitter)
+            )
         );
+        require(deployment.settlementReceiver == predictedReceiver, "receiver landed off its prediction");
 
         deployment.factory = deployer.deploy(
             FACTORY_SALT,

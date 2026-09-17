@@ -15,4 +15,7 @@ interface IIntentMarket {
     ///         `SettlementReceiver` to learn who to reimburse — the market, not any one vault,
     ///         is now the source of truth for "who won."
     function filledBy(bytes32 intentId) external view returns (address);
+
+    /// @notice The settlement receiver this market treats as canonical on this chain.
+    function settlementCheck() external view returns (address);
 }

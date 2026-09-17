@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ArcaidiaLiquidityVault} from "./ArcaidiaLiquidityVault.sol";
+import {IIntentMarket} from "./interfaces/IIntentMarket.sol";
 import {IVaultRegistry} from "./interfaces/IVaultRegistry.sol";
 import {FeePolicy} from "./libraries/ArcaidiaTypes.sol";
 
@@ -52,6 +53,8 @@ contract ArcaidiaVaultFactory is IVaultRegistry {
     error NotOwner();
     error ZeroAddress();
     error VaultAddressMismatch(address predicted, address actual);
+    /// The market settles through a different receiver than the one offered here (MN-02).
+    error ReceiverNotTheMarketsOwn(address offered, address marketReceiver);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -64,6 +67,14 @@ contract ArcaidiaVaultFactory is IVaultRegistry {
             owner_ == address(0) || asset_ == address(0) || market_ == address(0)
                 || settlementReceiver_ == address(0)
         ) revert ZeroAddress();
+
+        // Every vault this factory creates inherits `settlementReceiver_`, and a vault whose
+        // receiver is not the market's own can never be reimbursed for what it advances. Bind the
+        // three together here, once, rather than trusting a deploy script to pass a matching pair.
+        address marketReceiver = IIntentMarket(market_).settlementCheck();
+        if (marketReceiver != settlementReceiver_) {
+            revert ReceiverNotTheMarketsOwn(settlementReceiver_, marketReceiver);
+        }
 
         initialized = true;
         owner = owner_;

@@ -93,7 +93,7 @@ contract MainnetReadinessPoCTest is ChainFixture {
     // -----------------------------------------------------------------------
 
     function _deployProtocol(MockUSDC asset_) internal {
-        deployer = new ArcaidiaDeployer();
+        deployer = new ArcaidiaDeployer(address(this));
         asset = asset_;
         initiator = new MockSettlementInitiator();
         transmitter = new MockMessageTransmitterV2(asset);
@@ -196,6 +196,7 @@ contract MainnetReadinessPoCTest is ChainFixture {
     }
 
     /// D12 as it happened on testnet: a v2.1 receiver initialised against the EXISTING market.
+    /// Since MN-02 this reverts, which is the point.
     function _redeployReceiverAsD12() internal returns (SettlementReceiver r2) {
         r2 = new SettlementReceiver();
         r2.initialize(protocolOwner, address(asset), d.market, address(transmitter));
@@ -313,32 +314,45 @@ contract MainnetReadinessPoCTest is ChainFixture {
     // F-01: stale receiver references (market immutable + factory default)
     // -----------------------------------------------------------------------
 
-    /// Reproduces Arc testnet intent 0xd2773113…c8ab3ca (fallback block 61838479, fill block 61838502).
-    function test_PoC_staleReceiverWiring_allowsDoublePayment() public {
-        SettlementReceiver r2 = _redeployReceiverAsD12();
+    /// Regression for B-2, the sequence that paid Arc testnet intent 0xd2773113…c8ab3ca twice
+    /// (fallback block 61838479, fill block 61838502): replacing the receiver on its own is now
+    /// impossible, so no market can be left pointing at a receiver that never settles.
+    function test_Fix_aReceiverCannotBeSwappedInOnItsOwn() public {
+        SettlementReceiver orphan = new SettlementReceiver();
+        vm.expectRevert(
+            abi.encodeWithSelector(SettlementReceiver.MarketSettlesElsewhere.selector, d.settlementReceiver)
+        );
+        orphan.initialize(protocolOwner, address(asset), d.market, address(transmitter));
 
-        // Both protocol-level references still name the retired receiver.
+        // The deployed set names itself in every direction, so a vault, its market and the
+        // receiver that pays it can never disagree.
         assertEq(address(ArcaidiaIntentMarket(d.market).settlementCheck()), d.settlementReceiver);
         assertEq(ArcaidiaVaultFactory(d.factory).settlementReceiver(), d.settlementReceiver);
+        assertEq(address(SettlementReceiver(d.settlementReceiver).market()), d.market);
 
-        // A vault created after D12 inherits the retired receiver from the factory.
-        ArcaidiaLiquidityVault vault = _operatorVault("after-d12");
-        assertEq(vault.settlementReceiver(), d.settlementReceiver, "factory wired the retired receiver");
+        ArcaidiaLiquidityVault vault = _operatorVault("wired");
+        assertEq(vault.settlementReceiver(), d.settlementReceiver);
 
-        // Nobody fast-fills in time; canonical settlement pays the recipient through the live receiver.
+        // Canonical settlement pays the recipient, and the late fill is then refused outright.
         Intent memory intent = _intent(1, 100e6);
         bytes32 intentId = IntentLib.computeIntentId(intent);
-        bytes memory message = _message(address(r2), intentId, 100e6, "n1");
-        r2.settleWithProof(message, transmitter.attest(message));
-        assertEq(uint256(r2.outcomeOf(intentId)), uint256(SettlementReceiver.Outcome.RECIPIENT_FALLBACK));
+        bytes memory message = _message(d.settlementReceiver, intentId, 100e6, "n1");
+        SettlementReceiver(d.settlementReceiver).settleWithProof(message, transmitter.attest(message));
         assertEq(asset.balanceOf(recipient), 100e6);
 
-        // A late solver fill succeeds: the market asks the retired receiver, and so does the vault.
-        _fill(vault, intent);
-
-        assertEq(asset.balanceOf(recipient), 100e6 + 99.9e6, "recipient paid twice");
-        assertEq(vault.outstandingExposure(), 99.9e6, "a receivable that can never be reimbursed");
-        assertEq(vault.totalAssets(), 10_000e6, "share price still counts the lost principal");
+        uint256 fee = (intent.amount * 10 + 9_999) / 10_000;
+        FillAuthorization memory auth = FillAuthorization({
+            intentId: intentId, sourceChainId: intent.sourceChainId, sourceTxHash: keccak256("tx"),
+            recipient: recipient, inputAmount: intent.amount, outputAmount: intent.amount - fee,
+            feeAmount: fee, expiry: uint64(block.timestamp + 45), nonce: 1
+        });
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(agentKey, vault.hashFillAuthorization(auth));
+        vm.expectRevert(
+            abi.encodeWithSelector(ArcaidiaIntentMarket.IntentAlreadySettledCanonically.selector, intentId)
+        );
+        vault.fastFill(intent, auth, abi.encodePacked(r, s, v));
+        assertEq(asset.balanceOf(recipient), 100e6, "paid exactly once");
+        assertEq(vault.outstandingExposure(), 0);
     }
 
     /// The relationship the fix must establish: the market reads the receiver that actually settles,
@@ -407,32 +421,32 @@ contract MainnetReadinessPoCTest is ChainFixture {
     // F-02: deployment can be front-run (non-atomic initialize, permissionless deployer)
     // -----------------------------------------------------------------------
 
-    function test_PoC_receiverInitializeIsFrontRunnable() public {
-        ArcaidiaDeployer fresh = new ArcaidiaDeployer();
-        // deployAll deploys the receiver with an EMPTY init call; initialize is a separate transaction.
-        address receiver =
-            fresh.deploy(ArcaidiaDeployment.RECEIVER_SALT, type(SettlementReceiver).creationCode, "");
+    /// Regression for B-3: the deployment leaves no window. The receiver is initialised in the
+    /// transaction that deploys it, and it only accepts a market that already names it.
+    function test_Fix_theReceiverIsNeverLeftUninitialised() public {
+        assertTrue(SettlementReceiver(d.settlementReceiver).initialized());
+        assertEq(SettlementReceiver(d.settlementReceiver).owner(), protocolOwner);
 
         vm.prank(attacker);
-        SettlementReceiver(receiver).initialize(attacker, address(asset), attacker, attacker);
-
         vm.expectRevert(SettlementReceiver.AlreadyInitialized.selector);
-        SettlementReceiver(receiver).initialize(protocolOwner, address(asset), d.market, address(transmitter));
-        assertEq(SettlementReceiver(receiver).owner(), attacker, "attacker owns the canonical receiver address");
+        SettlementReceiver(d.settlementReceiver).initialize(attacker, address(asset), attacker, attacker);
     }
 
-    function test_PoC_anyoneCanOccupyTheCanonicalRouterAddress() public {
-        ArcaidiaDeployer fresh = new ArcaidiaDeployer();
+    /// Regression for B-3: the protocol's predicted addresses cannot be squatted, because only the
+    /// deploy key may deploy through the deployer.
+    function test_Fix_onlyTheDeployKeyCanOccupyAPredictedAddress() public {
+        ArcaidiaDeployer fresh = new ArcaidiaDeployer(address(this));
         address predicted = fresh.predictAddress(
             ArcaidiaDeployment.ROUTER_SALT, keccak256(type(ArcaidiaIntentRouter).creationCode)
         );
         vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(ArcaidiaDeployer.NotOwner.selector, attacker));
         fresh.deploy(
             ArcaidiaDeployment.ROUTER_SALT,
             type(ArcaidiaIntentRouter).creationCode,
             abi.encodeCall(ArcaidiaIntentRouter.initialize, (attacker, address(asset), attacker, 1, 1))
         );
-        assertEq(ArcaidiaIntentRouter(predicted).owner(), attacker, "predicted router owned by attacker");
+        assertEq(predicted.code.length, 0, "the address is still free for its rightful deployer");
     }
 
     // -----------------------------------------------------------------------

@@ -8,6 +8,7 @@ import {ArcaidiaIntentMarket} from "../../src/ArcaidiaIntentMarket.sol";
 import {ISettlementCheck} from "../../src/interfaces/ISettlementCheck.sol";
 import {IVaultRegistry} from "../../src/interfaces/IVaultRegistry.sol";
 import {MockVaultRegistry} from "./MockVaultRegistry.sol";
+import {SettlementReceiver} from "../../src/SettlementReceiver.sol";
 import {TestPolicies} from "./TestPolicies.sol";
 
 /// @notice Never reports anything settled. Most vault suites don't exercise the
@@ -28,6 +29,8 @@ abstract contract VaultFixture is ChainFixture {
     VaultHarness internal vault;
     ArcaidiaIntentMarket internal market;
     MockVaultRegistry internal registry;
+    /// The check the market treats as canonical; every vault here is wired to it (MN-02).
+    address internal settlementCheck;
 
     address internal vaultOwner = makeAddr("vaultOwner");
     address internal lpAlice = makeAddr("lpAlice");
@@ -55,11 +58,14 @@ abstract contract VaultFixture is ChainFixture {
         );
 
         registry = new MockVaultRegistry();
+        settlementCheck = address(new NeverSettledCheck());
         market = new ArcaidiaIntentMarket(
-            ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(registry))
+            ISettlementCheck(settlementCheck), IVaultRegistry(address(registry))
         );
-        vm.prank(vaultOwner);
+        vm.startPrank(vaultOwner);
         vault.setMarket(address(market));
+        vault.setSettlementReceiver(settlementCheck);
+        vm.stopPrank();
 
         asset.mint(lpAlice, 1_000_000e6);
         asset.mint(lpBob, 1_000_000e6);
@@ -68,6 +74,23 @@ abstract contract VaultFixture is ChainFixture {
         asset.approve(address(vault), type(uint256).max);
         vm.prank(lpBob);
         asset.approve(address(vault), type(uint256).max);
+    }
+
+    /// Stands up this chain's one receiver, a market that settles through it, and points the
+    /// fixture's vault at both — the production shape MN-02 requires.
+    function _deployBoundReceiver(address receiverOwner, address messageTransmitter)
+        internal
+        returns (SettlementReceiver receiver)
+    {
+        receiver = new SettlementReceiver();
+        settlementCheck = address(receiver);
+        market = new ArcaidiaIntentMarket(ISettlementCheck(settlementCheck), IVaultRegistry(address(registry)));
+        receiver.initialize(receiverOwner, address(asset), address(market), messageTransmitter);
+
+        vm.startPrank(vaultOwner);
+        vault.setMarket(address(market));
+        vault.setSettlementReceiver(settlementCheck);
+        vm.stopPrank();
     }
 
     function _deposit(address lp, uint256 assets) internal returns (uint256 shares) {

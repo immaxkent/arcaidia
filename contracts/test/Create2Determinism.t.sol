@@ -7,6 +7,9 @@ import {ArcaidiaDeployer} from "../src/deploy/ArcaidiaDeployer.sol";
 import {ArcaidiaIntentRouter} from "../src/ArcaidiaIntentRouter.sol";
 import {ArcaidiaLiquidityVault} from "../src/ArcaidiaLiquidityVault.sol";
 import {SettlementReceiver} from "../src/SettlementReceiver.sol";
+import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
+import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
+import {IVaultRegistry} from "../src/interfaces/IVaultRegistry.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {MockSettlementInitiator} from "../src/mocks/MockSettlementInitiator.sol";
 
@@ -37,7 +40,7 @@ contract Create2DeterminismTest is ChainFixture {
 
     function setUp() public {
         _configureDirection();
-        deployer = new ArcaidiaDeployer();
+        deployer = new ArcaidiaDeployer(address(this));
     }
 
     // -----------------------------------------------------------------------
@@ -142,10 +145,15 @@ contract Create2DeterminismTest is ChainFixture {
         bytes memory code = type(SettlementReceiver).creationCode;
         address predicted = deployer.predictAddressFor(RECEIVER_SALT, code);
 
+        // The market must already name this receiver (MN-02), which is exactly why the real
+        // deployment deploys the market first and then the receiver, atomically initialised.
+        address market = address(
+            new ArcaidiaIntentMarket(ISettlementCheck(predicted), IVaultRegistry(address(0xFAC)))
+        );
         address deployed = deployer.deploy(
             RECEIVER_SALT,
             code,
-            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), address(0xBEEF), address(0xCAFE)))
+            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), market, address(0xCAFE)))
         );
 
         assertEq(deployed, predicted);
@@ -262,10 +270,15 @@ contract Create2DeterminismTest is ChainFixture {
         assertFalse(deployer.isDeployed(RECEIVER_SALT, codeHash));
 
         MockUSDC asset = new MockUSDC();
+        address market = address(
+            new ArcaidiaIntentMarket(
+                ISettlementCheck(deployer.predictAddress(RECEIVER_SALT, codeHash)), IVaultRegistry(address(0xFAC))
+            )
+        );
         deployer.deploy(
             RECEIVER_SALT,
             code,
-            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), address(0xBEEF), address(0xCAFE)))
+            abi.encodeCall(SettlementReceiver.initialize, (protocolOwner, address(asset), market, address(0xCAFE)))
         );
 
         assertTrue(deployer.isDeployed(RECEIVER_SALT, codeHash));
@@ -278,7 +291,7 @@ contract Create2DeterminismTest is ChainFixture {
 
     /// Deployment without an init call is allowed, for contracts that need none.
     function test_deploymentWithoutInitialization() public {
-        bytes memory code = type(ArcaidiaDeployer).creationCode;
+        bytes memory code = abi.encodePacked(type(ArcaidiaDeployer).creationCode, abi.encode(address(this)));
         address deployed = deployer.deploy(keccak256("nested"), code, "");
         assertTrue(deployed.code.length > 0);
     }

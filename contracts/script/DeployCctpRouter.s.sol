@@ -116,10 +116,11 @@ contract DeployCctpRouterScript is Script {
     /// @dev Same derivation as Deploy.s.sol's `_ensureDeployer`, without
     ///      re-deploying it: by this point in WP-10, Deploy.s.sol has already
     ///      run and the deployer is live on both chains.
-    function _deployerAddress() internal pure returns (address) {
+    function _deployerAddress() internal view returns (address) {
         address arachnidFactory = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
         bytes32 deployerSalt = keccak256("arcaidia.v1.deployer");
-        bytes memory creationCode = type(ArcaidiaDeployer).creationCode;
+        bytes memory creationCode =
+            abi.encodePacked(type(ArcaidiaDeployer).creationCode, abi.encode(vm.envAddress("DEPLOY_KEY_ADDRESS")));
         return address(
             uint160(
                 uint256(

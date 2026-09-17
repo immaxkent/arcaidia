@@ -41,12 +41,9 @@ contract SettlementReceiverProofTest is VaultFixture {
     function setUp() public {
         _deployVault();
         transmitter = new MockMessageTransmitterV2(asset);
-        receiver = new SettlementReceiver();
-        receiver.initialize(vaultOwner, address(asset), address(market), address(transmitter));
+        receiver = _deployBoundReceiver(vaultOwner, address(transmitter));
         vm.prank(vaultOwner);
         receiver.setTrustedInitiator(SRC_DOMAIN, SOURCE_INITIATOR);
-        vm.prank(vaultOwner);
-        vault.setSettlementReceiver(address(receiver));
         _deposit(lpAlice, 100_000e6);
     }
 

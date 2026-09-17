@@ -43,7 +43,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     function setUp() public {
         _configureDirection();
         vm.chainId(sourceChainId);
-        deployer = new ArcaidiaDeployer();
+        deployer = new ArcaidiaDeployer(address(this));
         asset = new MockUSDC();
         initiator = new MockSettlementInitiator();
         transmitter = new MockMessageTransmitterV2(asset);

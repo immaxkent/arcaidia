@@ -22,6 +22,8 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     MockUSDC internal asset;
     ArcaidiaIntentMarket internal market;
     MockVaultRegistry internal registry;
+    SettlementReceiver internal receiver;
+    address internal receiverOwner;
     mapping(bytes32 => Intent) internal intents;
 
     VaultHarness internal vaultA;
@@ -40,8 +42,14 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
 
         asset = new MockUSDC();
         registry = new MockVaultRegistry();
-        market = new ArcaidiaIntentMarket(
-            ISettlementCheck(address(new NeverSettledCheck())), IVaultRegistry(address(registry))
+        // Production shape: one receiver per chain, and the market settles through that same one
+        // (MN-02). The receiver takes no constructor arguments, so the circularity resolves by
+        // deploying it first and initialising it against the market afterwards.
+        receiver = new SettlementReceiver();
+        market = new ArcaidiaIntentMarket(ISettlementCheck(address(receiver)), IVaultRegistry(address(registry)));
+        receiverOwner = makeAddr("receiverOwner");
+        receiver.initialize(
+            receiverOwner, address(asset), address(market), address(new MockMessageTransmitterV2(asset))
         );
 
         vaultA = _standUpVault("vaultAOwner", "lpA", 100_000e6);
@@ -69,6 +77,7 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
 
         vm.startPrank(vOwner);
         v.setMarket(address(market));
+        v.setSettlementReceiver(address(receiver));
         vm.stopPrank();
 
         asset.mint(lp, deposit);
@@ -199,24 +208,13 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     // WP-16.3: reimbursement follows the market's winner, not one fixed vault
     // -----------------------------------------------------------------------
 
-    function _standUpReceiver() internal returns (SettlementReceiver receiver, address reporter) {
-        address receiverOwner = makeAddr("receiverOwner");
+    /// Both vaults are already wired to this chain's one receiver (setUp); this only allows the
+    /// reporter that the recovery path needs.
+    function _standUpReceiver() internal returns (SettlementReceiver, address reporter) {
         reporter = makeAddr("reporter");
-
-        receiver = new SettlementReceiver();
-        receiver.initialize(
-            receiverOwner, address(asset), address(market), address(new MockMessageTransmitterV2(asset))
-        );
-
         vm.prank(receiverOwner);
         receiver.setReporter(reporter, true);
-
-        // Each vault only accepts reimbursement calls from its own configured receiver —
-        // independent of which one the market itself happens to be paired with.
-        vm.prank(_ownerOf(vaultA));
-        vaultA.setSettlementReceiver(address(receiver));
-        vm.prank(_ownerOf(vaultB));
-        vaultB.setSettlementReceiver(address(receiver));
+        return (receiver, reporter);
     }
 
     /// The core WP-16.3 proof: two vaults race, vaultB wins, and canonical settlement
