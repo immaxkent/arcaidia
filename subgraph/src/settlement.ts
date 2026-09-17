@@ -1,5 +1,6 @@
 import { BigInt, Bytes, ethereum } from '@graphprotocol/graph-ts';
 import {
+  HeldForRecipient,
   HeldForVault,
   LpReimbursed,
   RecipientPaidByFallback,
@@ -37,6 +38,7 @@ function record(intentId: Bytes, outcome: string, amount: BigInt, event: ethereu
   settlement.timestamp = event.block.timestamp;
   settlement.txHash = event.transaction.hash;
   if (outcome != 'HELD_FOR_VAULT') settlement.heldForVault = null;
+  if (outcome != 'HELD_FOR_RECIPIENT') settlement.heldForRecipient = null;
   settlement.save();
 
   // The intent lives on the other chain's deployment unless this chain created
@@ -62,6 +64,15 @@ export function handleLpReimbursed(event: LpReimbursed): void {
 
 export function handleRecipientPaidByFallback(event: RecipientPaidByFallback): void {
   record(event.params.intentId, 'RECIPIENT_FALLBACK', event.params.amount, event);
+}
+
+/// MN-05: the asset refused to pay the attested recipient, so the funds wait for them here.
+export function handleHeldForRecipient(event: HeldForRecipient): void {
+  record(event.params.intentId, 'HELD_FOR_RECIPIENT', event.params.amount, event);
+  const settlement = Settlement.load(event.params.intentId);
+  if (settlement == null) return;
+  settlement.heldForRecipient = event.params.recipient;
+  settlement.save();
 }
 
 export function handleHeldForVault(event: HeldForVault): void {

@@ -54,7 +54,10 @@ contract SettlementReceiver is ReentrancyGuard {
         NONE,
         LP_REIMBURSED,
         RECIPIENT_FALLBACK,
-        HELD_FOR_VAULT
+        HELD_FOR_VAULT,
+        /// Paying the attested recipient failed — a blocklisted address, say. The funds are parked
+        /// for that recipient and nobody else; `retryHeld` pays them once the block is lifted.
+        HELD_FOR_RECIPIENT
     }
 
     address public owner;
@@ -78,7 +81,8 @@ contract SettlementReceiver is ReentrancyGuard {
     /// @notice Canonical amount recorded per intent.
     mapping(bytes32 => uint256) public settledAmount;
 
-    /// @notice The vault owed parked funds, per intent in `HELD_FOR_VAULT`.
+    /// @notice Who is owed parked funds, per intent in a `HELD_*` outcome: the winning vault, or
+    ///         the recipient the attestation named.
     mapping(bytes32 => address) public heldFor;
 
     event ReceiverInitialized(address owner, address asset, address market, address messageTransmitter);
@@ -87,6 +91,7 @@ contract SettlementReceiver is ReentrancyGuard {
     event RecipientPaidByFallback(bytes32 indexed intentId, address indexed recipient, uint256 amount);
     event SettledWithProof(bytes32 indexed intentId, uint8 outcome, uint256 amount, bytes32 cctpNonce);
     event HeldForVault(bytes32 indexed intentId, address indexed vault, uint256 amount);
+    event HeldForRecipient(bytes32 indexed intentId, address indexed recipient, uint256 amount);
 
     error AlreadyInitialized();
     /// The market named here settles through a different receiver (MN-02).
@@ -198,19 +203,38 @@ contract SettlementReceiver is ReentrancyGuard {
         emit SettledWithProof(intentId, uint8(outcome), minted, parsed.nonce);
     }
 
-    /// @notice Retry reimbursing a winner whose `recordReimbursement` reverted. Anyone may call.
+    /// @notice Retry a payment that could not be made when the message arrived. Anyone may call,
+    ///         and the money can only go where it was already owed.
+    /// @dev Two parked states, one door: a winner whose `recordReimbursement` reverted, and a
+    ///      recipient the asset refused to pay (MN-05). Neither can be redirected — `heldFor` was
+    ///      written from the market's record or from Circle's attested hook, and nothing here
+    ///      takes an address from the caller.
     function retryHeld(bytes32 intentId) external nonReentrant {
-        if (outcomeOf[intentId] != Outcome.HELD_FOR_VAULT) revert NothingHeld(intentId);
-        address vault = heldFor[intentId];
+        Outcome held = outcomeOf[intentId];
+        address owed = heldFor[intentId];
         uint256 amount = settledAmount[intentId];
 
-        outcomeOf[intentId] = Outcome.LP_REIMBURSED;
-        delete heldFor[intentId];
+        if (held == Outcome.HELD_FOR_VAULT) {
+            outcomeOf[intentId] = Outcome.LP_REIMBURSED;
+            delete heldFor[intentId];
 
-        asset.forceApprove(vault, amount);
-        IFillRegistry(vault).recordReimbursement(intentId, amount);
-        asset.forceApprove(vault, 0);
-        emit LpReimbursed(intentId, vault, amount);
+            asset.forceApprove(owed, amount);
+            IFillRegistry(owed).recordReimbursement(intentId, amount);
+            asset.forceApprove(owed, 0);
+            emit LpReimbursed(intentId, owed, amount);
+            return;
+        }
+
+        if (held == Outcome.HELD_FOR_RECIPIENT) {
+            outcomeOf[intentId] = Outcome.RECIPIENT_FALLBACK;
+            delete heldFor[intentId];
+
+            asset.safeTransfer(owed, amount);
+            emit RecipientPaidByFallback(intentId, owed, amount);
+            return;
+        }
+
+        revert NothingHeld(intentId);
     }
 
     /// @dev Effects before interactions: the outcome is recorded before any funds move, so a
@@ -240,9 +264,23 @@ contract SettlementReceiver is ReentrancyGuard {
         }
 
         if (fallbackRecipient == address(0)) revert ZeroAddress();
+
+        // MN-05: USDC enforces its blocklist at transfer time, on Arc and on Ethereum alike. A
+        // recipient blocked between the burn and the mint would otherwise revert this whole call
+        // — and because the router names this contract as the message's `destinationCaller`,
+        // nobody else could ever present that message. Park the funds for that recipient instead;
+        // `retryHeld` pays them the day the block lifts, and can pay nobody else.
         outcomeOf[intentId] = Outcome.RECIPIENT_FALLBACK;
-        asset.safeTransfer(fallbackRecipient, amount);
-        emit RecipientPaidByFallback(intentId, fallbackRecipient, amount);
-        return Outcome.RECIPIENT_FALLBACK;
+        (bool ok, bytes memory returned) =
+            address(asset).call(abi.encodeCall(IERC20.transfer, (fallbackRecipient, amount)));
+        if (ok && (returned.length == 0 || abi.decode(returned, (bool)))) {
+            emit RecipientPaidByFallback(intentId, fallbackRecipient, amount);
+            return Outcome.RECIPIENT_FALLBACK;
+        }
+
+        outcomeOf[intentId] = Outcome.HELD_FOR_RECIPIENT;
+        heldFor[intentId] = fallbackRecipient;
+        emit HeldForRecipient(intentId, fallbackRecipient, amount);
+        return Outcome.HELD_FOR_RECIPIENT;
     }
 }

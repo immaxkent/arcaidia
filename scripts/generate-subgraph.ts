@@ -97,6 +97,7 @@ const RECEIVER_HANDLERS = handlers(ABIS.SettlementReceiver, [
   ['LpReimbursed', 'handleLpReimbursed'],
   ['RecipientPaidByFallback', 'handleRecipientPaidByFallback'],
   ['HeldForVault', 'handleHeldForVault'],
+  ['HeldForRecipient', 'handleHeldForRecipient'],
   ['SettledWithProof', 'handleSettledWithProof'],
 ]);
 

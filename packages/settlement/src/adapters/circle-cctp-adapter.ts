@@ -46,6 +46,7 @@ const OUTCOME_TOPICS: ReadonlyArray<readonly [`0x${string}`, NonNullable<Settlem
   [toEventSelector('LpReimbursed(bytes32,address,uint256)'), 'LP_REIMBURSED'],
   [toEventSelector('RecipientPaidByFallback(bytes32,address,uint256)'), 'RECIPIENT_FALLBACK'],
   [toEventSelector('HeldForVault(bytes32,address,uint256)'), 'HELD_FOR_VAULT'],
+  [toEventSelector('HeldForRecipient(bytes32,address,uint256)'), 'HELD_FOR_RECIPIENT'],
 ];
 
 /** The subset of `MessageTransmitterV2` this adapter calls. Not one of Arcaidia's own contracts, so declared here rather than generated. */

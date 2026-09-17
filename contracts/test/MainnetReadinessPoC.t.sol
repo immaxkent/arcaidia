@@ -458,10 +458,13 @@ contract MainnetReadinessPoCTest is ChainFixture {
     // gone; the two proofs that exercised them went with it. Settlement now has one door.
 
     // -----------------------------------------------------------------------
-    // F-04: blocklisted fallback recipient
+    // F-04: blocklisted fallback recipient (MN-05)
     // -----------------------------------------------------------------------
 
-    function test_PoC_blocklistedFallbackRecipientLocksCanonicalFunds() public {
+    /// Regression: a recipient USDC refuses to pay no longer reverts the settlement, which would
+    /// have left the message unusable forever — the router names the receiver as its only
+    /// permitted caller. The funds are parked for that recipient and nobody else.
+    function test_Fix_blocklistedRecipientIsParkedNotLocked() public {
         BlocklistUSDC usdc = new BlocklistUSDC();
         _deployProtocol(usdc);
         SettlementReceiver receiver = SettlementReceiver(d.settlementReceiver);
@@ -469,11 +472,24 @@ contract MainnetReadinessPoCTest is ChainFixture {
 
         bytes32 intentId = keccak256("blocked-recipient");
         bytes memory message = _message(address(receiver), intentId, 100e6, "n5");
-        bytes memory attestation = transmitter.attest(message);
-        vm.expectRevert("Blacklistable: account is blacklisted");
-        receiver.settleWithProof(message, attestation);
-        assertFalse(receiver.isSettled(intentId));
-        assertEq(transmitter.usedNonces("n5"), 0, "no other caller may receive it: destinationCaller is the receiver");
+        SettlementReceiver.Outcome outcome = receiver.settleWithProof(message, transmitter.attest(message));
+
+        assertEq(uint256(outcome), uint256(SettlementReceiver.Outcome.HELD_FOR_RECIPIENT));
+        assertEq(receiver.heldFor(intentId), recipient, "parked for the attested recipient only");
+        assertEq(usdc.balanceOf(address(receiver)), 100e6, "the mint happened and is safe here");
+        assertEq(transmitter.usedNonces("n5"), 1, "Circle's message is spent, as it must be");
+
+        // Still blocked: anyone may retry, and it simply fails again.
+        vm.expectRevert();
+        receiver.retryHeld(intentId);
+
+        usdc.setBlocked(recipient, false);
+        vm.prank(makeAddr("anyone"));
+        receiver.retryHeld(intentId);
+
+        assertEq(usdc.balanceOf(recipient), 100e6, "paid in full once the block lifted");
+        assertEq(uint256(receiver.outcomeOf(intentId)), uint256(SettlementReceiver.Outcome.RECIPIENT_FALLBACK));
+        assertEq(usdc.balanceOf(address(receiver)), 0);
     }
 
     // -----------------------------------------------------------------------

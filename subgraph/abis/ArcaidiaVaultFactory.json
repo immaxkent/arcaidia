@@ -409,6 +409,22 @@
   },
   {
     "type": "error",
+    "name": "ReceiverNotTheMarketsOwn",
+    "inputs": [
+      {
+        "name": "offered",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "marketReceiver",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "VaultAddressMismatch",
     "inputs": [
       {

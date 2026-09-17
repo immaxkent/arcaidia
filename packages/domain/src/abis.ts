@@ -2710,6 +2710,31 @@ export const ABIS = {
     },
     {
       "type": "event",
+      "name": "ReimbursementShortfall",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "received",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "principal",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
       "name": "ReserveFloorConfigured",
       "inputs": [
         {
@@ -3348,22 +3373,6 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "ReimbursementBelowPrincipal",
-      "inputs": [
-        {
-          "name": "received",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "principal",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ]
-    },
-    {
-      "type": "error",
       "name": "ReserveFloorTooHigh",
       "inputs": [
         {
@@ -3721,6 +3730,31 @@ export const ABIS = {
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "HeldForRecipient",
+      "inputs": [
+        {
+          "name": "intentId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
     },
     {
       "type": "event",

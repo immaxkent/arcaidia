@@ -83,7 +83,7 @@ export interface SettlementState {
    * `settleWithProof` (D8) — so the worker knows the intent is RECONCILED
    * without a separate `settle` call.
    */
-  readonly outcome?: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT';
+  readonly outcome?: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT' | 'HELD_FOR_RECIPIENT';
   /** Set when status is FAILED. */
   readonly failureReason?: string;
   readonly updatedAt: UnixSeconds;

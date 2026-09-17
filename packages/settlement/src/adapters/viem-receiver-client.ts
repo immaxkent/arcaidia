@@ -96,6 +96,7 @@ const RECIPIENT_FALLBACK_TOPIC = toEventSelector(
   'RecipientPaidByFallback(bytes32,address,uint256)',
 );
 const HELD_FOR_VAULT_TOPIC = toEventSelector('HeldForVault(bytes32,address,uint256)');
+const HELD_FOR_RECIPIENT_TOPIC = toEventSelector('HeldForRecipient(bytes32,address,uint256)');
 
 function outcomeFromLogs(
   logs: readonly { address: Address; topics: readonly `0x${string}`[]; data: `0x${string}` }[],
@@ -108,6 +109,7 @@ function outcomeFromLogs(
     if (topic === LP_REIMBURSED_TOPIC.toLowerCase()) return 'LP_REIMBURSED';
     if (topic === RECIPIENT_FALLBACK_TOPIC.toLowerCase()) return 'RECIPIENT_FALLBACK';
     if (topic === HELD_FOR_VAULT_TOPIC.toLowerCase()) return 'HELD_FOR_VAULT';
+    if (topic === HELD_FOR_RECIPIENT_TOPIC.toLowerCase()) return 'HELD_FOR_RECIPIENT';
   }
 
   throw new Error('Settlement transaction emitted no outcome event.');

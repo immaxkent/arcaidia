@@ -241,9 +241,10 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         vault.recordReimbursement(unknown, 1_000e6);
     }
 
-    /// Canonical settlement must at least return what was advanced. Accepting
-    /// less would quietly move a loss onto LPs.
-    function test_reimbursementRejectsLessThanPrincipal() public {
+    /// MN-05: canonical settlement returning less than was advanced is a realised loss, taken
+    /// once and priced into the shares. Refusing it instead left the funds parked at the receiver
+    /// with no retry that could ever succeed, and a receivable the vault kept counting.
+    function test_reimbursementBelowPrincipalIsTakenAsALoss() public {
         _deposit(lpAlice, 100_000e6);
         bytes32 intentId = _advance(402, 1_000e6);
 
@@ -252,12 +253,44 @@ contract ArcaidiaLiquidityVaultTest is VaultFixture {
         asset.mint(address(this), 1_000e6);
         asset.approve(address(vault), type(uint256).max);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ArcaidiaLiquidityVault.ReimbursementBelowPrincipal.selector, 999e6, 1_000e6
-            )
-        );
+        uint256 totalBefore = vault.totalAssets();
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit ArcaidiaLiquidityVault.ReimbursementShortfall(intentId, 999e6, 1_000e6);
         vault.recordReimbursement(intentId, 999e6);
+
+        assertEq(vault.outstandingExposure(), 0, "the exposure is gone either way");
+        assertEq(vault.advancedPrincipal(intentId), 0);
+        assertEq(vault.totalAssets(), totalBefore - 1e6, "LPs carry exactly the shortfall");
+        assertEq(vault.accruedProtocolFees(), 0, "no fee was earned on a loss");
+    }
+
+    /// MN-05 as a property: whatever canonical settlement returns, the exposure clears exactly
+    /// once and the vault's assets move by exactly what arrived, never by more.
+    function testFuzz_anyReimbursementClearsExposureAndPricesTheDifference(uint96 rawAmount) public {
+        _deposit(lpAlice, 100_000e6);
+        uint256 principal = 1_000e6;
+        bytes32 intentId = _advance(404, principal);
+        uint256 amount = uint256(rawAmount % (2 * principal));
+
+        vm.prank(vaultOwner);
+        vault.setSettlementReceiver(address(this));
+        asset.mint(address(this), amount);
+        asset.approve(address(vault), type(uint256).max);
+
+        uint256 totalBefore = vault.totalAssets();
+        vault.recordReimbursement(intentId, amount);
+
+        assertEq(vault.outstandingExposure(), 0, "exposure always clears");
+        assertEq(vault.advancedPrincipal(intentId), 0);
+
+        uint256 fee = amount > principal ? amount - principal : 0;
+        uint256 toProtocol = (fee * vault.protocolFeeShareBps()) / 10_000;
+        assertEq(
+            vault.totalAssets(),
+            totalBefore + amount - principal - toProtocol,
+            "LP assets move by exactly what arrived, less the protocol's share of any fee"
+        );
     }
 
     function test_reimbursementCannotBeAppliedTwice() public {

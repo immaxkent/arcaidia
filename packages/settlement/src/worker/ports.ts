@@ -19,7 +19,7 @@ export interface SettlementRecord {
 
 export interface SettlementOutcomeReport {
   readonly txHash: TxHash;
-  readonly outcome: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT';
+  readonly outcome: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT' | 'HELD_FOR_RECIPIENT';
 }
 
 /** The destination `SettlementReceiver`, as the worker sees it. */

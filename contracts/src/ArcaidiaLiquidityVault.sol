@@ -223,7 +223,8 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
     error IntentAlreadyFilled(bytes32 intentId);
     error IntentAlreadySettledCanonically(bytes32 intentId);
     error IntentNotFilled(bytes32 intentId);
-    error ReimbursementBelowPrincipal(uint256 received, uint256 principal);
+    /// Canonical settlement returned less than was advanced; the difference is a realised loss.
+    event ReimbursementShortfall(bytes32 indexed intentId, uint256 received, uint256 principal);
     error AuthorizationExpired(uint64 expiry, uint256 nowTimestamp);
     error SignerNotAuthorised(address signer);
     error AgentNonceAlreadyUsed(uint256 nonce);
@@ -845,12 +846,19 @@ contract ArcaidiaLiquidityVault is ERC20, ReentrancyGuard, IFillRegistry, IArcai
 
         uint256 principal = advancedPrincipal[intentId];
         if (principal == 0) revert IntentNotFilled(intentId);
-        if (amount < principal) revert ReimbursementBelowPrincipal(amount, principal);
+
+        // MN-05: refusing a short reimbursement used to park the funds at the receiver forever —
+        // `retryHeld` would call back here and revert again, every time. Taking what arrived and
+        // booking the difference as a realised loss is the honest answer: the exposure is gone
+        // either way, and the share price should say so rather than keep counting a receivable
+        // that is never coming. A shortfall means the canonical leg paid a CCTP fee or was
+        // settled by a message carrying less than the intent's amount.
+        if (amount < principal) emit ReimbursementShortfall(intentId, amount, principal);
 
         // The fee is what canonical settlement returned above what was advanced.
         // The protocol's share is booked as a liability; the remainder stays in
         // the vault and lifts the share price, which is how LPs are paid.
-        uint256 fee = amount - principal;
+        uint256 fee = amount > principal ? amount - principal : 0;
         uint256 toProtocol = (fee * protocolFeeShareBps) / BPS_DENOMINATOR;
 
         advancedPrincipal[intentId] = 0;

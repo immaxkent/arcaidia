@@ -35,6 +35,7 @@ import {
   type FeePolicy,
   type Intent,
   type SettlementReference,
+  type SettlementState,
   type UnixSeconds,
   type VaultState,
 } from '@arcaidia/domain';
@@ -369,7 +370,7 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
   // one transaction. Since MN-04 there is no second reporter-asserted step, so the harness has to
   // do here exactly what the real transport does — anything less would leave the funds sitting in
   // the receiver and every balance assertion downstream would be measuring nothing.
-  const routedOutcomes = new Map<string, 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT'>();
+  const routedOutcomes = new Map<string, NonNullable<SettlementState['outcome']>>();
   let routeCanonically: ((reference: SettlementReference, amount: bigint) => Promise<void>) | null = null;
 
   const settlementAdapter = new MockSettlementAdapter({

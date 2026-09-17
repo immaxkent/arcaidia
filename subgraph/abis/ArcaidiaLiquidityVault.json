@@ -1877,6 +1877,31 @@
   },
   {
     "type": "event",
+    "name": "ReimbursementShortfall",
+    "inputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "received",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "principal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ReserveFloorConfigured",
     "inputs": [
       {
@@ -2494,24 +2519,24 @@
   },
   {
     "type": "error",
-    "name": "ReentrancyGuardReentrantCall",
-    "inputs": []
+    "name": "ReceiverMismatch",
+    "inputs": [
+      {
+        "name": "vaultReceiver",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "marketReceiver",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
-    "name": "ReimbursementBelowPrincipal",
-    "inputs": [
-      {
-        "name": "received",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "principal",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
   },
   {
     "type": "error",

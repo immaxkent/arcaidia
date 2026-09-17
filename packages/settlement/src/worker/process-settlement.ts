@@ -45,7 +45,7 @@ export type SettlementStepOutcome =
   /** Canonical funds routed. The intent is finished. */
   | {
       readonly kind: 'SETTLED';
-      readonly outcome: 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT';
+      readonly outcome: NonNullable<SettlementState['outcome']>;
       readonly txHash: `0x${string}`;
     }
   /** The chain had already settled this — another worker, or a previous run. */

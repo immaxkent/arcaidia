@@ -6,7 +6,13 @@ export type Hex = `0x${string}`;
 // Two settlement facts. Never merge them.
 export type FastStatus = "PENDING" | "FAST_FILLED";
 export type CanonicalStatus = "PENDING" | "SETTLED";
-export type CanonicalOutcome = "LP_REIMBURSED" | "RECIPIENT_FALLBACK" | "HELD_FOR_VAULT";
+export type CanonicalOutcome =
+  | "LP_REIMBURSED"
+  | "RECIPIENT_FALLBACK"
+  | "HELD_FOR_VAULT"
+  /// MN-05: the asset refused to pay the attested recipient (a blocklist, say); the funds wait
+  /// here for that recipient and `retryHeld` pays them once it can.
+  | "HELD_FOR_RECIPIENT";
 
 export interface Intent {
   intentId: Hex;

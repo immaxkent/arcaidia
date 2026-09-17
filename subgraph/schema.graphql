@@ -70,6 +70,8 @@ enum CanonicalOutcome {
   RECIPIENT_FALLBACK
   "Parked at the receiver for a winner whose reimbursement reverted; resolved by retryHeld."
   HELD_FOR_VAULT
+  "Parked for the attested recipient the asset refused to pay (a blocklist); resolved by retryHeld."
+  HELD_FOR_RECIPIENT
 }
 
 "How the recipient was paid on a fast fill."
@@ -114,6 +116,8 @@ type Settlement @entity(immutable: false) {
   cctpNonce: Bytes
   "The vault owed the funds while HELD_FOR_VAULT; null otherwise."
   heldForVault: Bytes
+  "Who is owed parked funds while the outcome is HELD_FOR_RECIPIENT."
+  heldForRecipient: Bytes
   blockNumber: BigInt!
   timestamp: BigInt!
   txHash: Bytes!
