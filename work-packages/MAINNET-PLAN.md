@@ -13,22 +13,27 @@ done when its gate is evidenced by passing tests or on-chain reads, never when c
 
 ## M0 — Launch blockers
 
-| WP | Fixes | Change | Gate |
-|---|---|---|---|
-| **MN-01 Authenticated settlement** | B-1 | `CircleCCTPInitiator` accepts calls only from its router, fixed at construction. `CctpMessageLib` also parses `sourceDomain` and the burn's `messageSender`. `SettlementReceiver` settles only when that pair matches a set-once trusted `(domain → initiator)` entry. | Both spoofed-hook PoCs and the initiator PoC inverted; fuzz over random sender and domain; fork test parsing a real `MessageSent` from Ethereum mainnet |
-| **MN-02 One wiring unit** | B-2 | Receiver, market and factory are deployed and wired together. `fastFill` reverts `ReceiverMismatch` unless the vault's receiver equals `market.settlementCheck()`. | Stale-wiring PoC inverted; deployment test asserts all seven equalities in both directions |
-| **MN-03 Safe deployment** | B-3 | Receiver initialised in its deploy transaction. `ArcaidiaDeployer` usable only by its owner. New `arcaidia.mainnet.v1.*` salts. Routers get `setDestination` only after the other chain passes verification. | Front-run and squatting PoCs inverted; every contract `initialized()` right after its own deploy |
-| **MN-04 Remove reporter path** | B-4 | Delete `settle()` and the reporter role from the receiver. | Reporter PoCs deleted with the function; no reporter code left |
-| **MN-05 Stuck-funds exits** | C-09, C-10 | A failed fallback payment parks for the attested recipient with a permissionless retry. A vault accepts a below-principal reimbursement and books the shortfall as a loss. | Blocklist PoC inverted; fuzz: exposure clears and share price falls by exactly the shortfall |
-| **MN-06 Rolling intake cap** | B-9 (cap) | Replace the ever-growing `totalInFlight` with a rolling 24-hour volume cap that resets on its own. | PoC inverted; volume above the cap succeeds in the next window |
-| **MN-07 Two-step ownership** | C-20, part of B-7 | `transferOwnership` sets a pending owner; the Safe calls `acceptOwnership`. | Unit tests per contract |
-| **MN-08 External review** | MN-01 to MN-07 | Independent review of the Solidity diff. | Report received; every finding fixed or accepted in writing |
-| **MN-09 Finality-aware solver** | B-5, C-12 | Ethereum-sourced intents wait for the `finalized` block. The solver decodes `DepositForBurn` in the source receipt and checks receiver, domain, amount and hook. Arc stays at 1 confirmation. | Unit tests for each rejection path |
-| **MN-10 Mainnet manifest** | B-6 | `contracts/deploy/mainnet.json` holds only verified addresses. Scripts use no defaults and revert on unknown chains. A post-deploy script asserts CCTP domains, messengers and USDC decimals. Router deployed with trade intents off. | Fork dry-run on both chains passes every assertion |
-| **MN-11 Roles** | B-7 | Safe owns protocol contracts; separate treasury; Circle wallet signs for the House Vault; hot keys only relay and settle. | On-chain owner and role reads match the plan |
-| **MN-12 Production profile** | B-8 | `ARCAIDIA_NETWORK=mainnet` with no default. Mainnet build excludes loadgen, market bot, demo solvers, mock tokens, x402 and the hackathon indexer. Own subgraphs on networks `arc` and `mainnet`. | CI fails if a mainnet artifact contains a testnet chain id, `sandbox`, `sslip.io`, `hedera:testnet`, `Mock` or `loadgen` |
-| **MN-13 Re-attestation** | B-9 (expiry) | Settlement worker calls `POST /v2/reattest/{nonce}` when a message has expired, then resubmits. | Adapter test with stubbed Iris responses |
-| **MN-14 Launch** | — | Deployment runbook (report §G), then the launch path below. | Stage L1 passed |
+**Contract work is complete** (MN-01 … MN-07, branch `v4-uniswap`, commits `ce4408c` … `bf3fc88`).
+386 Foundry tests pass in both directions; the workspace typechecks and its tests, including the
+37 end-to-end tests on two anvil chains, pass. Every proof-of-concept from the audit is now a
+regression test asserting the attack fails.
+
+| WP | Fixes | Status | Change | Gate |
+|---|---|---|---|---|
+| **MN-01 Authenticated settlement** | B-1 | ✅ done | `CircleCCTPInitiator` accepts calls only from its router, fixed at construction. `CctpMessageLib` also parses `sourceDomain` and the burn's `messageSender`. `SettlementReceiver` settles only when that pair matches a set-once trusted `(domain → initiator)` entry. | Both spoofed-hook PoCs and the initiator PoC inverted; fuzz over random sender and domain; fork test parsing a real `MessageSent` from Ethereum mainnet |
+| **MN-02 One wiring unit** | B-2 | ✅ done | Receiver, market and factory are deployed and wired together, and `SettlementReceiver.initialize` refuses a market that settles through anyone else. `fastFill` reverts `ReceiverMismatch` unless the vault's receiver equals `market.settlementCheck()`. | Stale-wiring PoC inverted; deployment test asserts all seven equalities in both directions |
+| **MN-03 Safe deployment** | B-3 | ✅ done | Receiver initialised in its deploy transaction. `ArcaidiaDeployer` usable only by its owner. New `arcaidia.mainnet.v1.*` salts. Routers get `setDestination` only after the other chain passes verification. | Front-run and squatting PoCs inverted; every contract `initialized()` right after its own deploy |
+| **MN-04 Remove reporter path** | B-4 | ✅ done | Delete `settle()` and the reporter role from the receiver. | Reporter PoCs deleted with the function; no reporter code left |
+| **MN-05 Stuck-funds exits** | C-09, C-10 | ✅ done | A failed fallback payment parks for the attested recipient with a permissionless retry. A vault accepts a below-principal reimbursement and books the shortfall as a loss. | Blocklist PoC inverted; fuzz: exposure clears and share price falls by exactly the shortfall |
+| **MN-06 Rolling intake cap** | B-9 (cap) | ✅ done | Replace the ever-growing `totalInFlight` with a rolling 24-hour volume cap that resets on its own. | PoC inverted; volume above the cap succeeds in the next window |
+| **MN-07 Two-step ownership** | C-20, part of B-7 | ✅ done | `transferOwnership` sets a pending owner; the Safe calls `acceptOwnership`. | Unit tests per contract |
+| **MN-08 External review** | MN-01 to MN-07 | ⬜ needs a reviewer | Independent review of the Solidity diff. | Report received; every finding fixed or accepted in writing |
+| **MN-09 Finality-aware solver** | B-5, C-12 | ⬜ next | Ethereum-sourced intents wait for the `finalized` block. The solver decodes `DepositForBurn` in the source receipt and checks receiver, domain, amount and hook. Arc stays at 1 confirmation. | Unit tests for each rejection path |
+| **MN-10 Mainnet manifest** | B-6 | ⬜ next | `contracts/deploy/mainnet.json` holds only verified addresses. Scripts use no defaults and revert on unknown chains. A post-deploy script asserts CCTP domains, messengers and USDC decimals. Router deployed with trade intents off. | Fork dry-run on both chains passes every assertion |
+| **MN-11 Roles** | B-7 | ⬜ needs the Safes | Safe owns protocol contracts; separate treasury; Circle wallet signs for the House Vault; hot keys only relay and settle. | On-chain owner and role reads match the plan |
+| **MN-12 Production profile** | B-8 | ⬜ next | `ARCAIDIA_NETWORK=mainnet` with no default. Mainnet build excludes loadgen, market bot, demo solvers, mock tokens, x402 and the hackathon indexer. Own subgraphs on networks `arc` and `mainnet`. | CI fails if a mainnet artifact contains a testnet chain id, `sandbox`, `sslip.io`, `hedera:testnet`, `Mock` or `loadgen` |
+| **MN-13 Re-attestation** | B-9 (expiry) | ⬜ next | Settlement worker calls `POST /v2/reattest/{nonce}` when a message has expired, then resubmits. | Adapter test with stubbed Iris responses |
+| **MN-14 Launch** | — | ⬜ blocked on the above | Deployment runbook (report §G), then the launch path below. | Stage L1 passed |
 
 **M0 exit:** launch stage L1 passed.
 
