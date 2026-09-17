@@ -30,7 +30,6 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     MockMessageTransmitterV2 internal transmitter;
 
     address internal protocolOwner = makeAddr("protocolOwner");
-    address internal settlementReporter = makeAddr("settlementReporter");
     address internal protocolTreasury = makeAddr("protocolTreasury");
 
     uint16 internal constant RESERVE_FLOOR_BPS = 1_000;
@@ -68,7 +67,6 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             protocolFeeShareBps: PROTOCOL_SHARE_BPS,
             maxIntentAmount: MAX_INTENT,
             maxInFlightValue: MAX_IN_FLIGHT,
-            settlementReporter: settlementReporter,
             trustedSourceDomain: TRUSTED_SOURCE_DOMAIN,
             trustedSourceInitiator: address(initiator)
         });
@@ -177,13 +175,6 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         assertEq(ArcaidiaLiquidityVault(d.vault).protocolFeeShareBps(), 0);
     }
 
-    function test_settlementReporterIsAuthorised() public {
-        ArcaidiaDeployment.Deployment memory d =
-            ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
-        assertTrue(SettlementReceiver(d.settlementReceiver).isReporter(settlementReporter));
-        assertFalse(SettlementReceiver(d.settlementReceiver).isReporter(makeAddr("stranger")));
-    }
-
     /// The router points at the destination chain's receiver, and only that one.
     function test_routerRoutesOnlyToTheConfiguredDestination() public {
         ArcaidiaDeployment.Config memory config = _config();
@@ -194,16 +185,6 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             config.destinationSettlementReceiver
         );
         assertEq(ArcaidiaIntentRouter(d.router).destinationReceiver(999_999), address(0));
-    }
-
-    /// A deployment omitting the reporter leaves nobody authorised, rather than
-    /// silently authorising the deployer.
-    function test_omittingTheReporterAuthorisesNobody() public {
-        ArcaidiaDeployment.Config memory config = _config();
-        config.settlementReporter = address(0);
-
-        ArcaidiaDeployment.Deployment memory d = ArcaidiaDeployment.deployAll(deployer, config, address(this));
-        assertFalse(SettlementReceiver(d.settlementReceiver).isReporter(address(this)));
     }
 
     // -----------------------------------------------------------------------
@@ -233,7 +214,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
         ArcaidiaIntentRouter(d.router).setPaused(true);
 
         vm.expectRevert(SettlementReceiver.NotOwner.selector);
-        SettlementReceiver(d.settlementReceiver).setReporter(address(this), true);
+        SettlementReceiver(d.settlementReceiver).setTrustedInitiator(99, address(this));
     }
 
     function test_intendedOwnerCanOperateImmediately() public {

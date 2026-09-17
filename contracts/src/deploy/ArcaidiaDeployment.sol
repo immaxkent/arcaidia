@@ -80,8 +80,6 @@ library ArcaidiaDeployment {
         uint16 protocolFeeShareBps;
         uint256 maxIntentAmount;
         uint256 maxInFlightValue;
-        /// Operator permitted to report canonical settlement through the recovery path.
-        address settlementReporter;
         /// The CCTP domain burns arrive from — the *other* chain's domain.
         uint32 trustedSourceDomain;
         /// That chain's `CircleCCTPInitiator`. Zero when it is not deployed yet: the owner then
@@ -211,10 +209,6 @@ library ArcaidiaDeployment {
         if (config.trustedSourceInitiator != address(0)) {
             SettlementReceiver(deployment.settlementReceiver)
                 .setTrustedInitiator(config.trustedSourceDomain, config.trustedSourceInitiator);
-        }
-
-        if (config.settlementReporter != address(0)) {
-            SettlementReceiver(deployment.settlementReceiver).setReporter(config.settlementReporter, true);
         }
 
         // The router points at the receiver on the *destination* chain.

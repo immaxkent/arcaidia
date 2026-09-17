@@ -57,7 +57,7 @@ describe('MockSettlementAdapter', () => {
     clock.advance(DELAY);
 
     const state = await adapter.complete(ref);
-    expect(state.status).toBe(SettlementStatus.RECEIVED);
+    expect(state.status).toBe(SettlementStatus.RECONCILED);
     expect(state.destinationTxHash).toMatch(/^0x[0-9a-f]{64}$/);
   });
 
@@ -75,7 +75,7 @@ describe('MockSettlementAdapter', () => {
     const first = await adapter.complete(ref);
     const second = await adapter.complete(ref);
 
-    expect(second.status).toBe(SettlementStatus.RECEIVED);
+    expect(second.status).toBe(SettlementStatus.RECONCILED);
     expect(second.destinationTxHash).toBe(first.destinationTxHash);
   });
 
@@ -106,7 +106,7 @@ describe('MockSettlementAdapter', () => {
     await expect(adapter.complete(ref)).rejects.toThrow(/retry/);
 
     const state = await adapter.complete(ref);
-    expect(state.status).toBe(SettlementStatus.RECEIVED);
+    expect(state.status).toBe(SettlementStatus.RECONCILED);
   });
 
   it('throws on every call while unreachable', async () => {
@@ -189,7 +189,7 @@ describe('MockSettlementAdapter', () => {
     clock.advance(DELAY);
 
     const state = await adapter.complete(ref);
-    expect(state.status).toBe(SettlementStatus.RECEIVED);
+    expect(state.status).toBe(SettlementStatus.RECONCILED);
     expect(state.reference.sourceDomain).toBe(26);
     expect(state.reference.destinationDomain).toBe(0);
   });
@@ -239,7 +239,7 @@ describe('canonical delivery', () => {
     await expect(adapter.complete(ref)).rejects.toThrow(/mint failed/);
     expect((await adapter.status(ref)).status).toBe(SettlementStatus.ATTESTED);
 
-    expect((await adapter.complete(ref)).status).toBe(SettlementStatus.RECEIVED);
+    expect((await adapter.complete(ref)).status).toBe(SettlementStatus.RECONCILED);
   });
 
   it('delivers exactly once across repeated completions', async () => {

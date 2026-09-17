@@ -42,7 +42,6 @@ contract RedeployReceiver is Script {
         require(ARACHNID_FACTORY.code.length > 0, "CREATE2 factory missing on this chain");
         ArcaidiaDeployer deployer = _existingDeployer();
         address owner = vm.envAddress("PROTOCOL_OWNER");
-        address reporter = vm.envAddress("SETTLEMENT_REPORTER");
         address asset = vm.envOr("SETTLEMENT_ASSET", _defaultSettlementAsset(block.chainid));
         address market = vm.envOr("INTENT_MARKET", V2_MARKET);
         address router = vm.envOr("INTENT_ROUTER", V2_ROUTER);
@@ -61,7 +60,6 @@ contract RedeployReceiver is Script {
 
         SettlementReceiver r = SettlementReceiver(receiver);
         r.initialize(deployingAs, asset, market, CCTP_V2_MESSAGE_TRANSMITTER);
-        r.setReporter(reporter, true);
         if (owner != deployingAs) r.transferOwnership(owner);
 
         // Same address on the other chain (same deployer, salt and init code), so the router on
@@ -73,7 +71,6 @@ contract RedeployReceiver is Script {
         console.log("receiver (r2)          ", receiver);
         console.log("router destination     ", destinationChainId, "->", receiver);
         console.log("house vault receiver   ", receiver);
-        console.log("reporter allowed       ", reporter);
     }
 
     function _existingDeployer() internal view returns (ArcaidiaDeployer) {

@@ -106,7 +106,9 @@ describe('generated ABI barrel', () => {
   describe('SettlementReceiver', () => {
     it('exposes settlement routing and its onchain record', () => {
       const functions = names(ABIS.SettlementReceiver, 'function');
-      expect(functions).toContain('settle');
+      // MN-04: `settle()` — the reporter-asserted valve — is gone. Attested proof is the only door.
+      expect(functions).not.toContain('settle');
+      expect(functions).toContain('settleWithProof');
       expect(functions).toContain('isSettled');
       expect(functions).toContain('outcomeOf');
     });

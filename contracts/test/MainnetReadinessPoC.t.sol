@@ -116,7 +116,6 @@ contract MainnetReadinessPoCTest is ChainFixture {
                 protocolFeeShareBps: 5_000,
                 maxIntentAmount: 1_000e6,
                 maxInFlightValue: 300e6,
-                settlementReporter: reporter,
                 trustedSourceDomain: SRC_DOMAIN,
                 trustedSourceInitiator: TRUSTED_INITIATOR
             }),
@@ -450,47 +449,13 @@ contract MainnetReadinessPoCTest is ChainFixture {
     }
 
     // -----------------------------------------------------------------------
-    // F-03: the reporter recovery path
+    // F-03: the reporter recovery path — removed outright (MN-04)
     // -----------------------------------------------------------------------
-
-    function test_PoC_reporterCanPermanentlyBlockGenuineSettlement() public {
-        SettlementReceiver receiver = SettlementReceiver(d.settlementReceiver);
-        bytes32 intentId = keccak256("pending-intent");
-
-        // One wei donated by anyone is enough for the reporter's balance check.
-        asset.mint(address(receiver), 1);
-        vm.prank(reporter);
-        receiver.settle(intentId, reporter, 1);
-
-        // The genuine Circle message can now never be received: only the receiver may present it.
-        bytes memory message = _message(address(receiver), intentId, 100e6, "n3");
-        bytes memory attestation = transmitter.attest(message);
-        vm.expectRevert(abi.encodeWithSelector(SettlementReceiver.AlreadySettled.selector, intentId));
-        receiver.settleWithProof(message, attestation);
-        assertEq(transmitter.usedNonces("n3"), 0, "canonical USDC stays unminted");
-    }
-
-    function test_PoC_reporterCanRedirectParkedFunds() public {
-        SettlementReceiver receiver = SettlementReceiver(d.settlementReceiver);
-        RefusingWinner winner = new RefusingWinner();
-        // The market only admits factory vaults; the registry check is bypassed here by claiming from
-        // the House Vault's address, which is exactly as privileged as any factory vault.
-        bytes32 heldIntent = keccak256("held");
-        vm.etch(d.vault, address(winner).code);
-        vm.prank(d.vault);
-        ArcaidiaIntentMarket(d.market).claimIntent(heldIntent, 99e6, 1e6);
-
-        bytes memory message = _message(address(receiver), heldIntent, 100e6, "n4");
-        receiver.settleWithProof(message, transmitter.attest(message));
-        assertEq(asset.balanceOf(address(receiver)), 100e6, "funds parked for the winner");
-
-        vm.prank(reporter);
-        receiver.settle(keccak256("made-up"), reporter, 100e6);
-        assertEq(asset.balanceOf(reporter), 100e6, "reporter took the vault's parked reimbursement");
-
-        vm.expectRevert();
-        receiver.retryHeld(heldIntent);
-    }
+    //
+    // `SettlementReceiver.settle()` let an allowlisted reporter mark any intent settled off one
+    // unit of donated balance, and send funds parked for a vault to any address. The v2 router
+    // never produces the hookless burns it existed for, so the function and the reporter role are
+    // gone; the two proofs that exercised them went with it. Settlement now has one door.
 
     // -----------------------------------------------------------------------
     // F-04: blocklisted fallback recipient

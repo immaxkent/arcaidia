@@ -37,6 +37,9 @@ function fallbackLog(emitter: Address = RECEIVER): Log {
   };
 }
 
+const MESSAGE = `0x${'11'.repeat(200)}` as `0x${string}`;
+const ATTESTATION = `0x${'22'.repeat(65)}` as `0x${string}`;
+
 function clientFor(logs: Log[], settled = false) {
   const reader = {
     readContract: async () => settled,
@@ -52,8 +55,8 @@ function clientFor(logs: Log[], settled = false) {
 
 describe('ViemSettlementReceiverClient', () => {
   it('reads the LP reimbursement outcome', async () => {
-    const result = await clientFor([lpReimbursedLog()]).settle(
-      ARC, RECEIVER, INTENT, RECIPIENT, USDC(1_000),
+    const result = await clientFor([lpReimbursedLog()]).settleWithProof(
+      ARC, RECEIVER, MESSAGE, ATTESTATION,
     );
     expect(result.outcome).toBe('LP_REIMBURSED');
   });
@@ -62,8 +65,8 @@ describe('ViemSettlementReceiverClient', () => {
   /// whatever it is handed, so a try-each loop reported LP_REIMBURSED for every
   /// settlement — every fallback silently misrecorded.
   it('reads the recipient fallback outcome', async () => {
-    const result = await clientFor([fallbackLog()]).settle(
-      ARC, RECEIVER, INTENT, RECIPIENT, USDC(1_000),
+    const result = await clientFor([fallbackLog()]).settleWithProof(
+      ARC, RECEIVER, MESSAGE, ATTESTATION,
     );
     expect(result.outcome).toBe('RECIPIENT_FALLBACK');
   });
@@ -78,14 +81,14 @@ describe('ViemSettlementReceiverClient', () => {
   /// signature must not be read as our outcome.
   it('ignores matching events from another contract', async () => {
     await expect(
-      clientFor([fallbackLog(OTHER)]).settle(ARC, RECEIVER, INTENT, RECIPIENT, USDC(1_000)),
+      clientFor([fallbackLog(OTHER)]).settleWithProof(ARC, RECEIVER, MESSAGE, ATTESTATION),
     ).rejects.toThrow(/no outcome event/);
   });
 
   it('refuses when neither event was emitted', async () => {
     const noise: Log = { address: RECEIVER, topics: [`0x${'ee'.repeat(32)}`], data: '0x' };
     await expect(
-      clientFor([noise]).settle(ARC, RECEIVER, INTENT, RECIPIENT, USDC(1_000)),
+      clientFor([noise]).settleWithProof(ARC, RECEIVER, MESSAGE, ATTESTATION),
     ).rejects.toThrow(/no outcome event/);
   });
 

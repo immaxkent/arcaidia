@@ -28,11 +28,13 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import {
   CHAINS,
+  encodeIntentHook,
   registerChainOverride,
   registerDeployment,
   resetDeployments,
   type FeePolicy,
   type Intent,
+  type SettlementReference,
   type UnixSeconds,
   type VaultState,
 } from '@arcaidia/domain';
@@ -181,6 +183,8 @@ export interface CctpMessageSpec {
   readonly hookData: Hex;
   /** Defaults to the chain's receiver; override to model a message minted elsewhere. */
   readonly mintRecipient?: Address;
+  /** Defaults to the other chain's initiator; override to model a burn by someone untrusted. */
+  readonly messageSender?: Address;
 }
 
 export interface WorldOptions {
@@ -259,6 +263,12 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
     destinationChainId: SEPOLIA,
   });
 
+  // MN-01: each receiver accepts burns only from the other chain's initiator, on that chain's
+  // CCTP domain. Both chains exist by now, so this is the cross-chain wiring step the mainnet
+  // runbook performs after verifying each side.
+  await trustSource(sepolia, sepoliaDeployment.settlementReceiver, 26, arcDeployment.settlementInitiator);
+  await trustSource(arc, arcDeployment.settlementReceiver, 0, sepoliaDeployment.settlementInitiator);
+
   // Point the shared configuration at the local world. Same code path as
   // production; only the values differ.
   registerChainOverride('ethereum-sepolia', {
@@ -320,26 +330,58 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
 
   const observation = new InMemoryObservationProvider();
 
-  // Canonical delivery: real CCTP mints USDC to the destination receiver when a
-  // message completes. The mock has no chain of its own, so the harness does
-  // that mint — which is what turns an off-chain bookkeeping entry into funds
-  // the receiver can actually route.
+  /// One attested CCTP message, built the way Circle builds them: the header names its
+  /// TokenMessenger, the body names the burner, and the hook carries the intent.
+  const craftCctpMessage = async (
+    chainId: number,
+    spec: CctpMessageSpec,
+  ): Promise<{ message: Hex; attestation: Hex }> => {
+      const chain = chains[chainId]!;
+      const deployment = deployments[chainId]!;
+      const message = (await chain.client.readContract({
+        address: deployment.messageTransmitter,
+        abi: ARTIFACTS.MockMessageTransmitterV2.abi,
+        functionName: 'encodeMessage',
+        args: [
+          {
+            sourceDomain: chainId === SEPOLIA ? 26 : 0,
+            destinationDomain: chainId === SEPOLIA ? 0 : 26,
+            nonce: spec.nonce,
+            recipient: deployment.settlementReceiver,
+            destinationCaller: deployment.settlementReceiver,
+            burnToken: '0x000000000000000000000000000000000000bEEF',
+            mintRecipient: spec.mintRecipient ?? deployment.settlementReceiver,
+            // The burn was made by the *other* chain's initiator, which is what this receiver
+            // trusts; a spec may override it to model a stranger's burn.
+            messageSender:
+              spec.messageSender ?? deployments[chainId === SEPOLIA ? ARC : SEPOLIA]!.settlementInitiator,
+            amount: spec.amount,
+            feeExecuted: spec.feeExecuted ?? 0n,
+            hookData: spec.hookData,
+          },
+        ],
+      })) as Hex;
+      return { message, attestation: keccak256(message) };
+  };
+
+  // Canonical delivery, v2 (D8): completing a message IS routing it. The destination receiver
+  // takes Circle's attested bytes, receives the mint itself and pays whoever the hook names, in
+  // one transaction. Since MN-04 there is no second reporter-asserted step, so the harness has to
+  // do here exactly what the real transport does — anything less would leave the funds sitting in
+  // the receiver and every balance assertion downstream would be measuring nothing.
+  const routedOutcomes = new Map<string, 'LP_REIMBURSED' | 'RECIPIENT_FALLBACK' | 'HELD_FOR_VAULT'>();
+  let routeCanonically: ((reference: SettlementReference, amount: bigint) => Promise<void>) | null = null;
+
   const settlementAdapter = new MockSettlementAdapter({
     attestationDelaySeconds: POLICY.attestationDelaySeconds,
     clock: now,
     onComplete: async (reference, amount) => {
-      const chain = chains[reference.destinationChainId]!;
-      const deployment = deployments[reference.destinationChainId]!;
-
-      const hash = await deployment.wallet.writeContract({
-        address: deployment.usdc,
-        abi: ARTIFACTS.MockUSDC.abi as never,
-        functionName: 'mint',
-        args: [deployment.settlementReceiver, amount] as never,
-      } as never);
-      await chain.client.waitForTransactionReceipt({ hash });
+      if (!routeCanonically) throw new Error('Canonical routing is not wired yet.');
+      await routeCanonically(reference, amount);
     },
   });
+  settlementAdapter.outcomeFor = (intentId) =>
+    routedOutcomes.get(intentId.toLowerCase()) ?? 'RECIPIENT_FALLBACK';
   const decisions = new InMemoryDecisionLog();
   const settlementJournal = new InMemorySettlementJournal();
 
@@ -372,6 +414,29 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
       [ARC, relayer(ARC) as never],
     ]),
   );
+
+  // Now that the receiver client exists, wire the routing the adapter's completion delegates to.
+  routeCanonically = async (reference, amount) => {
+    const destination = reference.destinationChainId;
+    const deployment = deployments[destination]!;
+    const record = settlementJournal
+      .pending()
+      .find((r) => r.reference.intentId.toLowerCase() === reference.intentId.toLowerCase());
+    const hookRecipient = record?.fallbackRecipient ?? deployment.settlementReceiver;
+
+    const { message, attestation } = await craftCctpMessage(destination, {
+      nonce: reference.intentId,
+      amount,
+      hookData: encodeIntentHook({ intentId: reference.intentId, recipient: hookRecipient }),
+    });
+    const report = await receiverClient.settleWithProof(
+      destination,
+      deployment.settlementReceiver,
+      message,
+      attestation,
+    );
+    routedOutcomes.set(reference.intentId.toLowerCase(), report.outcome);
+  };
 
   const world: World = {
     chains,
@@ -532,30 +597,8 @@ export async function startWorld(options: WorldOptions = {}): Promise<World> {
       await chain.client.waitForTransactionReceipt({ hash });
     },
 
-    cctpMessage: async (chainId, spec) => {
-      const chain = chains[chainId]!;
-      const deployment = deployments[chainId]!;
-      const message = (await chain.client.readContract({
-        address: deployment.messageTransmitter,
-        abi: ARTIFACTS.MockMessageTransmitterV2.abi,
-        functionName: 'encodeMessage',
-        args: [
-          {
-            sourceDomain: chainId === SEPOLIA ? 26 : 0,
-            destinationDomain: chainId === SEPOLIA ? 0 : 26,
-            nonce: spec.nonce,
-            recipient: deployment.settlementReceiver,
-            destinationCaller: deployment.settlementReceiver,
-            burnToken: '0x000000000000000000000000000000000000bEEF',
-            mintRecipient: spec.mintRecipient ?? deployment.settlementReceiver,
-            amount: spec.amount,
-            feeExecuted: spec.feeExecuted ?? 0n,
-            hookData: spec.hookData,
-          },
-        ],
-      })) as Hex;
-      return { message, attestation: keccak256(message) };
-    },
+    cctpMessage: async (chainId, spec) => craftCctpMessage(chainId, spec),
+
 
     settleWithProof: async (chainId, message, attestation) =>
       receiverClient.settleWithProof(chainId, deployments[chainId]!.settlementReceiver, message, attestation),
@@ -694,6 +737,24 @@ async function readVaultState(
     blockNumber: await chain.client.getBlockNumber(),
     observedAt,
   };
+}
+
+/// MN-01 wiring: tell `receiver` which initiator on `sourceDomain` it accepts burns from.
+async function trustSource(
+  chain: AnvilChain,
+  receiver: Address,
+  sourceDomain: number,
+  initiator: Address,
+): Promise<void> {
+  const account = privateKeyToAccount(KEYS.deployer);
+  const wallet = createWalletClient({ account, chain: chain.chain, transport: http(chain.rpcUrl) });
+  const hash = await wallet.writeContract({
+    address: receiver,
+    abi: ARTIFACTS.SettlementReceiver.abi,
+    functionName: 'setTrustedInitiator',
+    args: [sourceDomain, initiator],
+  } as never);
+  await chain.client.waitForTransactionReceipt({ hash });
 }
 
 function walletFor(chain: AnvilChain, key: Hex): never {

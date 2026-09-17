@@ -32,14 +32,6 @@ export interface SettlementReceiverClient {
    */
   isSettled(chainId: number, receiver: Address, intentId: Bytes32): Promise<boolean>;
 
-  /** v1 / recovery path: reporter-asserted routing. */
-  settle(
-    chainId: number,
-    receiver: Address,
-    intentId: Bytes32,
-    fallbackRecipient: Address,
-    amount: bigint,
-  ): Promise<SettlementOutcomeReport>;
 
   /**
    * v2 (D8): hand the receiver Circle's attested message; it receives the mint

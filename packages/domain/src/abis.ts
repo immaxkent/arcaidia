@@ -3327,6 +3327,22 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "ReceiverMismatch",
+      "inputs": [
+        {
+          "name": "vaultReceiver",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "marketReceiver",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "ReentrancyGuardReentrantCall",
       "inputs": []
     },
@@ -3525,25 +3541,6 @@ export const ABIS = {
     },
     {
       "type": "function",
-      "name": "isReporter",
-      "inputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "address"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "",
-          "type": "bool",
-          "internalType": "bool"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
       "name": "isSettled",
       "inputs": [
         {
@@ -3634,49 +3631,20 @@ export const ABIS = {
     },
     {
       "type": "function",
-      "name": "setReporter",
+      "name": "setTrustedInitiator",
       "inputs": [
         {
-          "name": "reporter",
-          "type": "address",
-          "internalType": "address"
+          "name": "sourceDomain",
+          "type": "uint32",
+          "internalType": "uint32"
         },
         {
-          "name": "allowed",
-          "type": "bool",
-          "internalType": "bool"
+          "name": "initiator",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "settle",
-      "inputs": [
-        {
-          "name": "intentId",
-          "type": "bytes32",
-          "internalType": "bytes32"
-        },
-        {
-          "name": "fallbackRecipient",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "outcome",
-          "type": "uint8",
-          "internalType": "enum SettlementReceiver.Outcome"
-        }
-      ],
       "stateMutability": "nonpayable"
     },
     {
@@ -3734,6 +3702,25 @@ export const ABIS = {
       ],
       "outputs": [],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "trustedInitiator",
+      "inputs": [
+        {
+          "name": "",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
       "type": "event",
@@ -3843,25 +3830,6 @@ export const ABIS = {
     },
     {
       "type": "event",
-      "name": "ReporterSet",
-      "inputs": [
-        {
-          "name": "reporter",
-          "type": "address",
-          "indexed": true,
-          "internalType": "address"
-        },
-        {
-          "name": "allowed",
-          "type": "bool",
-          "indexed": false,
-          "internalType": "bool"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
       "name": "SettledWithProof",
       "inputs": [
         {
@@ -3887,6 +3855,25 @@ export const ABIS = {
           "type": "bytes32",
           "indexed": false,
           "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "TrustedInitiatorSet",
+      "inputs": [
+        {
+          "name": "sourceDomain",
+          "type": "uint32",
+          "indexed": true,
+          "internalType": "uint32"
+        },
+        {
+          "name": "initiator",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
         }
       ],
       "anonymous": false
@@ -3920,15 +3907,10 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "InsufficientCanonicalFunds",
+      "name": "MalformedIntentHook",
       "inputs": [
         {
-          "name": "requested",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "held",
+          "name": "length",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -3936,12 +3918,12 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "MalformedIntentHook",
+      "name": "MarketSettlesElsewhere",
       "inputs": [
         {
-          "name": "length",
-          "type": "uint256",
-          "internalType": "uint256"
+          "name": "marketReceiver",
+          "type": "address",
+          "internalType": "address"
         }
       ]
     },
@@ -3989,11 +3971,6 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "NotReporter",
-      "inputs": []
-    },
-    {
-      "type": "error",
       "name": "NothingHeld",
       "inputs": [
         {
@@ -4021,12 +3998,44 @@ export const ABIS = {
     },
     {
       "type": "error",
+      "name": "TrustedInitiatorAlreadySet",
+      "inputs": [
+        {
+          "name": "sourceDomain",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "initiator",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    },
+    {
+      "type": "error",
       "name": "UnsupportedIntentHookVersion",
       "inputs": [
         {
           "name": "version",
           "type": "uint8",
           "internalType": "uint8"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "UntrustedSource",
+      "inputs": [
+        {
+          "name": "sourceDomain",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "messageSender",
+          "type": "address",
+          "internalType": "address"
         }
       ]
     },
@@ -4227,6 +4236,17 @@ export const ABIS = {
   ] as const,
   ArcaidiaDeployer: [
     {
+      "type": "constructor",
+      "inputs": [
+        {
+          "name": "owner_",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
       "type": "function",
       "name": "deploy",
       "inputs": [
@@ -4275,6 +4295,19 @@ export const ABIS = {
           "name": "",
           "type": "bool",
           "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "owner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "stateMutability": "view"
@@ -4397,6 +4430,17 @@ export const ABIS = {
           "name": "reason",
           "type": "bytes",
           "internalType": "bytes"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "NotOwner",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
         }
       ]
     }
@@ -4972,6 +5016,11 @@ export const ABIS = {
           "name": "settlementAsset_",
           "type": "address",
           "internalType": "address"
+        },
+        {
+          "name": "router_",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "stateMutability": "nonpayable"
@@ -5087,6 +5136,19 @@ export const ABIS = {
     {
       "type": "function",
       "name": "owner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "router",
       "inputs": [],
       "outputs": [
         {
@@ -5299,6 +5361,17 @@ export const ABIS = {
       "type": "error",
       "name": "NotOwner",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotRouter",
+      "inputs": [
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
     },
     {
       "type": "error",
@@ -5736,6 +5809,22 @@ export const ABIS = {
       "type": "error",
       "name": "NotOwner",
       "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "ReceiverNotTheMarketsOwn",
+      "inputs": [
+        {
+          "name": "offered",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "marketReceiver",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
     },
     {
       "type": "error",
@@ -6506,6 +6595,11 @@ export const ABIS = {
             },
             {
               "name": "mintRecipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "messageSender",
               "type": "address",
               "internalType": "address"
             },

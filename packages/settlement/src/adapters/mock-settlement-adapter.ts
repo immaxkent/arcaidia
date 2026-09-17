@@ -49,6 +49,7 @@ interface Tracked {
   failureReason?: string;
   updatedAt: UnixSeconds;
   completedAt?: UnixSeconds;
+  outcome?: SettlementState['outcome'];
 }
 
 export class MockSettlementAdapter implements SettlementAdapter {
@@ -149,7 +150,12 @@ export class MockSettlementAdapter implements SettlementAdapter {
     // arrived that never did.
     if (this.onComplete) await this.onComplete(reference, entry.amount);
 
-    entry.status = SettlementStatus.RECEIVED;
+    // v2 (D8): completing IS routing — the destination receiver takes Circle's attested message,
+    // receives the mint itself and pays whoever the hook names, in one transaction. There is no
+    // second, reporter-asserted step to model since MN-04 removed it.
+    entry.outcome = this.outcomeFor(reference.intentId);
+    entry.status = SettlementStatus.RECONCILED;
+    this.onCompleteHook?.(reference);
     entry.destinationTxHash = syntheticHash(reference.intentId);
     entry.completedAt = this.clock();
     entry.updatedAt = this.clock();
@@ -203,6 +209,12 @@ export class MockSettlementAdapter implements SettlementAdapter {
     entry.updatedAt = this.clock();
   }
 
+  /** What the receiver's routing will report for `intentId`. Defaults to the fallback branch. */
+  outcomeFor: (intentId: Bytes32) => SettlementState['outcome'] = () => 'RECIPIENT_FALLBACK';
+
+  /** Called once a completion has routed, for harnesses that mirror the resulting chain state. */
+  onCompleteHook?: (reference: SettlementReference) => void;
+
   /** Marks a message reconciled once the receiver has routed the funds. */
   markReconciled(intentId: Bytes32): void {
     const entry = this.tracked.get(key(intentId));
@@ -238,9 +250,11 @@ export class MockSettlementAdapter implements SettlementAdapter {
       amount: entry.amount,
       updatedAt: entry.updatedAt,
     };
-    return entry.destinationTxHash === undefined
-      ? base
-      : { ...base, destinationTxHash: entry.destinationTxHash };
+    const withTx =
+      entry.destinationTxHash === undefined
+        ? base
+        : { ...base, destinationTxHash: entry.destinationTxHash };
+    return entry.outcome === undefined ? withTx : { ...withTx, outcome: entry.outcome };
   }
 
   private completed(): Tracked[] {

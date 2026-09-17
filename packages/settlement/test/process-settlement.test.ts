@@ -34,6 +34,14 @@ describe('processSettlement', () => {
     adapter = new MockSettlementAdapter({ attestationDelaySeconds: DELAY, clock: clock.now });
     receiverClient = new FakeReceiverClient();
     journal = new InMemorySettlementJournal();
+    // v2 (D8): completing IS routing, so the adapter reports the outcome. `filled` still drives
+    // which branch the receiver takes, exactly as before MN-04 removed the reporter call.
+    adapter.outcomeFor = (intentId) =>
+      receiverClient.filled.has(intentId.toLowerCase()) ? 'LP_REIMBURSED' : 'RECIPIENT_FALLBACK';
+    // Completing routes the funds on chain, so the chain then reports the intent as settled —
+    // which is what a restarted worker with an empty journal reads.
+    adapter.onCompleteHook = (reference) =>
+      receiverClient.settledOnchain.add(reference.intentId.toLowerCase());
 
     deps = {
       adapter,
@@ -63,7 +71,7 @@ describe('processSettlement', () => {
     const outcome = await processSettlement(r, deps);
 
     expect(outcome).toEqual({ kind: 'WAITING', status: SettlementStatus.PENDING_ATTESTATION });
-    expect(receiverClient.settleCalls).toHaveLength(0);
+    expect(journal.isSettled(r.reference.intentId)).toBe(false);
   });
 
   it('does not mark a waiting settlement as done', async () => {
@@ -100,10 +108,7 @@ describe('processSettlement', () => {
     const outcome = await processSettlement(r, deps);
 
     expect(outcome).toMatchObject({ kind: 'SETTLED', outcome: 'RECIPIENT_FALLBACK' });
-    expect(receiverClient.settleCalls[0]).toMatchObject({
-      recipient: RECIPIENT,
-      amount: USDC(1_000),
-    });
+    expect(journal.isSettled(r.reference.intentId)).toBe(true);
   });
 
   // -----------------------------------------------------------------------
@@ -152,7 +157,6 @@ describe('processSettlement', () => {
     const outcome = await processSettlement(r, deps);
 
     expect(outcome).toEqual({ kind: 'ALREADY_SETTLED' });
-    expect(receiverClient.settleCalls).toHaveLength(0);
     expect(journal.isSettled(r.reference.intentId)).toBe(true);
   });
 
@@ -164,11 +168,9 @@ describe('processSettlement', () => {
     const r = track(record(9));
     clock.advance(DELAY);
 
-    await processSettlement(r, deps);
-    await processSettlement(r, deps);
-    await processSettlement(r, deps);
-
-    expect(receiverClient.settleCalls).toHaveLength(1);
+    expect((await processSettlement(r, deps)).kind).toBe('SETTLED');
+    expect((await processSettlement(r, deps)).kind).toBe('ALREADY_SETTLED');
+    expect((await processSettlement(r, deps)).kind).toBe('ALREADY_SETTLED');
   });
 
   /// Two workers on the same queue is an ordinary deployment, not an edge case.
@@ -176,9 +178,11 @@ describe('processSettlement', () => {
     const r = track(record(10));
     clock.advance(DELAY);
 
-    await Promise.all([processSettlement(r, deps), processSettlement(r, deps)]);
+    const outcomes = await Promise.all([processSettlement(r, deps), processSettlement(r, deps)]);
 
-    expect(receiverClient.settleCalls.length).toBeLessThanOrEqual(1);
+    // The transport is idempotent, so a race ends in one settlement however the two interleave.
+    expect(outcomes.every((o) => o.kind === 'SETTLED' || o.kind === 'ALREADY_SETTLED')).toBe(true);
+    expect(journal.isSettled(r.reference.intentId)).toBe(true);
   });
 
   /// The crash case that matters: the transaction landed, the worker died
@@ -188,33 +192,31 @@ describe('processSettlement', () => {
     const r = track(record(11));
     clock.advance(DELAY);
 
-    receiverClient.failSettleWith = new Error('timeout');
-    receiverClient.landDespiteFailure = true;
+    // The transaction landed on chain, but the worker never heard the answer.
+    adapter.failNextCompletions(1);
 
     const first = await processSettlement(r, deps);
-    expect(first.kind).toBe('FAILED');
+    expect(first.kind).toBe('TRANSPORT_UNAVAILABLE');
     expect(journal.isSettled(r.reference.intentId)).toBe(false);
+    receiverClient.settledOnchain.add(r.reference.intentId.toLowerCase());
 
-    // Restart: fresh journal, same chain.
+    // Restart: fresh journal, same chain. Only the chain can say what really happened.
     const restarted = new InMemorySettlementJournal();
     restarted.add(r);
-    receiverClient.failSettleWith = null;
 
     const second = await processSettlement(r, { ...deps, journal: restarted });
 
     expect(second).toEqual({ kind: 'ALREADY_SETTLED' });
-    expect(receiverClient.settleCalls).toHaveLength(0);
   });
 
-  it('leaves a settlement retryable after a genuine failure', async () => {
+  it('leaves a settlement retryable after a failed attempt', async () => {
     const r = track(record(12));
     clock.advance(DELAY);
 
-    receiverClient.failSettleWith = new Error('reverted');
-    expect((await processSettlement(r, deps)).kind).toBe('FAILED');
+    adapter.failNextCompletions(1);
+    expect((await processSettlement(r, deps)).kind).toBe('TRANSPORT_UNAVAILABLE');
     expect(journal.pending()).toHaveLength(1);
 
-    receiverClient.failSettleWith = null;
     expect((await processSettlement(r, deps)).kind).toBe('SETTLED');
   });
 
@@ -247,7 +249,7 @@ describe('processSettlement', () => {
     receiverClient.failIsSettledWith = new Error('rpc down');
 
     expect((await processSettlement(r, deps)).kind).toBe('FAILED');
-    expect(receiverClient.settleCalls).toHaveLength(0);
+    expect(journal.isSettled(r.reference.intentId)).toBe(false);
   });
 });
 
@@ -288,7 +290,6 @@ describe('processSettlement — v2 RECONCILED short-circuit (D8)', () => {
     });
 
     expect(outcome).toEqual({ kind: 'SETTLED', outcome: 'LP_REIMBURSED', txHash: `0x${'ab'.repeat(32)}` });
-    expect(receiverClient.settleCalls).toHaveLength(0);
     expect(journal.isSettled(r.reference.intentId)).toBe(true);
   });
 });
@@ -324,6 +325,5 @@ describe('runSettlementPass', () => {
     // Nothing is left to do, so a third pass touches nothing.
     expect(journal.pending()).toHaveLength(0);
     expect((await runSettlementPass(deps)).size).toBe(0);
-    expect(receiverClient.settleCalls).toHaveLength(3);
   });
 });

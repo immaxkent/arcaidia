@@ -288,24 +288,6 @@ contract SettlementReceiverProofTest is VaultFixture {
     }
 
     // -----------------------------------------------------------------------
-    // The recovery path still works, still bounded
-    // -----------------------------------------------------------------------
-
-    function test_reporterPathStillRoutesButOnlyForReporters() public {
-        address reporter = makeAddr("reporter");
-        vm.prank(vaultOwner);
-        receiver.setReporter(reporter, true);
-        asset.mint(address(receiver), 500e6);
-
-        vm.expectRevert(SettlementReceiver.NotReporter.selector);
-        receiver.settle(keccak256("legacy"), fallbackRecipient, 500e6);
-
-        vm.prank(reporter);
-        receiver.settle(keccak256("legacy"), fallbackRecipient, 500e6);
-        assertEq(asset.balanceOf(fallbackRecipient), 500e6);
-    }
-
-    // -----------------------------------------------------------------------
     // Golden vector — the real message that exposed the v2.0 receiver's wrong check
     // -----------------------------------------------------------------------
 

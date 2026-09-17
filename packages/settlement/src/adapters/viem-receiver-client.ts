@@ -50,31 +50,6 @@ export class ViemSettlementReceiverClient implements SettlementReceiverClient {
     })) as boolean;
   }
 
-  async settle(
-    chainId: number,
-    receiver: Address,
-    intentId: Bytes32,
-    fallbackRecipient: Address,
-    amount: bigint,
-  ): Promise<SettlementOutcomeReport> {
-    const writer = this.require(this.writers, chainId, 'write');
-    const reader = this.require(this.readers, chainId, 'read');
-
-    const txHash = await writer.writeContract({
-      address: receiver,
-      abi: RECEIVER_ABI,
-      functionName: 'settle',
-      args: [intentId, fallbackRecipient, amount],
-    });
-
-    const receipt = await reader.waitForTransactionReceipt({ hash: txHash });
-    if (receipt.status !== 'success') {
-      throw new Error(`Settlement transaction ${txHash} reverted.`);
-    }
-
-    return { txHash, outcome: outcomeFromLogs(receipt.logs, receiver) };
-  }
-
   async settleWithProof(
     chainId: number,
     receiver: Address,

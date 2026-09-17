@@ -121,25 +121,15 @@ export async function processSettlement(
     return { kind: 'WAITING', status: state.status };
   }
 
-  // Funds are on the destination chain. Route them.
-  try {
-    const report = await receiverClient.settle(
-      reference.destinationChainId,
-      receiver,
-      reference.intentId,
-      record.fallbackRecipient,
-      record.amount,
-    );
-
-    journal.markSettled(reference.intentId, clock());
-    return { kind: 'SETTLED', outcome: report.outcome, txHash: report.txHash };
-  } catch (error) {
-    // Deliberately not marked settled. If the transaction did in fact land, the
-    // next run's onchain check catches it and reconciles; if it did not, the
-    // next run retries. Marking it here would strand the intent on a failure
-    // that never actually happened.
-    return { kind: 'FAILED', error: asError(error) };
-  }
+  // Every v2 commitment carries the intent hook, so it settles through `settleWithProof` above.
+  // Anything reaching here predates the hook, and MN-04 removed the reporter valve that used to
+  // route it by assertion: the funds are not lost, but this worker cannot move them.
+  return {
+    kind: 'FAILED',
+    error: new Error(
+      `Intent ${reference.intentId} carries no intent hook, and this deployment has no reporter path.`,
+    ),
+  };
 }
 
 /** One pass over everything the journal is tracking. */

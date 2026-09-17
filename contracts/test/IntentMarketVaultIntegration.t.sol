@@ -7,6 +7,7 @@ import {VaultHarness} from "./harness/VaultHarness.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {ArcaidiaIntentMarket} from "../src/ArcaidiaIntentMarket.sol";
 import {SettlementReceiver} from "../src/SettlementReceiver.sol";
+import {IntentHookLib} from "../src/libraries/IntentHookLib.sol";
 import {ISettlementCheck} from "../src/interfaces/ISettlementCheck.sol";
 import {FillAuthorization, Intent, INTENT_VERSION, USDC_TOKEN_OUT} from "../src/libraries/ArcaidiaTypes.sol";
 import {IntentLib} from "../src/libraries/IntentLib.sol";
@@ -24,6 +25,9 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     MockVaultRegistry internal registry;
     SettlementReceiver internal receiver;
     address internal receiverOwner;
+    MockMessageTransmitterV2 internal transmitter;
+    uint32 internal constant SRC_DOMAIN = 0;
+    address internal constant TRUSTED_INITIATOR = 0x6095944456C20A0acF7c44e4ff40DEa8f041d9b3;
     mapping(bytes32 => Intent) internal intents;
 
     VaultHarness internal vaultA;
@@ -48,9 +52,10 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
         receiver = new SettlementReceiver();
         market = new ArcaidiaIntentMarket(ISettlementCheck(address(receiver)), IVaultRegistry(address(registry)));
         receiverOwner = makeAddr("receiverOwner");
-        receiver.initialize(
-            receiverOwner, address(asset), address(market), address(new MockMessageTransmitterV2(asset))
-        );
+        transmitter = new MockMessageTransmitterV2(asset);
+        receiver.initialize(receiverOwner, address(asset), address(market), address(transmitter));
+        vm.prank(receiverOwner);
+        receiver.setTrustedInitiator(SRC_DOMAIN, TRUSTED_INITIATOR);
 
         vaultA = _standUpVault("vaultAOwner", "lpA", 100_000e6);
         vaultB = _standUpVault("vaultBOwner", "lpB", 100_000e6);
@@ -208,19 +213,35 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     // WP-16.3: reimbursement follows the market's winner, not one fixed vault
     // -----------------------------------------------------------------------
 
-    /// Both vaults are already wired to this chain's one receiver (setUp); this only allows the
-    /// reporter that the recovery path needs.
-    function _standUpReceiver() internal returns (SettlementReceiver, address reporter) {
-        reporter = makeAddr("reporter");
-        vm.prank(receiverOwner);
-        receiver.setReporter(reporter, true);
-        return (receiver, reporter);
+    /// Canonical settlement, exactly as it happens live: one attested CCTP message, presented by
+    /// anyone, routed by the hook it carries.
+    function _settleCanonically(bytes32 intentId, address hookRecipient, uint256 amount)
+        internal
+        returns (SettlementReceiver.Outcome)
+    {
+        bytes memory message = transmitter.encodeMessage(
+            MockMessageTransmitterV2.MessageSpec({
+                sourceDomain: SRC_DOMAIN,
+                destinationDomain: 26,
+                nonce: intentId,
+                recipient: makeAddr("tokenMessenger"),
+                destinationCaller: address(receiver),
+                burnToken: address(0xBEEF),
+                mintRecipient: address(receiver),
+                messageSender: TRUSTED_INITIATOR,
+                amount: amount,
+                feeExecuted: 0,
+                hookData: IntentHookLib.encode(intentId, hookRecipient)
+            })
+        );
+        vm.prank(makeAddr("anyone"));
+        return receiver.settleWithProof(message, transmitter.attest(message));
     }
 
     /// The core WP-16.3 proof: two vaults race, vaultB wins, and canonical settlement
     /// reimburses vaultB specifically — never vaultA, which never advanced anything.
     function test_settlementReimbursesWhicheverVaultActuallyWon() public {
-        (SettlementReceiver receiver, address reporter) = _standUpReceiver();
+
 
         bytes32 intentId = keccak256("reimbursement-intent");
         FillAuthorization memory auth = _authorization(intentId, 10_000e6, 100e6);
@@ -233,9 +254,7 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
         // reimbursement's effect below is isolated to canonical settlement, not the fill itself.
         uint256 vaultBLiquidAfterFill = vaultB.liquidBalance();
 
-        asset.mint(address(receiver), 10_000e6);
-        vm.prank(reporter);
-        SettlementReceiver.Outcome outcome = receiver.settle(intentId, recipient, 10_000e6);
+        SettlementReceiver.Outcome outcome = _settleCanonically(intentId, recipient, 10_000e6);
 
         assertEq(uint256(outcome), uint256(SettlementReceiver.Outcome.LP_REIMBURSED));
         assertEq(
@@ -249,14 +268,12 @@ contract IntentMarketVaultIntegrationTest is ChainFixture {
     /// The fallback invariant still holds with a market in the picture: nobody won,
     /// so settlement pays the recipient directly, and neither vault is touched.
     function test_unfilledIntentStillFallsBackWithAMarketWired() public {
-        (SettlementReceiver receiver, address reporter) = _standUpReceiver();
+
 
         bytes32 intentId = keccak256("never-filled-intent");
         assertEq(market.filledBy(intentId), address(0));
 
-        asset.mint(address(receiver), 10_000e6);
-        vm.prank(reporter);
-        SettlementReceiver.Outcome outcome = receiver.settle(intentId, recipient, 10_000e6);
+        SettlementReceiver.Outcome outcome = _settleCanonically(intentId, recipient, 10_000e6);
 
         assertEq(uint256(outcome), uint256(SettlementReceiver.Outcome.RECIPIENT_FALLBACK));
         assertEq(asset.balanceOf(recipient), 10_000e6);

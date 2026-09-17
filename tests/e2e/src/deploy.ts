@@ -70,9 +70,11 @@ export async function deployProtocol(
     ARTIFACTS.MockSettlementInitiator.abi,
     ARTIFACTS.MockSettlementInitiator.bytecode,
   );
+  // MN-03: the deployer serves one key, so nobody else can occupy the protocol's addresses.
   const deployerContract = await send.deploy(
     ARTIFACTS.ArcaidiaDeployer.abi,
     ARTIFACTS.ArcaidiaDeployer.bytecode,
+    [account.address],
   );
   const messageTransmitter = await send.deploy(
     ARTIFACTS.MockMessageTransmitterV2.abi,
@@ -80,16 +82,17 @@ export async function deployProtocol(
     [usdc],
   );
 
-  // Mirrors `ArcaidiaDeployment.deployAll` (v2) step for step. The receiver's init code takes
-  // no constructor arguments, so its address is fixed the instant it's deployed — deployed
-  // without initializing yet, since `initialize` needs the market, and the market needs the
-  // receiver's and the factory's addresses.
-  const settlementReceiver = await send.create2(
-    deployerContract,
-    SALTS.receiver,
-    ARTIFACTS.SettlementReceiver.bytecode,
-    '0x',
-  );
+  // Mirrors `ArcaidiaDeployment.deployAll` (v2, MN-02/MN-03) step for step: the receiver's init
+  // code takes no constructor arguments, so its address is known before it exists. The market is
+  // deployed against that predicted address first, and the receiver is then deployed *and*
+  // initialised in one transaction — which is also the only way its own check that the market
+  // settles through it can pass.
+  const predictedReceiver = (await chain.client.readContract({
+    address: deployerContract,
+    abi: ARTIFACTS.ArcaidiaDeployer.abi,
+    functionName: 'predictAddressFor',
+    args: [SALTS.receiver, ARTIFACTS.SettlementReceiver.bytecode],
+  })) as Address;
 
   const predictedFactory = (await chain.client.readContract({
     address: deployerContract,
@@ -103,17 +106,21 @@ export async function deployProtocol(
     SALTS.market,
     concatHex([
       ARTIFACTS.ArcaidiaIntentMarket.bytecode,
-      encodeAbiParameters([{ type: 'address' }, { type: 'address' }], [settlementReceiver, predictedFactory]),
+      encodeAbiParameters([{ type: 'address' }, { type: 'address' }], [predictedReceiver, predictedFactory]),
     ]),
     '0x',
   );
 
-  await send.call(settlementReceiver, ARTIFACTS.SettlementReceiver.abi, 'initialize', [
-    account.address,
-    usdc,
-    market,
-    messageTransmitter,
-  ]);
+  const settlementReceiver = await send.create2(
+    deployerContract,
+    SALTS.receiver,
+    ARTIFACTS.SettlementReceiver.bytecode,
+    encodeFunctionData({
+      abi: ARTIFACTS.SettlementReceiver.abi,
+      functionName: 'initialize',
+      args: [account.address, usdc, market, messageTransmitter],
+    }),
+  );
 
   const factory = await send.create2(
     deployerContract,
@@ -173,10 +180,6 @@ export async function deployProtocol(
   await vaultCall('setTreasury', [options.treasury]);
   await vaultCall('setProtocolFeeShareBps', [options.protocolFeeShareBps]);
 
-  await send.call(settlementReceiver, ARTIFACTS.SettlementReceiver.abi, 'setReporter', [
-    options.settlementReporter,
-    true,
-  ]);
 
   await send.call(router, ARTIFACTS.ArcaidiaIntentRouter.abi, 'setDestination', [
     BigInt(options.destinationChainId),

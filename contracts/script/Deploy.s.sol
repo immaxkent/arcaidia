@@ -118,7 +118,6 @@ contract DeployScript is Script {
             protocolFeeShareBps: uint16(vm.envUint("PROTOCOL_FEE_SHARE_BPS")),
             maxIntentAmount: vm.envUint("MAX_INTENT_AMOUNT"),
             maxInFlightValue: vm.envUint("MAX_IN_FLIGHT_VALUE"),
-            settlementReporter: vm.envAddress("SETTLEMENT_REPORTER"),
             // The other chain's CCTP domain and initiator. The initiator is unknown on the first
             // chain deployed, so it stays zero there and the owner sets it once both chains exist.
             trustedSourceDomain: _cctpDomain(vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid))),
@@ -251,7 +250,6 @@ contract DeployScript is Script {
         console.log("ArcaidiaIntentMarket    ", deployment.market);
         console.log("ArcaidiaVaultFactory    ", deployment.factory);
         console.log("destination receiver    ", config.destinationSettlementReceiver);
-        console.log("settlement reporter     ", config.settlementReporter);
         console.log("owner                   ", config.owner);
     }
 

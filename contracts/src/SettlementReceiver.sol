@@ -30,8 +30,10 @@ import {IntentHookLib} from "./libraries/IntentHookLib.sol";
 ///      needing only the public message and attestation — calls `MessageTransmitterV2.
 ///      receiveMessage` itself (only it can), checks that exactly the burnt amount was minted
 ///      here, and routes by the `intentId` and `recipient` Circle attested. The reporter's
-///      asserted amount and recipient of V1 are gone from this path; what remains reporter-gated
-///      (`settle`) is an owner-operated recovery valve for messages that predate the hook.
+///      asserted amount and recipient of V1 are gone entirely: MN-04 removed the reporter-gated
+///      `settle` valve, which could mark any intent settled off one unit of donated balance and
+///      send parked funds anywhere. Settlement now has exactly one door, and Circle's attestation
+///      plus the trusted initiator decide what comes through it.
 ///
 ///      **Reimbursement is market-driven, not vault-fixed.** `ArcaidiaIntentMarket.filledBy`
 ///      names the winner; the market only ever admits factory-created standard vaults (D11),
@@ -70,9 +72,6 @@ contract SettlementReceiver is ReentrancyGuard {
     ///      router names this contract as the message's `destinationCaller`.
     mapping(uint32 => address) public trustedInitiator;
 
-    /// @notice Operators permitted to report canonical settlement through the legacy path.
-    mapping(address => bool) public isReporter;
-
     /// @notice Settlement outcome per intent. `NONE` means not yet settled.
     mapping(bytes32 => Outcome) public outcomeOf;
 
@@ -83,7 +82,6 @@ contract SettlementReceiver is ReentrancyGuard {
     mapping(bytes32 => address) public heldFor;
 
     event ReceiverInitialized(address owner, address asset, address market, address messageTransmitter);
-    event ReporterSet(address indexed reporter, bool allowed);
     event TrustedInitiatorSet(uint32 indexed sourceDomain, address initiator);
     event LpReimbursed(bytes32 indexed intentId, address indexed vault, uint256 amount);
     event RecipientPaidByFallback(bytes32 indexed intentId, address indexed recipient, uint256 amount);
@@ -94,11 +92,9 @@ contract SettlementReceiver is ReentrancyGuard {
     /// The market named here settles through a different receiver (MN-02).
     error MarketSettlesElsewhere(address marketReceiver);
     error NotOwner();
-    error NotReporter();
     error ZeroAddress();
     error ZeroAmount();
     error AlreadySettled(bytes32 intentId);
-    error InsufficientCanonicalFunds(uint256 requested, uint256 held);
     error MessageNotForThisReceiver(address destinationCaller, address mintRecipient);
     error UntrustedSource(uint32 sourceDomain, address messageSender);
     error TrustedInitiatorAlreadySet(uint32 sourceDomain, address initiator);
@@ -108,11 +104,6 @@ contract SettlementReceiver is ReentrancyGuard {
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-
-    modifier onlyReporter() {
-        if (!isReporter[msg.sender]) revert NotReporter();
         _;
     }
 
@@ -139,12 +130,6 @@ contract SettlementReceiver is ReentrancyGuard {
         messageTransmitter = IMessageTransmitterV2(messageTransmitter_);
 
         emit ReceiverInitialized(owner_, asset_, market_, messageTransmitter_);
-    }
-
-    function setReporter(address reporter, bool allowed) external onlyOwner {
-        if (reporter == address(0)) revert ZeroAddress();
-        isReporter[reporter] = allowed;
-        emit ReporterSet(reporter, allowed);
     }
 
     /// @notice Trust the initiator that burns on `sourceDomain`. One address per domain, forever.
@@ -226,31 +211,6 @@ contract SettlementReceiver is ReentrancyGuard {
         IFillRegistry(vault).recordReimbursement(intentId, amount);
         asset.forceApprove(vault, 0);
         emit LpReimbursed(intentId, vault, amount);
-    }
-
-    // -----------------------------------------------------------------------
-    // v1 path: reporter-asserted settlement (recovery valve)
-    // -----------------------------------------------------------------------
-
-    /// @notice Route canonical funds for one intent, as reported by an allowlisted operator.
-    /// @dev Retained for messages that carry no intent hook (none are produced by the v2
-    ///      router) and as an owner-operated recovery path. Bounded exactly as in V1: funds can
-    ///      only go to the market's winner or to the named recipient — never to the reporter.
-    function settle(bytes32 intentId, address fallbackRecipient, uint256 amount)
-        external
-        onlyReporter
-        nonReentrant
-        returns (Outcome outcome)
-    {
-        if (amount == 0) revert ZeroAmount();
-        // Idempotent by rejection: a retrying worker sees this and treats the
-        // intent as done rather than paying twice.
-        if (outcomeOf[intentId] != Outcome.NONE) revert AlreadySettled(intentId);
-
-        uint256 held = asset.balanceOf(address(this));
-        if (amount > held) revert InsufficientCanonicalFunds(amount, held);
-
-        outcome = _route(intentId, fallbackRecipient, amount);
     }
 
     /// @dev Effects before interactions: the outcome is recorded before any funds move, so a

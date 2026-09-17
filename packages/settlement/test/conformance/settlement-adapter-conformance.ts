@@ -95,7 +95,9 @@ export function runSettlementAdapterConformance(name: string, options: Conforman
       it('completes once attested', async () => {
         await harness.reachAttestation(reference);
         const state = await harness.adapter.complete(reference);
-        expect(state.status).toBe(SettlementStatus.RECEIVED);
+        // v2 (D8): an adapter that routes as it completes reports RECONCILED; one that only
+        // receives the mint reports RECEIVED. Both are complete, and the worker handles either.
+        expect([SettlementStatus.RECEIVED, SettlementStatus.RECONCILED]).toContain(state.status);
       });
 
       it('records a destination transaction on completion', async () => {
@@ -137,6 +139,7 @@ export function runSettlementAdapterConformance(name: string, options: Conforman
         await harness.adapter.complete(reference).catch(() => {});
         const state = await harness.adapter.status(reference);
         expect(state.status).not.toBe(SettlementStatus.RECEIVED);
+        expect(state.status).not.toBe(SettlementStatus.RECONCILED);
       });
 
       it('throws rather than reporting stale state when unreachable', async () => {
@@ -152,7 +155,9 @@ export function runSettlementAdapterConformance(name: string, options: Conforman
         harness.failNextCompletions(1);
 
         await expect(harness.adapter.complete(reference)).rejects.toThrow();
-        expect((await harness.adapter.complete(reference)).status).toBe(SettlementStatus.RECEIVED);
+        expect([SettlementStatus.RECEIVED, SettlementStatus.RECONCILED]).toContain(
+          (await harness.adapter.complete(reference)).status,
+        );
       });
 
       it('does not deliver funds on a failed completion', async () => {
@@ -179,7 +184,9 @@ export function runSettlementAdapterConformance(name: string, options: Conforman
         await expect(harness.adapter.complete(reference)).rejects.toThrow();
         expect((await harness.adapter.status(reference)).status).toBe(SettlementStatus.ATTESTED);
 
-        expect((await harness.adapter.complete(reference)).status).toBe(SettlementStatus.RECEIVED);
+        expect([SettlementStatus.RECEIVED, SettlementStatus.RECONCILED]).toContain(
+          (await harness.adapter.complete(reference)).status,
+        );
       });
 
       it('refuses to report on a message it never saw', async () => {
