@@ -1,6 +1,19 @@
 [
   {
     "type": "function",
+    "name": "VOLUME_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "createIntent",
     "inputs": [
       {
@@ -97,7 +110,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxInFlightValue_",
+        "name": "maxVolumePerWindow_",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -139,7 +152,7 @@
   },
   {
     "type": "function",
-    "name": "maxInFlightValue",
+    "name": "maxIntentAmount",
     "inputs": [],
     "outputs": [
       {
@@ -152,7 +165,7 @@
   },
   {
     "type": "function",
-    "name": "maxIntentAmount",
+    "name": "maxVolumePerWindow",
     "inputs": [],
     "outputs": [
       {
@@ -274,24 +287,6 @@
   },
   {
     "type": "function",
-    "name": "releaseInFlight",
-    "inputs": [
-      {
-        "name": "intentId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setDestination",
     "inputs": [
       {
@@ -318,7 +313,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxInFlightValue_",
+        "name": "maxVolumePerWindow_",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -380,19 +375,6 @@
   },
   {
     "type": "function",
-    "name": "totalInFlight",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "tradeIntentsAllowed",
     "inputs": [],
     "outputs": [
@@ -418,6 +400,45 @@
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "volumeInWindow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "windowStartedAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "windowVolume",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "event",
     "name": "DestinationConfigured",
     "inputs": [
@@ -432,25 +453,6 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "InFlightReleased",
-    "inputs": [
-      {
-        "name": "intentId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -557,7 +559,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxInFlightValue",
+        "name": "maxVolumePerWindow",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -680,22 +682,6 @@
   },
   {
     "type": "error",
-    "name": "InFlightCapExceeded",
-    "inputs": [
-      {
-        "name": "attempted",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "cap",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "IntentAlreadyExists",
     "inputs": [
       {
@@ -760,11 +746,6 @@
   },
   {
     "type": "error",
-    "name": "NothingInFlight",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -802,12 +783,17 @@
   },
   {
     "type": "error",
-    "name": "UnknownIntent",
+    "name": "VolumeCapExceeded",
     "inputs": [
       {
-        "name": "intentId",
-        "type": "bytes32",
-        "internalType": "bytes32"
+        "name": "attempted",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "cap",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

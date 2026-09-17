@@ -79,7 +79,7 @@ library ArcaidiaDeployment {
         /// The protocol's share of each execution fee, in basis points.
         uint16 protocolFeeShareBps;
         uint256 maxIntentAmount;
-        uint256 maxInFlightValue;
+        uint256 maxVolumePerWindow;
         /// The CCTP domain burns arrive from — the *other* chain's domain.
         uint32 trustedSourceDomain;
         /// That chain's `CircleCCTPInitiator`. Zero when it is not deployed yet: the owner then
@@ -179,7 +179,7 @@ library ArcaidiaDeployment {
                     config.settlementAsset,
                     config.settlementInitiator,
                     config.maxIntentAmount,
-                    config.maxInFlightValue
+                    config.maxVolumePerWindow
                 )
             )
         );
@@ -274,7 +274,7 @@ library ArcaidiaDeployment {
         uint256 destinationChainId;
         address destinationSettlementReceiver;
         uint256 maxIntentAmount;
-        uint256 maxInFlightValue;
+        uint256 maxVolumePerWindow;
         address owner;
         address deployingAs;
     }
@@ -301,7 +301,7 @@ library ArcaidiaDeployment {
                     config.settlementAsset,
                     config.settlementInitiator,
                     config.maxIntentAmount,
-                    config.maxInFlightValue
+                    config.maxVolumePerWindow
                 )
             )
         );

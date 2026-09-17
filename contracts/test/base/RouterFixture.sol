@@ -22,7 +22,7 @@ abstract contract RouterFixture is ChainFixture {
     address internal destinationSettlementReceiver = makeAddr("settlementReceiver");
 
     uint256 internal constant MAX_INTENT = 50_000e6;
-    uint256 internal constant MAX_IN_FLIGHT = 200_000e6;
+    uint256 internal constant MAX_VOLUME_PER_WINDOW = 200_000e6;
 
     function _deployRouter() internal {
         _configureDirection();
@@ -33,7 +33,7 @@ abstract contract RouterFixture is ChainFixture {
         initiator = new MockSettlementInitiator();
         router = new ArcaidiaIntentRouter();
 
-        router.initialize(deployerOwner, address(asset), address(initiator), MAX_INTENT, MAX_IN_FLIGHT);
+        router.initialize(deployerOwner, address(asset), address(initiator), MAX_INTENT, MAX_VOLUME_PER_WINDOW);
 
         vm.prank(deployerOwner);
         router.setDestination(destinationChainId, destinationSettlementReceiver);

@@ -70,11 +70,22 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
     /// @notice Largest single intent.
     uint256 public maxIntentAmount;
 
-    /// @notice Largest aggregate value committed and not yet reported settled.
-    uint256 public maxInFlightValue;
+    /// @notice Largest total value this router will commit within any 24-hour window.
+    /// @dev MN-06. This replaced an aggregate "in flight" figure that only ever grew: nothing on
+    ///      this chain can observe settlement, which completes on the *other* one, so releasing
+    ///      capacity was an owner transaction nobody automated. On testnet the counter reached
+    ///      12,764 USDC of a 200,000 cap and would eventually have stopped the router outright.
+    ///      A window that resets itself bounds the same risk — how much can be committed before
+    ///      anyone reacts — without depending on a key being online.
+    uint256 public maxVolumePerWindow;
 
-    /// @notice Current aggregate committed value.
-    uint256 public totalInFlight;
+    /// @notice When the current window began.
+    uint64 public windowStartedAt;
+
+    /// @notice Value committed since `windowStartedAt`.
+    uint256 public windowVolume;
+
+    uint64 public constant VOLUME_WINDOW = 1 days;
 
     /// @notice Emergency brake for trade intents (`tokenOut != USDC_TOKEN_OUT`). True by default.
     bool public tradeIntentsAllowed;
@@ -113,9 +124,8 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
 
     event RouterInitialized(address owner, address settlementAsset, address settlementInitiator);
     event DestinationConfigured(uint256 indexed chainId, address receiver);
-    event LimitsConfigured(uint256 maxIntentAmount, uint256 maxInFlightValue);
+    event LimitsConfigured(uint256 maxIntentAmount, uint256 maxVolumePerWindow);
     event PausedSet(bool paused);
-    event InFlightReleased(bytes32 indexed intentId, uint256 amount);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
 
     // -----------------------------------------------------------------------
@@ -131,13 +141,11 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
     error DestinationIsSourceChain();
     error SettlementTransportUnavailable(uint256 chainId);
     error IntentAmountAboveCap(uint256 amount, uint256 cap);
-    error InFlightCapExceeded(uint256 attempted, uint256 cap);
+    error VolumeCapExceeded(uint256 attempted, uint256 cap);
     error DeadlineInPast(uint64 deadline);
     error NonceAlreadyUsed(address sender, uint256 nonce);
     error IntentAlreadyExists(bytes32 intentId);
     error FeeCeilingAboveDenominator(uint16 maxFeeBps);
-    error UnknownIntent(bytes32 intentId);
-    error NothingInFlight();
     /// `tokenOut == USDC_TOKEN_OUT` requires `targetMinOut == 0`; any other `tokenOut` requires `targetMinOut > 0`.
     error InvalidTradeTerms(address tokenOut, uint256 targetMinOut);
     error TradeIntentsDisabled();
@@ -163,7 +171,7 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         address settlementAsset_,
         address settlementInitiator_,
         uint256 maxIntentAmount_,
-        uint256 maxInFlightValue_
+        uint256 maxVolumePerWindow_
     ) external {
         if (initialized) revert AlreadyInitialized();
         if (owner_ == address(0) || settlementAsset_ == address(0) || settlementInitiator_ == address(0)) {
@@ -176,10 +184,11 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         settlementAsset = IERC20(settlementAsset_);
         settlementInitiator = ISettlementInitiator(settlementInitiator_);
         maxIntentAmount = maxIntentAmount_;
-        maxInFlightValue = maxInFlightValue_;
+        maxVolumePerWindow = maxVolumePerWindow_;
+        windowStartedAt = uint64(block.timestamp);
 
         emit RouterInitialized(owner_, settlementAsset_, settlementInitiator_);
-        emit LimitsConfigured(maxIntentAmount_, maxInFlightValue_);
+        emit LimitsConfigured(maxIntentAmount_, maxVolumePerWindow_);
     }
 
     // -----------------------------------------------------------------------
@@ -192,10 +201,10 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         emit DestinationConfigured(chainId, receiver);
     }
 
-    function setLimits(uint256 maxIntentAmount_, uint256 maxInFlightValue_) external onlyOwner {
+    function setLimits(uint256 maxIntentAmount_, uint256 maxVolumePerWindow_) external onlyOwner {
         maxIntentAmount = maxIntentAmount_;
-        maxInFlightValue = maxInFlightValue_;
-        emit LimitsConfigured(maxIntentAmount_, maxInFlightValue_);
+        maxVolumePerWindow = maxVolumePerWindow_;
+        emit LimitsConfigured(maxIntentAmount_, maxVolumePerWindow_);
     }
 
     function setPaused(bool paused_) external onlyOwner {
@@ -212,19 +221,6 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         if (newOwner == address(0)) revert ZeroAddress();
         emit OwnerTransferred(owner, newOwner);
         owner = newOwner;
-    }
-
-    /// @notice Release in-flight capacity once canonical settlement is confirmed.
-    /// @dev Canonical settlement completes on the *destination* chain, so the
-    ///      source router cannot observe it trustlessly. This is an explicit,
-    ///      owner-operated risk valve rather than a claim of onchain proof, and
-    ///      it only ever reduces exposure. Post-V1 this becomes a message from
-    ///      the destination chain.
-    function releaseInFlight(bytes32 intentId, uint256 amount) external onlyOwner {
-        if (!intentExists[intentId]) revert UnknownIntent(intentId);
-        if (totalInFlight < amount) revert NothingInFlight();
-        totalInFlight -= amount;
-        emit InFlightReleased(intentId, amount);
     }
 
     // -----------------------------------------------------------------------
@@ -266,8 +262,9 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
             revert SettlementTransportUnavailable(destinationChainId);
         }
 
-        uint256 newInFlight = totalInFlight + amount;
-        if (newInFlight > maxInFlightValue) revert InFlightCapExceeded(newInFlight, maxInFlightValue);
+        uint256 committed = volumeInWindow();
+        uint256 newVolume = committed + amount;
+        if (newVolume > maxVolumePerWindow) revert VolumeCapExceeded(newVolume, maxVolumePerWindow);
 
         Intent memory intent = Intent({
             intentVersion: INTENT_VERSION,
@@ -290,7 +287,8 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         // Effects before interactions.
         intentExists[intentId] = true;
         nonceUsed[msg.sender][nonce] = true;
-        totalInFlight = newInFlight;
+        if (committed == 0 && windowVolume != 0) windowStartedAt = uint64(block.timestamp);
+        windowVolume = newVolume;
 
         bytes32 settlementRef = _commit(intent, intentId, receiver);
         _emitCreated(intent, intentId, settlementRef);
@@ -351,6 +349,11 @@ contract ArcaidiaIntentRouter is ReentrancyGuard {
         }
         if (targetMinOut == 0) revert InvalidTradeTerms(tokenOut, targetMinOut);
         if (!tradeIntentsAllowed) revert TradeIntentsDisabled();
+    }
+
+    /// @notice Value committed in the current window, or zero once the window has rolled over.
+    function volumeInWindow() public view returns (uint256) {
+        return block.timestamp >= uint256(windowStartedAt) + VOLUME_WINDOW ? 0 : windowVolume;
     }
 
     /// @notice Recompute an intent id off a set of terms, for clients and tests.

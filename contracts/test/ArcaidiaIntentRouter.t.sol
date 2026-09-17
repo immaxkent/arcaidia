@@ -28,7 +28,7 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
         assertEq(address(router.settlementAsset()), address(asset));
         assertEq(address(router.settlementInitiator()), address(initiator));
         assertEq(router.maxIntentAmount(), MAX_INTENT);
-        assertEq(router.maxInFlightValue(), MAX_IN_FLIGHT);
+        assertEq(router.maxVolumePerWindow(), MAX_VOLUME_PER_WINDOW);
     }
 
     /// The constructor takes no arguments so init code is identical on every
@@ -117,11 +117,11 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
         assertTrue(found, "IntentCreated not emitted");
     }
 
-    function test_createIntentRecordsInFlightValue() public {
+    function test_createIntentRecordsVolumeInTheWindow() public {
         _createDefaultIntent(1_000e6, 1);
-        assertEq(router.totalInFlight(), 1_000e6);
+        assertEq(router.volumeInWindow(), 1_000e6);
         _createDefaultIntent(2_000e6, 2);
-        assertEq(router.totalInFlight(), 3_000e6);
+        assertEq(router.volumeInWindow(), 3_000e6);
     }
 
     function test_createIntentMarksTheNonceUsed() public {
@@ -160,7 +160,7 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
         assertEq(asset.balanceOf(alice), aliceBefore, "user funds must be untouched");
         assertFalse(router.intentExists(intentId), "no intent may survive a failed commitment");
         assertFalse(router.nonceUsed(alice, 1), "nonce must not be consumed");
-        assertEq(router.totalInFlight(), 0, "in-flight value must not increase");
+        assertEq(router.volumeInWindow(), 0, "committed volume must not increase");
     }
 
     /// The transport is asked before any funds move, so the user is never left
@@ -243,7 +243,7 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
         router.createIntent(bob, 1_000e6, destinationChainId, 10_001, _defaultDeadline(), 1, address(0), 0);
     }
 
-    function test_rejectsWhenInFlightCapWouldBeExceeded() public {
+    function test_rejectsWhenTheWindowCapWouldBeExceeded() public {
         vm.prank(deployerOwner);
         router.setLimits(MAX_INTENT, 1_500e6);
 
@@ -251,7 +251,7 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
 
         vm.prank(alice);
         vm.expectRevert(
-            abi.encodeWithSelector(ArcaidiaIntentRouter.InFlightCapExceeded.selector, 2_000e6, 1_500e6)
+            abi.encodeWithSelector(ArcaidiaIntentRouter.VolumeCapExceeded.selector, 2_000e6, 1_500e6)
         );
         router.createIntent(bob, 1_000e6, destinationChainId, 30, _defaultDeadline(), 2, address(0), 0);
     }
@@ -317,47 +317,34 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
     // In-flight release
     // -----------------------------------------------------------------------
 
-    function test_releaseInFlightReducesExposure() public {
-        bytes32 intentId = _createDefaultIntent(1_000e6, 1);
-        assertEq(router.totalInFlight(), 1_000e6);
+    /// MN-06: capacity comes back on its own. Nothing has to be released by hand, which is what
+    /// the old in-flight counter needed and nobody automated.
+    function test_theWindowRollsOverOnItsOwn() public {
+        _createDefaultIntent(1_000e6, 1);
+        assertEq(router.volumeInWindow(), 1_000e6);
 
+        vm.warp(block.timestamp + router.VOLUME_WINDOW());
+        assertEq(router.volumeInWindow(), 0, "a fresh window");
+
+        _createDefaultIntent(1_000e6, 2);
+        assertEq(router.volumeInWindow(), 1_000e6, "and it counts from there");
+    }
+
+    function test_aFullWindowBlocksUntilItRollsOver() public {
         vm.prank(deployerOwner);
-        router.releaseInFlight(intentId, 1_000e6);
-        assertEq(router.totalInFlight(), 0);
+        router.setLimits(MAX_INTENT, 1_500e6);
+
+        _createDefaultIntent(1_000e6, 3);
+        vm.expectRevert(
+            abi.encodeWithSelector(ArcaidiaIntentRouter.VolumeCapExceeded.selector, 2_000e6, 1_500e6)
+        );
+        _createDefaultIntent(1_000e6, 4);
+
+        vm.warp(block.timestamp + router.VOLUME_WINDOW());
+        _createDefaultIntent(1_000e6, 5);
+        assertEq(router.volumeInWindow(), 1_000e6);
     }
 
-    function test_releaseInFlightRejectsUnknownIntent() public {
-        bytes32 unknown = keccak256("nope");
-        vm.prank(deployerOwner);
-        vm.expectRevert(abi.encodeWithSelector(ArcaidiaIntentRouter.UnknownIntent.selector, unknown));
-        router.releaseInFlight(unknown, 1);
-    }
-
-    function test_releaseInFlightCannotUnderflow() public {
-        bytes32 intentId = _createDefaultIntent(1_000e6, 1);
-        vm.prank(deployerOwner);
-        vm.expectRevert(ArcaidiaIntentRouter.NothingInFlight.selector);
-        router.releaseInFlight(intentId, 1_001e6);
-    }
-
-    function test_onlyOwnerCanReleaseInFlight() public {
-        bytes32 intentId = _createDefaultIntent(1_000e6, 1);
-        vm.prank(alice);
-        vm.expectRevert(ArcaidiaIntentRouter.NotOwner.selector);
-        router.releaseInFlight(intentId, 1_000e6);
-    }
-
-    // -----------------------------------------------------------------------
-    // Fuzz
-    // -----------------------------------------------------------------------
-
-
-    // -----------------------------------------------------------------------
-    // WP-25: schema v1.1 terms and the intent hook
-    // -----------------------------------------------------------------------
-
-    /// The hook the transport carries must decode back to exactly this intent and its
-    /// recipient — that is what the destination routes canonical funds by (D8).
     function test_createIntentHandsTheIntentHookToTheTransport() public {
         bytes32 intentId = _createDefaultIntent(1_000e6, 1);
 
@@ -449,6 +436,6 @@ contract ArcaidiaIntentRouterTest is RouterFixture {
 
         assertEq(asset.balanceOf(alice), aliceBefore - amount);
         assertEq(initiator.totalCommitted(), amount);
-        assertEq(router.totalInFlight(), amount);
+        assertEq(router.volumeInWindow(), amount);
     }
 }

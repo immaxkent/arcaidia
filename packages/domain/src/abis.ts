@@ -10,6 +10,19 @@ export const ABIS = {
   ArcaidiaIntentRouter: [
     {
       "type": "function",
+      "name": "VOLUME_WINDOW",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint64",
+          "internalType": "uint64"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "createIntent",
       "inputs": [
         {
@@ -106,7 +119,7 @@ export const ABIS = {
           "internalType": "uint256"
         },
         {
-          "name": "maxInFlightValue_",
+          "name": "maxVolumePerWindow_",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -148,7 +161,7 @@ export const ABIS = {
     },
     {
       "type": "function",
-      "name": "maxInFlightValue",
+      "name": "maxIntentAmount",
       "inputs": [],
       "outputs": [
         {
@@ -161,7 +174,7 @@ export const ABIS = {
     },
     {
       "type": "function",
-      "name": "maxIntentAmount",
+      "name": "maxVolumePerWindow",
       "inputs": [],
       "outputs": [
         {
@@ -283,24 +296,6 @@ export const ABIS = {
     },
     {
       "type": "function",
-      "name": "releaseInFlight",
-      "inputs": [
-        {
-          "name": "intentId",
-          "type": "bytes32",
-          "internalType": "bytes32"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
       "name": "setDestination",
       "inputs": [
         {
@@ -327,7 +322,7 @@ export const ABIS = {
           "internalType": "uint256"
         },
         {
-          "name": "maxInFlightValue_",
+          "name": "maxVolumePerWindow_",
           "type": "uint256",
           "internalType": "uint256"
         }
@@ -389,19 +384,6 @@ export const ABIS = {
     },
     {
       "type": "function",
-      "name": "totalInFlight",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
       "name": "tradeIntentsAllowed",
       "inputs": [],
       "outputs": [
@@ -427,6 +409,45 @@ export const ABIS = {
       "stateMutability": "nonpayable"
     },
     {
+      "type": "function",
+      "name": "volumeInWindow",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "windowStartedAt",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint64",
+          "internalType": "uint64"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "windowVolume",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
       "type": "event",
       "name": "DestinationConfigured",
       "inputs": [
@@ -441,25 +462,6 @@ export const ABIS = {
           "type": "address",
           "indexed": false,
           "internalType": "address"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "InFlightReleased",
-      "inputs": [
-        {
-          "name": "intentId",
-          "type": "bytes32",
-          "indexed": true,
-          "internalType": "bytes32"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
         }
       ],
       "anonymous": false
@@ -566,7 +568,7 @@ export const ABIS = {
           "internalType": "uint256"
         },
         {
-          "name": "maxInFlightValue",
+          "name": "maxVolumePerWindow",
           "type": "uint256",
           "indexed": false,
           "internalType": "uint256"
@@ -689,22 +691,6 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "InFlightCapExceeded",
-      "inputs": [
-        {
-          "name": "attempted",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "cap",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ]
-    },
-    {
-      "type": "error",
       "name": "IntentAlreadyExists",
       "inputs": [
         {
@@ -769,11 +755,6 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "NothingInFlight",
-      "inputs": []
-    },
-    {
-      "type": "error",
       "name": "ReentrancyGuardReentrantCall",
       "inputs": []
     },
@@ -811,12 +792,17 @@ export const ABIS = {
     },
     {
       "type": "error",
-      "name": "UnknownIntent",
+      "name": "VolumeCapExceeded",
       "inputs": [
         {
-          "name": "intentId",
-          "type": "bytes32",
-          "internalType": "bytes32"
+          "name": "attempted",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "cap",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ]
     },

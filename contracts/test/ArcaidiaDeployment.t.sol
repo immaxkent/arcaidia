@@ -35,7 +35,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
     uint16 internal constant RESERVE_FLOOR_BPS = 1_000;
     uint16 internal constant PROTOCOL_SHARE_BPS = 5_000;
     uint256 internal constant MAX_INTENT = 50_000e6;
-    uint256 internal constant MAX_IN_FLIGHT = 200_000e6;
+    uint256 internal constant MAX_VOLUME_PER_WINDOW = 200_000e6;
     /// The other chain's CCTP domain; the mock initiator stands in for its initiator.
     uint32 internal constant TRUSTED_SOURCE_DOMAIN = 26;
 
@@ -66,7 +66,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             treasury: protocolTreasury,
             protocolFeeShareBps: PROTOCOL_SHARE_BPS,
             maxIntentAmount: MAX_INTENT,
-            maxInFlightValue: MAX_IN_FLIGHT,
+            maxVolumePerWindow: MAX_VOLUME_PER_WINDOW,
             trustedSourceDomain: TRUSTED_SOURCE_DOMAIN,
             trustedSourceInitiator: address(initiator)
         });
@@ -136,7 +136,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
             ArcaidiaDeployment.deployAll(deployer, _config(), address(this));
 
         assertEq(ArcaidiaIntentRouter(d.router).maxIntentAmount(), MAX_INTENT);
-        assertEq(ArcaidiaIntentRouter(d.router).maxInFlightValue(), MAX_IN_FLIGHT);
+        assertEq(ArcaidiaIntentRouter(d.router).maxVolumePerWindow(), MAX_VOLUME_PER_WINDOW);
         assertEq(ArcaidiaLiquidityVault(d.vault).reserveFloorBps(), RESERVE_FLOOR_BPS);
     }
 
@@ -338,7 +338,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
                 destinationChainId: destinationChainId,
                 destinationSettlementReceiver: makeAddr("destinationReceiver"),
                 maxIntentAmount: MAX_INTENT,
-                maxInFlightValue: MAX_IN_FLIGHT,
+                maxVolumePerWindow: MAX_VOLUME_PER_WINDOW,
                 owner: protocolOwner,
                 deployingAs: address(this)
             })
@@ -358,7 +358,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
                 destinationChainId: destinationChainId,
                 destinationSettlementReceiver: makeAddr("destinationReceiver"),
                 maxIntentAmount: MAX_INTENT,
-                maxInFlightValue: MAX_IN_FLIGHT,
+                maxVolumePerWindow: MAX_VOLUME_PER_WINDOW,
                 owner: protocolOwner,
                 deployingAs: address(this)
             })
@@ -378,7 +378,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
                 destinationChainId: destinationChainId,
                 destinationSettlementReceiver: makeAddr("destinationReceiver"),
                 maxIntentAmount: MAX_INTENT,
-                maxInFlightValue: MAX_IN_FLIGHT,
+                maxVolumePerWindow: MAX_VOLUME_PER_WINDOW,
                 owner: protocolOwner,
                 deployingAs: address(this)
             })
@@ -414,7 +414,7 @@ contract ArcaidiaDeploymentTest is ChainFixture {
                 // real redeploy would also pass here.
                 destinationSettlementReceiver: base.settlementReceiver,
                 maxIntentAmount: MAX_INTENT,
-                maxInFlightValue: MAX_IN_FLIGHT,
+                maxVolumePerWindow: MAX_VOLUME_PER_WINDOW,
                 owner: protocolOwner,
                 deployingAs: address(this)
             })

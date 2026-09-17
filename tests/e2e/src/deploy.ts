@@ -49,7 +49,7 @@ export interface DeployOptions {
   readonly reserveFloorBps: number;
   readonly protocolFeeShareBps: number;
   readonly maxIntentAmount: bigint;
-  readonly maxInFlightValue: bigint;
+  readonly maxVolumePerWindow: bigint;
   /** Vault's own live cap, as a percentage of `totalAssets()` — see `ArcaidiaLiquidityVault.setFillLimits`. */
   readonly maxFillBps: number;
   readonly maxExposureBps: number;
@@ -148,7 +148,7 @@ export async function deployProtocol(
         usdc,
         settlementInitiator,
         options.maxIntentAmount,
-        options.maxInFlightValue,
+        options.maxVolumePerWindow,
       ],
     }),
   );

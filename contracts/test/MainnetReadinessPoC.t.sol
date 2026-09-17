@@ -115,7 +115,7 @@ contract MainnetReadinessPoCTest is ChainFixture {
                 treasury: treasury,
                 protocolFeeShareBps: 5_000,
                 maxIntentAmount: 1_000e6,
-                maxInFlightValue: 300e6,
+                maxVolumePerWindow: 300e6,
                 trustedSourceDomain: SRC_DOMAIN,
                 trustedSourceInitiator: TRUSTED_INITIATOR
             }),
@@ -493,10 +493,12 @@ contract MainnetReadinessPoCTest is ChainFixture {
     }
 
     // -----------------------------------------------------------------------
-    // F-05: router in-flight capacity is only released by an owner transaction
+    // F-05: intake capacity (MN-06)
     // -----------------------------------------------------------------------
 
-    function test_PoC_inFlightCapacityOnlyGrows() public {
+    /// Regression for B-9's second half: capacity used to grow in one direction only, released by
+    /// an owner transaction nothing automated. It now returns when the window rolls over.
+    function test_Fix_intakeCapacityReturnsWithoutAnyKey() public {
         // The protocol above was deployed on `destinationChainId`, so its router sends to `sourceChainId`.
         ArcaidiaIntentRouter router = ArcaidiaIntentRouter(d.router);
         asset.mint(user, 1_000e6);
@@ -505,9 +507,14 @@ contract MainnetReadinessPoCTest is ChainFixture {
         for (uint256 i; i < 3; i++) {
             router.createIntent(recipient, 100e6, sourceChainId, 100, uint64(block.timestamp + 1 hours), i, USDC_TOKEN_OUT, 0);
         }
-        // Every earlier intent may long since have settled canonically; nothing on chain knows.
-        vm.expectRevert(abi.encodeWithSelector(ArcaidiaIntentRouter.InFlightCapExceeded.selector, 400e6, 300e6));
+        // The window is full, so the fourth intent is refused...
+        vm.expectRevert(abi.encodeWithSelector(ArcaidiaIntentRouter.VolumeCapExceeded.selector, 400e6, 300e6));
         router.createIntent(recipient, 100e6, sourceChainId, 100, uint64(block.timestamp + 1 hours), 3, USDC_TOKEN_OUT, 0);
+
+        // ...until it rolls over on its own, with nobody signing anything.
+        vm.warp(block.timestamp + router.VOLUME_WINDOW());
+        router.createIntent(recipient, 100e6, sourceChainId, 100, uint64(block.timestamp + 1 hours), 4, USDC_TOKEN_OUT, 0);
+        assertEq(router.volumeInWindow(), 100e6);
         vm.stopPrank();
     }
 }

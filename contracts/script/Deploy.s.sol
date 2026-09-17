@@ -117,7 +117,7 @@ contract DeployScript is Script {
             treasury: vm.envAddress("PROTOCOL_TREASURY"),
             protocolFeeShareBps: uint16(vm.envUint("PROTOCOL_FEE_SHARE_BPS")),
             maxIntentAmount: vm.envUint("MAX_INTENT_AMOUNT"),
-            maxInFlightValue: vm.envUint("MAX_IN_FLIGHT_VALUE"),
+            maxVolumePerWindow: vm.envUint("MAX_VOLUME_PER_WINDOW"),
             // The other chain's CCTP domain and initiator. The initiator is unknown on the first
             // chain deployed, so it stays zero there and the owner sets it once both chains exist.
             trustedSourceDomain: _cctpDomain(vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid))),

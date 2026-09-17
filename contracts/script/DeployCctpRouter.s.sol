@@ -64,7 +64,7 @@ contract DeployCctpRouterScript is Script {
             vm.envOr("DESTINATION_CHAIN_ID", _defaultDestinationChainId(block.chainid));
         address destinationSettlementReceiver = vm.envAddress("DESTINATION_SETTLEMENT_RECEIVER");
         uint256 maxIntentAmount = vm.envUint("MAX_INTENT_AMOUNT");
-        uint256 maxInFlightValue = vm.envUint("MAX_IN_FLIGHT_VALUE");
+        uint256 maxVolumePerWindow = vm.envUint("MAX_VOLUME_PER_WINDOW");
         address tokenMessenger = _tokenMessenger(block.chainid);
         require(tokenMessenger != address(0), "no TokenMessengerV2 configured for this chain");
 
@@ -95,7 +95,7 @@ contract DeployCctpRouterScript is Script {
                 destinationChainId: destinationChainId,
                 destinationSettlementReceiver: destinationSettlementReceiver,
                 maxIntentAmount: maxIntentAmount,
-                maxInFlightValue: maxInFlightValue,
+                maxVolumePerWindow: maxVolumePerWindow,
                 owner: owner,
                 deployingAs: deployingAs
             })
